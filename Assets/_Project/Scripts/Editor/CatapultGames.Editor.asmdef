@@ -1,0 +1,19 @@
+{
+    "name": "CatapultGames.Editor",
+    "rootNamespace": "CatapultGames.Editor",
+    "references": [
+        "CatapultGames.Runtime",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
