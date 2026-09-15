@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // Single perspective camera that frames the whole scene (grid + slingshot area).
+    // Single perspective camera that frames the whole scene (grid + launch area).
     // FitToGrid() auto-positions based on fieldOfView + tiltAngle so the user
     // only has to tweak two Inspector sliders — no manual transform dragging.
     [RequireComponent(typeof(Camera))]
@@ -52,7 +52,7 @@ namespace CatapultGames
             float midX     = (grid.width  - 1) * cs * 0.5f;
             float gridMidZ = (grid.height - 1) * cs * 0.5f;   // world Z of the grid's centre
 
-            // Scene the zoom must fit: grid (Z 0..gh) + slingshot/aim band.
+            // Scene the zoom must fit: grid (Z 0..gh) + catapult/aim band.
             // FrontZ must reach past the catapult (placed at Z=-8 by the scene builder)
             // so it never clips off the bottom on wider aspect ratios.
             const float FrontZ = -9f;

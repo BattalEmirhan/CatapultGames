@@ -48,20 +48,35 @@ namespace CatapultGames
             if (_bodyMat.HasProperty("_Smoothness"))
                 _bodyMat.SetFloat("_Smoothness", 0.30f);
 
-            // Body mirrors what the ball PAINTS: a square block (a touch bigger per
-            // power level) for NxN balls, or an L made of blocks for the L ball. Reads
-            // from both the top-down grid camera and the angled world camera.
+            // Body mirrors what the ball PAINTS, so the stamp is recognisable in the
+            // queue before it is ever fired. Reads from both the top-down grid camera
+            // and the angled world camera.
             float unit = baseScale * (0.80f + powerLevel * 0.10f);
 
-            if (shape == BallShape.L)
-                BuildLBody(unit);
-            else
-                AddBlock(Vector3.zero, unit);
+            switch (shape)
+            {
+                case BallShape.L:        BuildLBody(unit);                   break;
+                case BallShape.Line:     BuildRunBody(unit, horizontal: true);  break;
+                case BallShape.Column:   BuildRunBody(unit, horizontal: false); break;
+                case BallShape.Plus:     BuildCrossBody(unit, diagonal: false); break;
+                case BallShape.Diagonal: BuildCrossBody(unit, diagonal: true);  break;
+                default:                 AddBlock(Vector3.zero, unit);       break;
+            }
 
-            // Square balls show their SIDE length on top (2x2→"2", 3x3→"3", 4x4→"4").
-            // The L body already reads as an L, so it carries no label.
+            // Each label answers "how big is this stamp" in the shape's own unit:
+            // a square shows its SIDE (2x2→"2"), a run shows its LENGTH, a cross
+            // shows its total cells. The L scales to the grid, so no number can
+            // describe it — and its body already reads as an L.
             if (shape != BallShape.L)
-                AddTopLabel(GameConstants.GetPaintSize(powerLevel).ToString(), unit);
+                AddTopLabel(LabelFor(shape, powerLevel), unit);
+        }
+
+        private static string LabelFor(BallShape shape, int powerLevel)
+        {
+            var probe = new BallData(CellColor.None, powerLevel, shape);
+            return shape == BallShape.Square
+                ? GameConstants.GetPaintSize(powerLevel).ToString()
+                : GameConstants.GetPaintCellCount(probe, 0, 0).ToString();
         }
 
         // One lit cube block at a local position, edge length `size`.
@@ -89,6 +104,42 @@ namespace CatapultGames
             AddBlock(new Vector3(-0.5f * u, 0f, -0.5f * u), u);   // corner (bend)
             AddBlock(new Vector3(-0.5f * u, 0f,  0.5f * u), u);   // up
             AddBlock(new Vector3( 0.5f * u, 0f, -0.5f * u), u);   // right
+        }
+
+        // Three blocks in a row — a symbol of the run, not its true length (a
+        // power-3 Line paints 7 cells and would be an unwieldy ball). The number
+        // on top carries the actual length.
+        private void BuildRunBody(float size, bool horizontal)
+        {
+            float u = size * 0.58f;
+            for (int i = -1; i <= 1; i++)
+            {
+                Vector3 p = horizontal ? new Vector3(i * u, 0f, 0f) : new Vector3(0f, 0f, i * u);
+                AddBlock(p, u);
+            }
+        }
+
+        // Centre block plus four arms — orthogonal for Plus, corner-to-corner for
+        // Diagonal. Same symbolic single-step arms as the run body.
+        private void BuildCrossBody(float size, bool diagonal)
+        {
+            float u = size * 0.52f;
+            AddBlock(Vector3.zero, u);
+
+            if (diagonal)
+            {
+                AddBlock(new Vector3( u, 0f,  u), u);
+                AddBlock(new Vector3(-u, 0f, -u), u);
+                AddBlock(new Vector3( u, 0f, -u), u);
+                AddBlock(new Vector3(-u, 0f,  u), u);
+            }
+            else
+            {
+                AddBlock(new Vector3( u, 0f, 0f), u);
+                AddBlock(new Vector3(-u, 0f, 0f), u);
+                AddBlock(new Vector3(0f, 0f,  u), u);
+                AddBlock(new Vector3(0f, 0f, -u), u);
+            }
         }
 
         // White number laid flat-ish on top of the body, readable from both cameras.

@@ -9,20 +9,20 @@ namespace CatapultGames.Editor
 {
     // Creates a ready-to-play Gameplay scene with one menu click.
     // Menu: CatapultGames → Build Gameplay Scene
+    //
+    // Controls: tap a grid cell and the catapult ball launches there
+    // (hold and slide to move the target, release to fire).
     public static class GameplaySceneBuilder
     {
-        private const string ScenePath  = "Assets/_Project/Scenes/Gameplay.unity";
-        private const string Scene2Path = "Assets/Scenes/Gameplay2.unity";
+        private const string ScenePath = "Assets/Scenes/Gameplay2.unity";
 
-        [MenuItem("CatapultGames/Build Gameplay Scene", priority = 1)]
-        public static void Build() => BuildScene(tapMode: false, scenePath: ScenePath);
+        // Priority 20 leaves a >10 gap below the Level Editor (0), which Unity
+        // renders as a separator — this rebuilds the scene from scratch, so it
+        // should not sit flush against the tool used all day.
+        [MenuItem("CatapultGames/Build Gameplay Scene", priority = 20)]
+        public static void Build() => BuildScene(ScenePath);
 
-        // Gameplay2 — same game, but you tap a grid cell to auto-launch there
-        // (no slingshot drag). Overwrites the existing Gameplay2.unity.
-        [MenuItem("CatapultGames/Build Gameplay2 Scene (Tap to Target)", priority = 2)]
-        public static void BuildGameplay2() => BuildScene(tapMode: true, scenePath: Scene2Path);
-
-        private static void BuildScene(bool tapMode, string scenePath)
+        private static void BuildScene(string scenePath)
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
 
@@ -46,9 +46,9 @@ namespace CatapultGames.Editor
             RenderSettings.ambientLight = new Color(0.26f, 0.28f, 0.40f);
 
             // ── Single Perspective Camera — full screen, all layers ───────
-            // Renders grid cubes, slingshot, trajectory, and queue together.
+            // Renders grid cubes, catapult, trajectory, and queue together.
             // GridCameraController.FitToGrid() auto-positions at runtime so that
-            // both the grid and the slingshot area are always in frame.
+            // both the grid and the launch area are always in frame.
             // Inspector sliders: fieldOfView (60°) and tiltAngle (55°) to taste.
             var camGo  = new GameObject("GridCamera");
             camGo.tag  = "MainCamera";   // so Camera.main resolves — GameFX shake/zoom/firework use it
@@ -65,7 +65,7 @@ namespace CatapultGames.Editor
                 Quaternion.Euler(55f, 0f, 0f));
             var camCtrl = camGo.AddComponent<GridCameraController>();
             camCtrl.fieldOfView   = 60f;
-            camCtrl.tiltAngle     = 50f;    // 50° = good balance: grid readable + slingshot visible
+            camCtrl.tiltAngle     = 50f;    // 50° = good balance: grid readable + catapult visible
             camCtrl.padding       = 1.08f;
             camCtrl.gridScreenPos = 0.5f;   // grid centred on screen (per-level override via LevelData.camera)
 
@@ -111,7 +111,7 @@ namespace CatapultGames.Editor
             SetRefArray(queueView, "_waypoints", waypoints);
 
             // ── Launch origin — placed well in front of grid so camera shows it ──
-            // Grid occupies Z=0..height. Slingshot at Z=-8 sits low in the bottom
+            // Grid occupies Z=0..height. The catapult at Z=-8 sits low in the bottom
             // area below the centred grid (camera frames both via gridScreenPos).
             // LaunchSolver re-solves the launch speed per shot, so the further origin
             // doesn't affect which cells are reachable.
@@ -119,30 +119,17 @@ namespace CatapultGames.Editor
             originGo.position = new Vector3(5.5f, 1.5f, -8f);
 
             // ── Catapult / launch base ────────────────────────────────────
-            // In both modes the ball sits on the catapult and flies from here.
-            // tapMode: no SlingshotController (no drag) — TapLaunchController fires it.
-            var slingshotGo = new GameObject("Slingshot");
-            slingshotGo.transform.position = new Vector3(catX, 0f, catZ);
-            slingshotGo.transform.SetParent(launchAreaGo.transform, worldPositionStays: true);
-
-            SlingshotController slingshot = null;
-            if (!tapMode)
-            {
-                slingshot = slingshotGo.AddComponent<SlingshotController>();
-                SetFloat(slingshot, "_maxDragPixels",   300f);  // longer pull = finer power control
-                SetFloat(slingshot, "_minDragPixels",   22f);   // bigger dead-zone = less accidental jitter
-                SetFloat(slingshot, "_maxLaunchSpeed",  15f);   // full drag lands ~far edge (less overshoot band)
-                SetFloat(slingshot, "_launchAngle",     50f);
-                SetFloat(slingshot, "_inputZoneHeight",     0.5f);  // larger comfy bottom drag area
-                SetFloat(slingshot, "_aimSmoothing",        14f);   // low-pass the aim so it isn't twitchy
-                SetFloat(slingshot, "_releaseJitterPixels", 35f);   // ignore finger-lift smear on release
-            }
+            // The ball sits on the catapult and flies from here; TapLaunchController
+            // fires it at the tapped cell.
+            var catapultGo = new GameObject("Catapult");
+            catapultGo.transform.position = new Vector3(catX, 0f, catZ);
+            catapultGo.transform.SetParent(launchAreaGo.transform, worldPositionStays: true);
 
             // Catapult body — simple visible base so the user sees the catapult
             var baseObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             baseObj.name = "CatapultBase";
             Object.DestroyImmediate(baseObj.GetComponent<BoxCollider>());
-            baseObj.transform.SetParent(slingshotGo.transform);
+            baseObj.transform.SetParent(catapultGo.transform);
             baseObj.transform.localPosition = new Vector3(0f, 0.2f, 0f);
             baseObj.transform.localScale    = new Vector3(1.2f, 0.4f, 0.6f);
             var baseMr = baseObj.GetComponent<MeshRenderer>();
@@ -154,17 +141,17 @@ namespace CatapultGames.Editor
             var armObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             armObj.name = "CatapultArm";
             Object.DestroyImmediate(armObj.GetComponent<BoxCollider>());
-            armObj.transform.SetParent(slingshotGo.transform);
+            armObj.transform.SetParent(catapultGo.transform);
             armObj.transform.localPosition = new Vector3(0f, 0.6f, 0f);
             armObj.transform.localScale    = new Vector3(0.15f, 0.9f, 0.15f);
             armObj.GetComponent<MeshRenderer>().sharedMaterial =
                 new Material(baseShader) { color = new Color(0.35f, 0.25f, 0.15f) };
 
-            // Fork tips (Y-shape slingshot)
+            // Fork tips (Y-shaped cradle the ball rests in)
             var forkL = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             forkL.name = "ForkL";
             Object.DestroyImmediate(forkL.GetComponent<SphereCollider>());
-            forkL.transform.SetParent(slingshotGo.transform);
+            forkL.transform.SetParent(catapultGo.transform);
             forkL.transform.localPosition = new Vector3(-0.3f, 1.1f, 0f);
             forkL.transform.localScale    = Vector3.one * 0.18f;
             forkL.GetComponent<MeshRenderer>().sharedMaterial =
@@ -173,43 +160,18 @@ namespace CatapultGames.Editor
             var forkR = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             forkR.name = "ForkR";
             Object.DestroyImmediate(forkR.GetComponent<SphereCollider>());
-            forkR.transform.SetParent(slingshotGo.transform);
+            forkR.transform.SetParent(catapultGo.transform);
             forkR.transform.localPosition = new Vector3(0.3f, 1.1f, 0f);
             forkR.transform.localScale    = Vector3.one * 0.18f;
             forkR.GetComponent<MeshRenderer>().sharedMaterial =
                 new Material(baseShader) { color = new Color(0.35f, 0.25f, 0.15f) };
 
             // BallPivot: height 1.5 = same as originGo so ball sits at arc start point
-            var anchorL = new GameObject("AnchorLeft").transform;
-            anchorL.SetParent(slingshotGo.transform);
-            anchorL.localPosition = new Vector3(-0.3f, 1.4f, 0f);
-            var anchorR = new GameObject("AnchorRight").transform;
-            anchorR.SetParent(slingshotGo.transform);
-            anchorR.localPosition = new Vector3(0.3f, 1.4f, 0f);
             var ballPivot = new GameObject("BallPivot").transform;
-            ballPivot.SetParent(slingshotGo.transform);
+            ballPivot.SetParent(catapultGo.transform);
             ballPivot.localPosition = new Vector3(0f, 1.5f, 0f);  // matches originGo Y
 
-            originGo.SetParent(slingshotGo.transform);
-
-            // Rubber band + stretch visual — slingshot mode only (no drag in tap mode).
-            if (!tapMode)
-            {
-                var lr = slingshotGo.AddComponent<LineRenderer>();
-                lr.startWidth    = 0.10f;
-                lr.endWidth      = 0.10f;
-                lr.positionCount = 3;
-                lr.useWorldSpace = true;
-                var lrShader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (!lrShader) lrShader = Shader.Find("Unlit/Color");
-                lr.sharedMaterial = new Material(lrShader) { color = new Color(1f, 0.85f, 0.1f) };
-
-                var slingshotVis = slingshotGo.AddComponent<SlingshotVisual>();
-                SetRef(slingshotVis, "_controller",  slingshot);
-                SetRef(slingshotVis, "_anchorLeft",  anchorL);
-                SetRef(slingshotVis, "_anchorRight", anchorR);
-                SetRef(slingshotVis, "_ballPivot",   ballPivot);
-            }
+            originGo.SetParent(catapultGo.transform);
 
             // Now that ballPivot exists, wire it as the catapult position for the queue view
             SetRef(queueView, "_catapultPivot", ballPivot);
@@ -225,7 +187,6 @@ namespace CatapultGames.Editor
             aimLR.textureMode    = LineTextureMode.Tile;
 
             var aimPreview = aimGo.AddComponent<AimPreview>();
-            if (!tapMode) SetRef(aimPreview, "_slingshot", slingshot);  // tap mode drives it directly
             SetRef(aimPreview, "_queue",        queue);
             SetRef(aimPreview, "_grid",         grid);
             SetRef(aimPreview, "_launchOrigin", originGo);
@@ -234,11 +195,10 @@ namespace CatapultGames.Editor
             // ── Ball launcher ─────────────────────────────────────────────
             var launcherGo = new GameObject("BallLauncher");
             var launcher   = launcherGo.AddComponent<BallLauncher>();
-            if (!tapMode) SetRef(launcher, "_slingshot", slingshot);  // tap mode calls Launch() directly
             SetRef(launcher, "_queue",        queue);
             SetRef(launcher, "_grid",         grid);
             SetRef(launcher, "_launchOrigin", originGo);
-            SetFloat(launcher, "_flightDuration",   0.55f);  // snappy travel from the Z=-5 slingshot (was 1.10)
+            SetFloat(launcher, "_flightDuration",   0.55f);  // snappy travel from the Z=-8 catapult
             SetFloat(launcher, "_ballVisualScale",  0.45f);
 
             // ── EventSystem (required for Canvas button clicks on mobile) ──
@@ -281,6 +241,14 @@ namespace CatapultGames.Editor
             var retryBtn = MakeButton(panel.transform, "Retry", new Vector2(0.18f,0.22f), new Vector2(0.46f,0.40f));
             var menuBtn  = MakeButton(panel.transform, "Menu",  new Vector2(0.54f,0.22f), new Vector2(0.82f,0.40f));
 
+            // The "keep going" offer sits below and spans both — it is the action
+            // we want the thumb to find first after a loss. ResultScreenUI shows or
+            // hides it per result, so it starts inactive.
+            var keepGoingBtn = MakeButton(panel.transform, "Keep Going",
+                                          new Vector2(0.18f,0.08f), new Vector2(0.82f,0.19f));
+            keepGoingBtn.GetComponent<Image>().color = new Color(0.16f, 0.42f, 0.22f);
+            keepGoingBtn.gameObject.SetActive(false);
+
             // ── GameManager ───────────────────────────────────────────────
             var gmGo = new GameObject("GameManager");
             var gm   = gmGo.AddComponent<GameManager>();
@@ -294,11 +262,26 @@ namespace CatapultGames.Editor
             SetRef(resultUI, "_panel",        panel);
             SetRef(resultUI, "_titleText",    titleGo.GetComponent<TextMeshProUGUI>());
             SetRef(resultUI, "_subtitleText", subGo.GetComponent<TextMeshProUGUI>());
-            SetRef(resultUI, "_retryButton",  retryBtn);
-            SetRef(resultUI, "_menuButton",   menuBtn);
+            SetRef(resultUI, "_retryButton",      retryBtn);
+            SetRef(resultUI, "_menuButton",       menuBtn);
+            SetRef(resultUI, "_extraBallsButton", keepGoingBtn);
             SetRef(resultUI, "_gameManager",  gm);
             SetRef(gm, "_resultScreen",  resultUI);
             // Button listeners are wired in ResultScreenUI.Awake — no need to add them here.
+
+            // ── Undo button (in-game, right edge above the launch band) ───
+            // Clear of the catapult/queue strip at the bottom and of the HUDs at the
+            // top. Gestures starting on UI never fire a shot (TapLaunchController
+            // checks IsPointerOverUI), so it is safe to sit over the play area.
+            var undoBtn = MakeButton(canvasGo.transform, "Undo",
+                                     new Vector2(0.74f,0.10f), new Vector2(0.96f,0.17f));
+            undoBtn.gameObject.SetActive(false);   // UndoButtonUI shows it once a shot lands
+
+            // Lives on the canvas, NOT on the button: it hides the button by
+            // deactivating it, and an inactive object stops updating.
+            var undoUI = canvasGo.AddComponent<UndoButtonUI>();
+            SetRef(undoUI, "_button",      undoBtn);
+            SetRef(undoUI, "_gameManager", gm);
 
             // ── Progress HUD — top-left, inside safe area ─────────────────
             // Wrap in a SafeAreaFitter panel so it respects notch / home indicator
@@ -321,6 +304,34 @@ namespace CatapultGames.Editor
             SetRef(progressHUD, "_label", pTMP);
             SetRef(progressHUD, "_grid",  grid);
 
+            // ── Score HUD — right side, below the level-picker band ───────
+            // Shares the safe-area panel with the progress HUD (top-left), sitting
+            // clear of the dev level dropdown that owns the very top-right corner.
+            var scoreGo  = new GameObject("ScoreHUD");
+            scoreGo.transform.SetParent(safeAreaGo.transform, false);
+            var scoreHUD = scoreGo.AddComponent<ScoreHUD>();
+
+            var scoreLabelGo = MakeText(scoreGo.transform, "ScoreLabel", "0",
+                                        60, new Vector2(0.50f, 0.845f), new Vector2(1.00f, 0.925f));
+            var scoreTMP = scoreLabelGo.GetComponent<TextMeshProUGUI>();
+            scoreTMP.alignment = TextAlignmentOptions.TopRight;
+            scoreTMP.fontStyle = FontStyles.Bold;
+            scoreTMP.margin    = new Vector4(0f, 0f, 24f, 0f);
+            scoreTMP.raycastTarget = false;   // must never eat an aim gesture
+
+            var comboLabelGo = MakeText(scoreGo.transform, "ComboLabel", "",
+                                        42, new Vector2(0.42f, 0.775f), new Vector2(1.00f, 0.845f));
+            var comboTMP = comboLabelGo.GetComponent<TextMeshProUGUI>();
+            comboTMP.alignment = TextAlignmentOptions.TopRight;
+            comboTMP.fontStyle = FontStyles.Bold;
+            comboTMP.margin    = new Vector4(0f, 0f, 24f, 0f);
+            comboTMP.raycastTarget = false;
+
+            SetRef(scoreHUD, "_gameManager", gm);
+            SetRef(scoreHUD, "_scoreLabel",  scoreTMP);
+            SetRef(scoreHUD, "_comboLabel",  comboTMP);
+            SetFloat(scoreHUD, "_burstDuration", 0.95f);
+
             // ── Level picker HUD (dev tool — top-right dropdown) ──────────
             var pickerGo = new GameObject("LevelPickerHUD");
             var picker   = pickerGo.AddComponent<LevelPickerHUD>();
@@ -342,27 +353,27 @@ namespace CatapultGames.Editor
             SetRef(loader,  "_progressHUD",      progressHUD);
             SetRef(loader,  "_levelPicker",      picker);
             SetRef(loader,  "_launchAnchor",     launchAnchor);
+            SetRef(loader,  "_gameManager",      gm);      // resets the score per level
             SetStr(loader,  "_defaultLevelName", "level1");
             SetRef(picker,  "_loader",           loader);
 
-            // ── Tap-to-target input (Gameplay2 only) ──────────────────────
-            // Tap a grid cell → the catapult ball auto-launches there. Reuses the
+            // ── Tap-to-target input ───────────────────────────────────────
+            // Tap a grid cell → the catapult ball auto-launches there. Drives the
             // BallLauncher (flight/paint/queue) and AimPreview (arc) built above.
-            if (tapMode)
-            {
-                var tapGo = new GameObject("TapLaunchController");
-                var tap   = tapGo.AddComponent<TapLaunchController>();
-                SetRef(tap, "_camera",       cam);
-                SetRef(tap, "_grid",         grid);
-                SetRef(tap, "_launcher",     launcher);
-                SetRef(tap, "_aimPreview",   aimPreview);
-                SetRef(tap, "_launchOrigin", originGo);
-                SetRef(tap, "_gameManager",  gm);
-                SetFloat(tap, "_launchAngle",     50f);
-                SetFloat(tap, "_aimLiftCells",    2f);       // max lift when held (grid rows)
-                SetFloat(tap, "_tapMaxTime",      0.12f);    // quick tap = direct (no lift)
-                SetFloat(tap, "_aimLiftRampTime", 0.18f);    // lift ramps in while holding
-            }
+            var tapGo = new GameObject("TapLaunchController");
+            var tap   = tapGo.AddComponent<TapLaunchController>();
+            SetRef(tap, "_camera",       cam);
+            SetRef(tap, "_grid",         grid);
+            SetRef(tap, "_launcher",     launcher);
+            SetRef(tap, "_aimPreview",   aimPreview);
+            SetRef(tap, "_launchOrigin", originGo);
+            SetRef(tap, "_gameManager",  gm);
+            SetRef(tap, "_queue",        queue);       // tapping a queued ball picks it
+            SetRef(tap, "_queueView",    queueView);
+            SetFloat(tap, "_launchAngle",     50f);
+            SetFloat(tap, "_aimLiftCells",    2f);       // max lift when held (grid rows)
+            SetFloat(tap, "_tapMaxTime",      0.12f);    // quick tap = direct (no lift)
+            SetFloat(tap, "_aimLiftRampTime", 0.18f);    // lift ramps in while holding
 
             // ── Save scene ────────────────────────────────────────────────
             EditorSceneManager.SaveScene(scene, scenePath);
@@ -371,17 +382,14 @@ namespace CatapultGames.Editor
             // Add to build settings
             AddSceneToBuildSettings(scenePath);
 
-            string controls = tapMode
-                ? "Controls: TAP a grid cell — the ball auto-launches there.\n(Hold to preview the arc, release on the cell to fire.)"
-                : "Controls: drag bottom-half of Game view to aim, release to fire.";
-
             EditorUtility.DisplayDialog("Scene built",
-                $"{(tapMode ? "Gameplay2 (tap to target)" : "Gameplay")} scene saved to:\n{scenePath}\n\n" +
+                $"Gameplay scene saved to:\n{scenePath}\n\n" +
                 "NEXT STEPS:\n" +
-                "1. Level Editor → Export to StreamingAssets (exports level1.json)\n" +
+                "1. Level Editor → Save (writes straight to Resources/Levels)\n" +
                 $"2. Open {Path.GetFileName(scenePath)} scene\n" +
                 "3. Press Play\n\n" +
-                controls,
+                "Controls: TAP a grid cell — the ball auto-launches there.\n" +
+                "(Hold to preview the arc, release on the cell to fire.)",
                 "OK");
         }
 

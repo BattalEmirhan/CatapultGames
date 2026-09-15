@@ -1,0 +1,50 @@
+/* Board element theme. Colours of the cells themselves are DATA and are set
+   inline by LevelGridElement from LevelCellPalette — keep that palette and the
+   Gallery thumbnails in step, never restyle cell hues here. */
+
+.cg-grid {
+    flex-direction: column;
+    background-color: rgb(33, 33, 35);
+    padding: 1px;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.cg-grid__row {
+    flex-direction: row;
+    flex-shrink: 0;
+}
+
+.cg-grid__cell {
+    flex-shrink: 0;
+    position: relative;
+    border-radius: 2px;
+}
+
+.cg-grid__glyph {
+    position: absolute;
+    left: 0; right: 0; top: 0; bottom: 0;
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+    margin: 0;
+    padding: 0;
+}
+
+/* Overlay layer: one lazily created child per highlighted cell. */
+.cg-grid__fx {
+    position: absolute;
+    left: 0; right: 0; top: 0; bottom: 0;
+    border-radius: 2px;
+}
+.cg-grid__fx--hover    { background-color: rgba(255, 255, 255, 0.10); }
+.cg-grid__fx--selected { background-color: rgba(78, 153, 255, 0.35); }
+.cg-grid__fx--hit      { background-color: rgba(255, 255, 255, 0.45); }
+.cg-grid__fx--land     { background-color: rgba(255, 216, 26, 0.55); }
+
+/* Rectangle-select preview, sized inline while dragging. */
+.cg-grid__rect {
+    position: absolute;
+    background-color: rgba(78, 153, 255, 0.28);
+    border-width: 1px;
+    border-color: rgba(78, 153, 255, 0.9);
+}

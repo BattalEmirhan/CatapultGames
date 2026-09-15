@@ -196,7 +196,7 @@ namespace CatapultGames
                 var ph = new GameObject("NoLevels");
                 ph.transform.SetParent(_content, false);
                 var phText        = ph.AddComponent<TextMeshProUGUI>();  // adds RectTransform
-                phText.text       = "No levels found in\nStreamingAssets/Levels/";
+                phText.text       = "No levels found in\nResources/Levels/";
                 phText.fontSize   = 32f;
                 phText.color      = new Color(0.6f, 0.6f, 0.6f);
                 phText.alignment  = TextAlignmentOptions.Center;
@@ -293,8 +293,8 @@ namespace CatapultGames
 
         private void RefreshList()
         {
-            // Resources.LoadAll works on every platform (incl. Android), unlike the
-            // old Directory.GetFiles over StreamingAssets.
+            // Resources.LoadAll works on every platform (incl. Android) and reads
+            // the same folder the Level Editor saves into.
             var assets = Resources.LoadAll<TextAsset>("Levels");
             _names = new string[assets.Length];
             for (int i = 0; i < assets.Length; i++)

@@ -14,14 +14,25 @@ namespace CatapultGames
     //   _subtitleText — supporting line
     //   _retryButton  — restart current level
     //   _menuButton   — go to main menu
+    //   _extraBallsButton — take the "keep going" offer (hidden when not offered)
     //   _gameManager  — reference for button callbacks
     public class ResultScreenUI : MonoBehaviour
     {
+        // Why the level ended. The panel owns all the wording, so GameManager
+        // passes the reason rather than a string.
+        public enum Reason
+        {
+            Won,
+            OutOfBalls,   // queue ran dry with cells still empty
+            DeadEnd       // balls left, but provably not enough to finish
+        }
+
         [SerializeField] private GameObject      _panel;
         [SerializeField] private TextMeshProUGUI _titleText;
         [SerializeField] private TextMeshProUGUI _subtitleText;
         [SerializeField] private Button          _retryButton;
         [SerializeField] private Button          _menuButton;
+        [SerializeField] private Button          _extraBallsButton;
         [SerializeField] private GameManager     _gameManager;
 
         [Header("Messages")]
@@ -29,6 +40,14 @@ namespace CatapultGames
         [SerializeField] private string _failTitle    = "Try Again";
         [SerializeField] private string _winSubtitle  = "All cells painted!";
         [SerializeField] private string _failSubtitle = "Not enough balls...";
+
+        [Tooltip("Shown when the level became impossible before the queue ran out — " +
+                 "the player is told why instead of being left to fire the rest.")]
+        [SerializeField] private string _deadEndTitle    = "Dead End";
+        [SerializeField] private string _deadEndSubtitle = "The remaining balls can't finish this one.";
+
+        [Tooltip("Prefix for the final score line appended to the subtitle.")]
+        [SerializeField] private string _scoreLabel = "Score";
 
         private Vector3 _panelRest = Vector3.one;
 
@@ -40,16 +59,45 @@ namespace CatapultGames
                 _panelRest = _panel.transform.localScale;
                 _panel.SetActive(false);
             }
-            if (_retryButton) _retryButton.onClick.AddListener(() => _gameManager?.RestartLevel());
-            if (_menuButton)  _menuButton.onClick.AddListener(() => _gameManager?.GoToMainMenu());
+            if (_retryButton)      _retryButton.onClick.AddListener(() => _gameManager?.RestartLevel());
+            if (_menuButton)       _menuButton.onClick.AddListener(() => _gameManager?.GoToMainMenu());
+            if (_extraBallsButton) _extraBallsButton.onClick.AddListener(() => _gameManager?.GrantExtraBalls());
         }
 
         // ── API ───────────────────────────────────────────────────────────
-        public void Show(bool won)
+        // `score` is appended to the subtitle rather than given its own text object:
+        // the panel is built by GameplaySceneBuilder, and a second label there would
+        // be one more reference to lose on a scene rebuild for no extra information.
+        // Pass a negative score to leave it out.
+        public void Show(Reason reason, bool offerExtraBalls = false, int score = -1)
         {
-            if (_panel)        _panel.SetActive(true);
-            if (_titleText)    _titleText.text    = won ? _winTitle    : _failTitle;
-            if (_subtitleText) _subtitleText.text = won ? _winSubtitle : _failSubtitle;
+            bool won = reason == Reason.Won;
+
+            if (_panel) _panel.SetActive(true);
+
+            if (_titleText)
+                _titleText.text = reason switch
+                {
+                    Reason.Won     => _winTitle,
+                    Reason.DeadEnd => _deadEndTitle,
+                    _              => _failTitle
+                };
+
+            if (_subtitleText)
+            {
+                string sub = reason switch
+                {
+                    Reason.Won     => _winSubtitle,
+                    Reason.DeadEnd => _deadEndSubtitle,
+                    _              => _failSubtitle
+                };
+                if (score >= 0) sub += $"\n\n{_scoreLabel} {score:n0}";
+                _subtitleText.text = sub;
+            }
+
+            // The offer is made once per level, so the button is not a permanent
+            // fixture of the panel — it appears only when there is one going.
+            if (_extraBallsButton) _extraBallsButton.gameObject.SetActive(offerExtraBalls);
 
             // Win already flashes gold via GameFX.Win; give the fail screen a red one.
             if (!won) GameFX.Instance.Flash(new Color(0.9f, 0.25f, 0.25f), 0.32f, 0.40f);

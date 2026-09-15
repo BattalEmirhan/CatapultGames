@@ -8,7 +8,7 @@ namespace CatapultGames
     // Task 17 — Level select screen.
     //
     // Scene: "LevelSelect"
-    // Scans StreamingAssets/Levels/*.json and spawns one button per level.
+    // Scans Resources/Levels/*.json and spawns one button per level.
     // Tapping a button sets PlayerPrefs and loads the Gameplay scene.
     //
     // Inspector:

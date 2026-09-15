@@ -1,1555 +1,1497 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace CatapultGames.Editor
 {
-    public class LevelEditorWindow : EditorWindow
+    // The level editor window is a SHELL: it owns the level state, the tab
+    // switching and the bridges between tabs, and nothing else. The Editor tab
+    // is the window's own code (it edits the state the shell holds); Gallery,
+    // Produce and Solving are controllers that query the same UXML tree and
+    // talk back only through callbacks handed to them here. No controller knows
+    // another controller exists.
+    //
+    //   LevelEditorWindow
+    //   ├── Editor   — this file (brushes, balls, camera, generate, AI preview, save)
+    //   ├── Gallery  — Gallery/LevelGalleryTabController
+    //   ├── Produce  — Produce/LevelProduceTabController
+    //   └── Solving  — Solving/LevelSolvingTabController
+    //
+    // The whole window tree lives in UI/LevelEditorWindow.uxml; CreateGUI only
+    // clones it and binds. Element names are the contract — every lookup below
+    // is null-safe, so the window still opens if a control goes missing.
+    public sealed class LevelEditorWindow : EditorWindow
     {
-        // ─── Tool Enum ────────────────────────────────────────────────────
-        protected enum EditTool { Paint, Erase, Fill, Brush, RectSelect, MultiSelect }
+        // ── Class names used from code ────────────────────────────────────
+        private const string HiddenClass       = "cg-hidden";
+        private const string ActiveTabClass    = "cg-tab--active";
+        private const string ActiveToolClass   = "cg-tool--active";
+        private const string ActiveTypeClass   = "cg-type--active";
+        private const string ActiveSwatchClass = "cg-swatch--active";
+        private const string DirtyTitleClass   = "cg-titlebar__subtitle--dirty";
 
-        // ─── State ────────────────────────────────────────────────────────
-        protected LevelData  _level    = new LevelData();
-        protected string     _filePath;
-        protected Dictionary<(int, int), CellData> _cellDict = new();
+        private const int MaxUndo = 60;
 
-        // ─── Display ──────────────────────────────────────────────────────
-        private int     _cellPx  = 40;
-        private Vector2 _scrollPos;
-        private int     _pendingW;
-        private int     _pendingH;
-        private int     _hoverX = -1;
-        private int     _hoverY = -1;
+        private static readonly string[] BallColorNames = { "Red", "Green", "Blue", "Black", "White", "Pink", "Purple" };
+        private static readonly string[] BallShapeNames = { "Square", "L", "Line", "Column", "Plus", "Diagonal" };
+        private static readonly string[] BandNames      = { "Easy", "Normal", "Hard", "Very Hard" };
 
-        // ─── Import ───────────────────────────────────────────────────────
-        private float _importThreshold = 0.35f;
+        // ── Serialized so a domain reload gives it back ───────────────────
+        [SerializeField] private string _scratchJson;   // the open level, parked as JSON across reloads
+        [SerializeField] private string _savedJson;     // JSON as it was at the last load/save (dirty baseline)
+        [SerializeField] private string _filePath;      // null = scratch
+        [SerializeField] private int    _activeTabInt   = (int)LevelEditorTab.Editor;
+        [SerializeField] private int    _cellPx         = 32;
+        [SerializeField] private int    _genSeed        = 1;
+        [SerializeField] private int    _genBand        = (int)LevelDifficulty.Normal;
 
-        // ─── Tools ────────────────────────────────────────────────────────
-        protected EditTool  _activeTool  = EditTool.Paint;
-        protected CellColor _paintColor  = CellColor.Red;
-        protected int       _brushRadius = 1;
+        // ── Level state ───────────────────────────────────────────────────
+        private LevelData _level = new LevelData();
+        private readonly LevelCatalogBrowser _browser = new LevelCatalogBrowser();
+        private readonly LevelProduceBandSet _bands   = new LevelProduceBandSet();   // shared by Generate + Produce
 
-        // ─── Selection ────────────────────────────────────────────────────
-        protected HashSet<(int, int)> _selection = new();
-        private bool _isRectDragging;
+        private readonly List<string> _undo = new List<string>();
+        private readonly List<string> _redo = new List<string>();
+
+        // ── Tabs / controllers ────────────────────────────────────────────
+        private LevelEditorTab _activeTab;
+        private VisualElement _editorPanel, _galleryPanel, _producePanel, _solvingPanel;
+        private Button _tabEditorButton, _tabGalleryButton, _tabProduceButton, _tabSolvingButton;
+        private LevelGalleryTabController _galleryTab;
+        private LevelProduceTabController _produceTab;
+        private LevelSolvingTabController _solvingTab;
+        private readonly Dictionary<string, LevelBenchmark.LevelResult> _lastSweep = new Dictionary<string, LevelBenchmark.LevelResult>();
+
+        // ── Editor tab: brushes ───────────────────────────────────────────
+        private LevelPaintTool _tool       = LevelPaintTool.Paint;
+        private CellColor      _paintColor = CellColor.Red;
+        private CellType       _paintType  = CellType.Normal;
+        private int            _brushRadius = 1;
+        private readonly HashSet<(int, int)> _selection = new HashSet<(int, int)>();
+        private bool _rectDragging;
         private int  _rectX0, _rectY0, _rectX1, _rectY1;
-        private bool _mouseWasDown;
+        private bool _strokeDirty;      // a stroke changed something → refresh status once on commit
+        private string _strokeSnapshot; // level as it was at pointer-down; pushed to undo on the first real change
 
-        // ─── Color swatch textures ────────────────────────────────────────
-        private Texture2D[] _swatches;
+        // ── Editor tab: elements ──────────────────────────────────────────
+        private LevelGridElement _grid;
+        private Label _targetInfo, _browserLabel, _hoverInfo, _boardInfo, _typeCounts, _selectionInfo,
+                      _brushWarning, _ballCount, _ballWarning, _genRecipe, _genStatus, _playStatus,
+                      _statusHeader, _savePath, _saveFresh, _importFile;
+        private Button _browserPrev, _browserNext, _playBtn, _stopBtn, _resetBtn, _importClear, _undoBtn, _redoBtn;
+        private VisualElement _colorSwatches, _ballList, _statusErrors, _statusWarnings, _statusRows, _statusQuick,
+                              _colorRow, _typeRow, _selectionRow, _cameraDiagram;
+        private SliderInt _brushRadiusSlider;
+        private TextField _levelName;
+        private IntegerField _gridW, _gridH, _batchCount, _genSeedField;
+        private FloatField _cellSize;
+        private DropdownField _batchColor, _batchShape, _genBandDd;
+        private SliderInt _batchPower;
+        private Slider _camTilt, _camFov, _camPadding, _camGridPos, _importThreshold, _playSpeed;
+        private Vector3Field _camOffset;
+        private readonly Dictionary<LevelPaintTool, Button> _toolButtons = new Dictionary<LevelPaintTool, Button>();
+        private readonly Dictionary<CellType, Button> _typeButtons = new Dictionary<CellType, Button>();
+        private readonly Dictionary<CellColor, VisualElement> _swatches = new Dictionary<CellColor, VisualElement>();
+        private IVisualElementScheduledItem _statusItem;
 
-        // ─── Image import cache ───────────────────────────────────────────
-        private string    _lastImportedImagePath;
-        private Texture2D _cachedImportTex;
+        // ── AI playback ───────────────────────────────────────────────────
+        private LevelAutoSolver.Result _playPlan;
+        private bool _hasPlan;
+        private int  _playIndex;
+        private bool _isPlaying;      // stepping
+        private bool _simActive;      // overlay visible (paused or finished)
+        private float _playStepDelay = 0.30f;
+        private readonly HashSet<(int, int)> _simFilled = new HashSet<(int, int)>();
+        private readonly HashSet<(int, int)> _simHit    = new HashSet<(int, int)>();
+        private int _simLandX = -1, _simLandY = -1;
+        private IVisualElementScheduledItem _playItem;
 
-        // ─── Ball queue panel ─────────────────────────────────────────────
-        private Vector2 _queueScroll;
-        private const float QueuePanelW = 290f;
-        // Cached main-area rect. GUILayoutUtility.GetRect returns a degenerate
-        // rect during the Layout pass; we cache the real one from Repaint and
-        // reuse it every pass so the GUILayout-based ball panel (inside
-        // BeginArea) lays out at full size instead of collapsing to nothing.
-        private Rect _mainAreaRect;
-        private static readonly string[] BallColorNames =
-            { "Red", "Green", "Blue", "Black", "White", "Pink", "Purple" };
+        // ── Image import ──────────────────────────────────────────────────
+        private string    _importPath;
+        private Texture2D _importTex;
+        private float     _importThresholdValue = 0.35f;
 
-        // ─── Batch-add state ──────────────────────────────────────────────
-        private CellColor _batchColor = CellColor.Red;
-        private int       _batchPower = 1;
-        private int       _batchCount = 3;
-        private bool      _showReqs   = false;  // closed by default — saves vertical space
-        private bool      _showCam    = false;  // per-level camera framing foldout
-
-        // ─── AI auto-play (solvability preview) ───────────────────────────
-        // Plays the level greedily so the designer can watch and see if the
-        // ball queue can clear it. Uses a display-only overlay so it never
-        // mutates the authored cell fill state.
-        private bool                       _isPlaying;        // stepping through moves
-        private bool                       _simActive;        // overlay visible (incl. final frame)
-        private LevelAutoSolver.Result     _playPlan;
-        private int                        _playIndex;
-        private double                     _nextStepAt;
-        private float                      _playStepDelay = 0.30f;
-        private readonly HashSet<(int, int)> _simFilled      = new();
-        private readonly HashSet<(int, int)> _simCurrentArea = new();
-        private int                        _simLandX = -1, _simLandY = -1;
-        private string                     _playStatus = "";
-
-        // ─── Level browser ────────────────────────────────────────────────
-        private string[] _browserPaths  = System.Array.Empty<string>();
-        private string[] _browserLabels = System.Array.Empty<string>();
-        private int      _browserIndex  = -1;
-
-        // ─── Open ─────────────────────────────────────────────────────────
-        [MenuItem("Window/CatapultGames/Level Editor")]
+        // ═══════════════════════════════════════════════════════════════════
+        // Lifecycle
+        // ═══════════════════════════════════════════════════════════════════
+        // Priority 0 keeps this at the top of the CatapultGames menu, away from
+        // the destructive scene rebuild (20).
+        [MenuItem("CatapultGames/Level Editor", priority = 0)]
         public static void Open() => GetWindow<LevelEditorWindow>("Level Editor");
 
-        // ─── Lifecycle ────────────────────────────────────────────────────
-        protected virtual void OnEnable()
+        public void CreateGUI()
         {
-            minSize = new Vector2(540, 460);
-            if (_level == null) NewLevel();
-            BuildSwatches();
+            minSize = new Vector2(760, 520);
+            rootVisualElement.Clear();
+
+            var layout = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(EditorConstants.LevelEditorLayoutPath);
+            if (layout == null)
+            {
+                rootVisualElement.Add(new HelpBox($"Layout asset not found: {EditorConstants.LevelEditorLayoutPath}", HelpBoxMessageType.Error));
+                return;
+            }
+            layout.CloneTree(rootVisualElement);
+            var sheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(EditorConstants.LevelEditorStylePath);
+            if (sheet != null) rootVisualElement.styleSheets.Add(sheet);
+            rootVisualElement.Q<VisualElement>("window-root")?.StretchToParentSize();
+
+            RestoreScratchLevel();     // domain reload recovery, before anything reads _level
+
+            BindTabs();                // shell first
+            BindTitlebar();
+            BindLevelCard();
+            BindGrid();
+            BindBrushCard();
+            BindBallCard();
+            BindGenerateCard();
+            BindPlayCard();
+            BindStatusCard();
+            BindFileCard();
+
+            rootVisualElement.focusable = true;   // key events (Ctrl+Z/Y/S) need a focusable target
+            rootVisualElement.RegisterCallback<KeyDownEvent>(OnKeyDown, TrickleDown.TrickleDown);
+
+            _browser.Refresh(_filePath);
+            RefreshEverything();
         }
 
         private void OnDisable()
         {
-            EditorApplication.update -= PlayTick;   // never leave the play loop running
-            _isPlaying = _simActive = false;
+            // A domain reload disables the window too: park the scratch level as
+            // JSON so CreateGUI can rebuild it. No dialog here — every recompile
+            // would otherwise ask "save?".
+            StopPlay();
+            _scratchJson = _level != null ? LevelSerializer.ToJson(_level) : null;
+            if (_importTex != null) { DestroyImmediate(_importTex); _importTex = null; }
+        }
 
-            if (_swatches != null)
+        // Unity gives a window no way to veto its own close, so this offers
+        // Save / Don't save — never a Cancel it could not honour.
+        private void OnDestroy()
+        {
+            if (_level == null || !IsDirty()) return;
+            string name = string.IsNullOrEmpty(_filePath) ? "the scratch level" : Path.GetFileName(_filePath);
+            if (EditorUtility.DisplayDialog("Unsaved changes", $"Save {name} before closing?", "Save", "Don't save"))
+                SaveFile();
+        }
+
+        private void RestoreScratchLevel()
+        {
+            LevelData restored = null;
+            if (!string.IsNullOrEmpty(_scratchJson))
             {
-                foreach (var t in _swatches)
-                    if (t) DestroyImmediate(t);
-                _swatches = null;
+                restored = LevelSerializer.FromJson(_scratchJson);
+                _scratchJson = null;
             }
-            if (_cachedImportTex != null)
+            _level = restored ?? new LevelData();
+            LevelEditOps.Normalize(_level);
+            if (_savedJson == null) _savedJson = LevelSerializer.ToJson(_level);
+            _activeTab = (LevelEditorTab)_activeTabInt;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Bind helpers
+        // ═══════════════════════════════════════════════════════════════════
+        private T Find<T>(string name) where T : VisualElement => rootVisualElement.Q<T>(name);
+
+        private Button BindButton(string name, Action action)
+        {
+            var b = Find<Button>(name);
+            if (b != null) b.clicked += action;
+            return b;
+        }
+
+        private static void SetDisplayed(VisualElement e, bool shown) => e?.EnableInClassList(HiddenClass, !shown);
+
+        private static void SetText(Label l, string text) { if (l != null) l.text = text ?? ""; }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Tab shell
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindTabs()
+        {
+            _editorPanel  = Find<VisualElement>("tab-panel-editor");
+            _galleryPanel = Find<VisualElement>("tab-panel-gallery");
+            _producePanel = Find<VisualElement>("tab-panel-produce");
+            _solvingPanel = Find<VisualElement>("tab-panel-solving");
+
+            _tabEditorButton  = BindButton("tab-editor",  () => RequestTab(LevelEditorTab.Editor));
+            _tabGalleryButton = BindButton("tab-gallery", () => RequestTab(LevelEditorTab.Gallery));
+            _tabProduceButton = BindButton("tab-produce", () => RequestTab(LevelEditorTab.Produce));
+            _tabSolvingButton = BindButton("tab-solving", () => RequestTab(LevelEditorTab.Solving));
+
+            // Controllers query the same tree; they do not build their own.
+            _galleryTab = new LevelGalleryTabController(rootVisualElement, OpenLevelFromGallery);
+            _galleryTab.Bind();
+
+            _produceTab = new LevelProduceTabController(rootVisualElement, _bands, OnCatalogProduced);
+            _produceTab.Bind();
+
+            _solvingTab = new LevelSolvingTabController(rootVisualElement, () => _level, () => CurrentLevelName(), OnSweepFinished);
+            _solvingTab.Bind();
+
+            SetActiveTab(_activeTab);
+        }
+
+        // The user's click — gated. Leaving the Editor tab with unsaved work is
+        // the number-one way an edit silently disappears, so the question lives here.
+        private void RequestTab(LevelEditorTab tab)
+        {
+            if (tab == _activeTab) return;
+            if (_activeTab == LevelEditorTab.Editor && tab != LevelEditorTab.Editor && IsDirty())
             {
-                DestroyImmediate(_cachedImportTex);
-                _cachedImportTex = null;
+                // Switching tabs does not lose the level (it stays in memory), but the
+                // Solving/Gallery views read DISK — say so once instead of blocking.
+                if (!EditorUtility.DisplayDialog("Unsaved changes",
+                        "The open level has unsaved changes. Other tabs read the saved files, so they will not see these edits until you save.",
+                        "Switch anyway", "Stay"))
+                    return;
             }
+            SetActiveTab(tab);
+        }
+
+        // The mechanical move — no gate. Used at startup and after a confirmation
+        // has already been taken (e.g. opening from the Gallery).
+        private void SetActiveTab(LevelEditorTab tab)
+        {
+            _activeTab    = tab;
+            _activeTabInt = (int)tab;
+
+            SetDisplayed(_editorPanel,  tab == LevelEditorTab.Editor);
+            SetDisplayed(_galleryPanel, tab == LevelEditorTab.Gallery);
+            SetDisplayed(_producePanel, tab == LevelEditorTab.Produce);
+            SetDisplayed(_solvingPanel, tab == LevelEditorTab.Solving);
+
+            _tabEditorButton?.EnableInClassList(ActiveTabClass,  tab == LevelEditorTab.Editor);
+            _tabGalleryButton?.EnableInClassList(ActiveTabClass, tab == LevelEditorTab.Gallery);
+            _tabProduceButton?.EnableInClassList(ActiveTabClass, tab == LevelEditorTab.Produce);
+            _tabSolvingButton?.EnableInClassList(ActiveTabClass, tab == LevelEditorTab.Solving);
+
+            // Lazy: the catalog is only read when somebody looks at it.
+            if (tab == LevelEditorTab.Gallery) { _galleryTab?.SetCurrentPath(_filePath); _galleryTab?.Activate(); }
+            if (tab == LevelEditorTab.Solving) _solvingTab?.Activate();
+            if (tab == LevelEditorTab.Produce) _produceTab?.Activate();
+        }
+
+        // ── Bridges (the window is the only thing that knows all tabs) ─────
+        private void OpenLevelFromGallery(LevelCatalogEntry entry)
+        {
+            if (entry == null) return;
+            if (!ConfirmLeavingLevel("You are opening another level from the Gallery.")) return;
+            if (!LoadFromPath(entry.path)) return;
+            SetActiveTab(LevelEditorTab.Editor);   // not Request: the confirmation was already taken
+        }
+
+        private void OnCatalogProduced()
+        {
+            _browser.Refresh(_filePath);
+            _galleryTab?.MarkStale();
+            _solvingTab?.InvalidateCatalog();
+
+            // The Editor may be holding a file the run just overwrote.
+            if (!string.IsNullOrEmpty(_filePath) && File.Exists(_filePath) && !IsDirty())
+                LoadFromPath(_filePath);
+            RefreshTitlebar();
+        }
+
+        private void OnSweepFinished(IReadOnlyList<LevelBenchmark.LevelResult> results)
+        {
+            foreach (var r in results) _lastSweep[r.name] = r;
+            _galleryTab?.SetSweepStats(results);
+            RefreshStatusNow();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Title bar + browser
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindTitlebar()
+        {
+            _targetInfo   = Find<Label>("target-info");
+            _browserLabel = Find<Label>("browser-label");
+            _browserPrev  = BindButton("browser-prev", () => BrowseTo(-1));
+            _browserNext  = BindButton("browser-next", () => BrowseTo(+1));
+        }
+
+        private void BrowseTo(int delta)
+        {
+            _browser.Refresh(_filePath);
+            var target = delta < 0 ? (_browser.CanPrev ? _browser.Entries[_browser.Index - 1] : null)
+                                   : (_browser.Index < 0 && _browser.Count > 0 ? _browser.Entries[0]
+                                      : _browser.CanNext ? _browser.Entries[_browser.Index + 1] : null);
+            if (target == null) return;
+            if (!ConfirmLeavingLevel("You are moving to another level.")) return;
+            LoadFromPath(target.path);
+        }
+
+        private void RefreshTitlebar()
+        {
+            bool dirty = IsDirty();
+            string state = string.IsNullOrEmpty(_filePath)
+                ? "Unsaved scratch level"
+                : $"Editing {Path.GetFileNameWithoutExtension(_filePath)}";
+            if (dirty) state += "  •  unsaved changes";
+            SetText(_targetInfo, state);
+            _targetInfo?.EnableInClassList(DirtyTitleClass, dirty);
+
+            int idx = _browser.IndexOfPath(_filePath);
+            SetText(_browserLabel, idx >= 0 ? $"{_browser.Entries[idx].name}  {idx + 1} / {_browser.Count}"
+                                            : $"—  / {_browser.Count}");
+            _browserPrev?.SetEnabled(idx > 0);
+            _browserNext?.SetEnabled(_browser.Count > 0 && idx < _browser.Count - 1);
+        }
+
+        private string CurrentLevelName() =>
+            !string.IsNullOrEmpty(_filePath) ? Path.GetFileNameWithoutExtension(_filePath)
+                                             : (_level?.metadata?.levelName ?? "scratch");
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Dirty tracking, gates, undo
+        // ═══════════════════════════════════════════════════════════════════
+        private static string Lf(string s) => s?.Replace("\r\n", "\n");
+
+        // "Is the game playing what I am looking at?" — one format, so this is a
+        // straight compare of the in-memory level with its last saved JSON.
+        private bool IsDirty() => _level != null && Lf(LevelSerializer.ToJson(_level)) != Lf(_savedJson);
+
+        // Whether the file on disk still matches what was loaded (a Produce run
+        // or an external edit can change it under us).
+        private bool IsDiskStale()
+        {
+            if (string.IsNullOrEmpty(_filePath) || !File.Exists(_filePath)) return false;
+            var disk = LevelSerializer.Load(_filePath);
+            if (disk == null) return true;
+            LevelEditOps.Normalize(disk);
+            return Lf(LevelSerializer.ToJson(disk)) != Lf(_savedJson);
+        }
+
+        private bool ConfirmLeavingLevel(string context)
+        {
+            if (!IsDirty()) return true;
+            int choice = EditorUtility.DisplayDialogComplex("Unsaved changes",
+                context + "\n\nThe open level has unsaved changes.", "Save", "Cancel", "Discard");
+            if (choice == 1) return false;
+            if (choice == 0) return SaveFile();
+            return true;
+        }
+
+        private void PushUndo() => PushUndoSnapshot(LevelSerializer.ToJson(_level));
+
+        private void PushUndoSnapshot(string json)
+        {
+            _undo.Add(json);
+            if (_undo.Count > MaxUndo) _undo.RemoveAt(0);
+            _redo.Clear();
+            RefreshUndoButtons();
+        }
+
+        // A stroke is one undo step, but only if it changed something: the
+        // snapshot is taken at pointer-down and pushed on the first real write,
+        // so clicking an already-red cell red does not eat an undo slot.
+        private void BeginStroke() => _strokeSnapshot = LevelSerializer.ToJson(_level);
+
+        private void MarkStrokeChanged()
+        {
+            if (!_strokeDirty && _strokeSnapshot != null) PushUndoSnapshot(_strokeSnapshot);
+            _strokeDirty = true;
+        }
+
+        private void UndoEdit()
+        {
+            if (_undo.Count == 0) return;
+            _redo.Add(LevelSerializer.ToJson(_level));
+            RestoreSnapshot(_undo[_undo.Count - 1]);
+            _undo.RemoveAt(_undo.Count - 1);
+        }
+
+        private void RedoEdit()
+        {
+            if (_redo.Count == 0) return;
+            _undo.Add(LevelSerializer.ToJson(_level));
+            RestoreSnapshot(_redo[_redo.Count - 1]);
+            _redo.RemoveAt(_redo.Count - 1);
+        }
+
+        private void RestoreSnapshot(string json)
+        {
+            var l = LevelSerializer.FromJson(json);
+            if (l == null) return;
+            _level = l;
+            LevelEditOps.Normalize(_level);
+            ResetPlayback();
+            RefreshEverything();
+        }
+
+        private void RefreshUndoButtons()
+        {
+            _undoBtn?.SetEnabled(_undo.Count > 0);
+            _redoBtn?.SetEnabled(_redo.Count > 0);
+        }
+
+        private void OnKeyDown(KeyDownEvent evt)
+        {
+            if (_activeTab != LevelEditorTab.Editor) return;
+            if (!evt.ctrlKey && !evt.commandKey) return;
+            if (evt.keyCode == KeyCode.Z) { if (evt.shiftKey) RedoEdit(); else UndoEdit(); evt.StopPropagation(); }
+            else if (evt.keyCode == KeyCode.Y) { RedoEdit(); evt.StopPropagation(); }
+            else if (evt.keyCode == KeyCode.S) { SaveFile(); evt.StopPropagation(); }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Level card (name, size, camera)
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindLevelCard()
+        {
+            _levelName = Find<TextField>("level-name");
+            _levelName?.RegisterValueChangedCallback(e =>
+            {
+                _level.metadata.levelName = e.newValue;
+                RefreshTitlebar();
+                RefreshFileCard();
+            });
+
+            _gridW = Find<IntegerField>("grid-width");
+            _gridH = Find<IntegerField>("grid-height");
+            BindButton("grid-apply", () =>
+            {
+                int w = Mathf.Clamp(_gridW?.value ?? _level.grid.width, 1, 50);
+                int h = Mathf.Clamp(_gridH?.value ?? _level.grid.height, 1, 50);
+                if (w == _level.grid.width && h == _level.grid.height) return;
+                PushUndo();
+                LevelEditOps.Resize(_level, w, h);
+                _selection.Clear();
+                ResetPlayback();
+                RefreshEverything();
+            });
+
+            _cellSize = Find<FloatField>("cell-size");
+            _cellSize?.RegisterValueChangedCallback(e =>
+            {
+                _level.grid.cellSize = Mathf.Max(0.1f, e.newValue);
+                RefreshTitlebar();
+            });
+
+            _camTilt    = BindCamSlider("cam-tilt",    v => _level.camera.tiltAngle     = v);
+            _camFov     = BindCamSlider("cam-fov",     v => _level.camera.fieldOfView   = v);
+            _camPadding = BindCamSlider("cam-padding", v => _level.camera.padding       = v);
+            _camGridPos = BindCamSlider("cam-gridpos", v => _level.camera.gridScreenPos = v);
+            _camOffset  = Find<Vector3Field>("cam-offset");
+            _camOffset?.RegisterValueChangedCallback(e => { _level.camera.offset = e.newValue; RefreshTitlebar(); });
+            BindButton("cam-reset", () =>
+            {
+                PushUndo();
+                _level.camera = new CameraConfig();
+                RefreshCameraCard();
+                RefreshTitlebar();
+            });
+
+            _cameraDiagram = Find<VisualElement>("camera-diagram");
+            if (_cameraDiagram != null) _cameraDiagram.generateVisualContent += DrawCameraDiagram;
+        }
+
+        private Slider BindCamSlider(string name, Action<float> setter)
+        {
+            var s = Find<Slider>(name);
+            s?.RegisterValueChangedCallback(e =>
+            {
+                setter(e.newValue);
+                _cameraDiagram?.MarkDirtyRepaint();
+                RefreshTitlebar();
+            });
+            return s;
+        }
+
+        private void RefreshLevelCard()
+        {
+            _levelName?.SetValueWithoutNotify(_level.metadata.levelName ?? "");
+            _gridW?.SetValueWithoutNotify(_level.grid.width);
+            _gridH?.SetValueWithoutNotify(_level.grid.height);
+            _cellSize?.SetValueWithoutNotify(_level.grid.cellSize);
+            RefreshCameraCard();
+        }
+
+        private void RefreshCameraCard()
+        {
+            var cam = _level.camera ??= new CameraConfig();
+            _camTilt?.SetValueWithoutNotify(cam.tiltAngle);
+            _camFov?.SetValueWithoutNotify(cam.fieldOfView);
+            _camPadding?.SetValueWithoutNotify(cam.padding);
+            _camGridPos?.SetValueWithoutNotify(cam.gridScreenPos);
+            _camOffset?.SetValueWithoutNotify(cam.offset);
+            _cameraDiagram?.MarkDirtyRepaint();
+        }
+
+        // Side elevation (X = distance, Y = height) of the camera looking down at
+        // the grid plane, so tilt and FOV read at a glance without pressing Play.
+        private void DrawCameraDiagram(MeshGenerationContext ctx)
+        {
+            var cam = _level?.camera;
+            if (cam == null) return;
+            var p = ctx.painter2D;
+            var r = _cameraDiagram.contentRect;
+
+            float groundY = r.height - 18f;
+            var gL = new Vector2(16f, groundY);
+            var gR = new Vector2(r.width - 16f, groundY);
+            var T  = new Vector2((gL.x + gR.x) * 0.5f, groundY);
+
+            p.lineWidth = 3f;
+            p.strokeColor = new Color(0.45f, 0.70f, 1f);
+            p.BeginPath(); p.MoveTo(gL); p.LineTo(gR); p.Stroke();
+
+            float tilt = cam.tiltAngle * Mathf.Deg2Rad;
+            const float d = 62f;
+            var dir = new Vector2(Mathf.Cos(tilt), -Mathf.Sin(tilt));   // screen Y is down
+            var eye = T - dir * d;
+
+            float half = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
+            var a = Rotate(dir, half);
+            var b = Rotate(dir, -half);
+            p.lineWidth = 1.5f;
+            p.strokeColor = new Color(1f, 0.85f, 0.2f, 0.45f);
+            p.BeginPath(); p.MoveTo(eye); p.LineTo(eye + a * (d * 1.55f)); p.Stroke();
+            p.BeginPath(); p.MoveTo(eye); p.LineTo(eye + b * (d * 1.55f)); p.Stroke();
+
+            p.lineWidth = 2f;
+            p.strokeColor = new Color(1f, 0.85f, 0.2f);
+            p.BeginPath(); p.MoveTo(eye); p.LineTo(T); p.Stroke();
+
+            p.fillColor = Color.white;
+            p.BeginPath(); p.Arc(eye, 4f, 0f, 360f); p.Fill();
+
+            // Label lives in a child element so the painter stays geometry-only.
+            var label = _cameraDiagram.Q<Label>("camera-diagram-label");
+            if (label == null)
+            {
+                label = new Label { name = "camera-diagram-label", pickingMode = PickingMode.Ignore };
+                label.AddToClassList("cg-note");
+                label.style.position = Position.Absolute;
+                label.style.left = 4; label.style.top = 2;
+                _cameraDiagram.Add(label);
+            }
+            label.text = $"tilt {cam.tiltAngle:0}°   fov {cam.fieldOfView:0}°";
+        }
+
+        private static Vector2 Rotate(Vector2 v, float rad)
+        {
+            float c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            return new Vector2(v.x * c - v.y * s, v.x * s + v.y * c);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Grid
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindGrid()
+        {
+            var host = Find<VisualElement>("grid-host");
+            _grid = new LevelGridElement();
+            host?.Add(_grid);
+            _grid.SetCellSize(_cellPx);
+
+            _grid.CellPressed     += OnCellPressed;
+            _grid.CellDragged     += OnCellDragged;
+            _grid.StrokeCommitted += OnStrokeCommitted;
+            _grid.CellHovered     += OnCellHovered;
+
+            var zoom = Find<SliderInt>("zoom-slider");
+            zoom?.SetValueWithoutNotify(_cellPx);
+            zoom?.RegisterValueChangedCallback(e => { _cellPx = e.newValue; _grid.SetCellSize(_cellPx); });
+
+            _hoverInfo = Find<Label>("hover-info");
+            _boardInfo = Find<Label>("board-info");
+        }
+
+        private void OnCellPressed(int x, int y, int button)
+        {
+            if (_isPlaying) return;                     // board is locked while the AI steps
+            if (_simActive) ResetPlayback();            // a click to edit drops a finished preview
+
+            BeginStroke();
+            if (button == 1)
+            {
+                var c = LevelEditOps.Cell(_level, x, y);
+                if (c != null && (c.outlineColor != CellColor.None || c.cellType != CellType.Normal))
+                {
+                    LevelEditOps.Erase(_level, x, y);
+                    _grid.RefreshCell(x, y);
+                    MarkStrokeChanged();
+                }
+                return;
+            }
+            if (button != 0) return;
+
+            switch (_tool)
+            {
+                case LevelPaintTool.Paint:
+                case LevelPaintTool.Erase:
+                case LevelPaintTool.Brush:
+                    ApplyBrushAt(x, y);
+                    break;
+                case LevelPaintTool.Fill:
+                    int n = LevelEditOps.FloodFill(_level, x, y, _paintColor, _paintType, out string why);
+                    ShowBrushWarning(why);
+                    if (n > 0) { _grid.Refresh(); MarkStrokeChanged(); }
+                    break;
+                case LevelPaintTool.RectSelect:
+                    _rectDragging = true;
+                    _rectX0 = _rectX1 = x; _rectY0 = _rectY1 = y;
+                    _grid.ShowRect(x, y, x, y);
+                    break;
+                case LevelPaintTool.MultiSelect:
+                    if (!_selection.Remove((x, y))) _selection.Add((x, y));
+                    _grid.SetSelection(_selection);
+                    RefreshSelectionRow();
+                    break;
+            }
+        }
+
+        private void OnCellDragged(int x, int y)
+        {
+            if (_isPlaying) return;
+            switch (_tool)
+            {
+                case LevelPaintTool.Paint:
+                case LevelPaintTool.Erase:
+                case LevelPaintTool.Brush:
+                    ApplyBrushAt(x, y);
+                    break;
+                case LevelPaintTool.RectSelect:
+                    if (!_rectDragging) return;
+                    _rectX1 = x; _rectY1 = y;
+                    _grid.ShowRect(_rectX0, _rectY0, _rectX1, _rectY1);
+                    break;
+            }
+        }
+
+        // Pointer-up: one stroke = one undo step (pushed at pointer-down) and one
+        // status refresh, not one per dragged cell.
+        private void OnStrokeCommitted()
+        {
+            if (_rectDragging)
+            {
+                _rectDragging = false;
+                _grid.HideRect();
+                _selection.Clear();
+                int minX = Mathf.Min(_rectX0, _rectX1), maxX = Mathf.Max(_rectX0, _rectX1);
+                int minY = Mathf.Min(_rectY0, _rectY1), maxY = Mathf.Max(_rectY0, _rectY1);
+                for (int y = minY; y <= maxY; y++)
+                for (int x = minX; x <= maxX; x++)
+                    if (LevelEditOps.InBounds(_level, x, y)) _selection.Add((x, y));
+                _grid.SetSelection(_selection);
+                RefreshSelectionRow();
+            }
+            if (_strokeDirty)
+            {
+                _strokeDirty = false;
+                AfterEdit();
+            }
+            _strokeSnapshot = null;
+        }
+
+        private void ApplyBrushAt(int x, int y)
+        {
+            string why = null;
+            int n;
+            if (_tool == LevelPaintTool.Erase)
+            {
+                var c = LevelEditOps.Cell(_level, x, y);
+                bool had = c != null && (c.outlineColor != CellColor.None || c.cellType != CellType.Normal);
+                LevelEditOps.Erase(_level, x, y);
+                n = had ? 1 : 0;
+            }
+            else if (_tool == LevelPaintTool.Brush)
+            {
+                n = LevelEditOps.Brush(_level, x, y, _brushRadius - 1, _paintColor, _paintType, out why);
+            }
+            else
+            {
+                var c = LevelEditOps.Cell(_level, x, y);
+                bool same = c != null && c.outlineColor == _paintColor && c.cellType == _paintType;
+                n = !same && LevelEditOps.TryPaint(_level, x, y, _paintColor, _paintType, out why) ? 1 : 0;
+            }
+            ShowBrushWarning(why);
+            if (n == 0) return;
+            MarkStrokeChanged();
+            if (_tool == LevelPaintTool.Brush) _grid.Refresh(); else _grid.RefreshCell(x, y);
+        }
+
+        private void OnCellHovered(int x, int y)
+        {
+            if (x < 0) { SetText(_hoverInfo, ""); return; }
+            var c = LevelEditOps.Cell(_level, x, y);
+            string t = c != null && c.cellType != CellType.Normal ? $" {c.cellType}" : "";
+            string col = c != null && c.outlineColor != CellColor.None ? $" {c.outlineColor}" : "";
+            SetText(_hoverInfo, $"({x},{y}){col}{t}");
+        }
+
+        // Everything that must follow a data change: title (dirty), counts,
+        // validation (debounced), and dropping any AI plan built on the old board.
+        private void AfterEdit()
+        {
+            ResetPlayback();
+            RefreshTitlebar();
+            RefreshBoardInfo();
+            QueueStatus();
+        }
+
+        private void RefreshBoardInfo()
+        {
+            int targets = LevelEditOps.CountTargets(_level);
+            SetText(_boardInfo, $"{_level.grid.width}×{_level.grid.height}  ·  {targets} targets  ·  {LevelEditOps.CountColors(_level)} colours  ·  {_level.balls?.Length ?? 0} balls");
+            SetText(_typeCounts, TypeCountsLabel());
+        }
+
+        private string TypeCountsLabel()
+        {
+            int ice = LevelEditOps.CountType(_level, CellType.Ice);
+            int stone = LevelEditOps.CountType(_level, CellType.Stone);
+            int joker = LevelEditOps.CountType(_level, CellType.Joker);
+            if (ice + stone + joker == 0) return "";
+            var sb = new StringBuilder();
+            if (ice > 0) sb.Append(ice).Append(" ice");
+            if (stone > 0) { if (sb.Length > 0) sb.Append(" · "); sb.Append(stone).Append(" stone"); }
+            if (joker > 0) { if (sb.Length > 0) sb.Append(" · "); sb.Append(joker).Append(" joker"); }
+            return sb.ToString();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Brush card
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindBrushCard()
+        {
+            foreach (var tool in LevelPaintTools.All)
+            {
+                var t = tool;
+                var b = BindButton(LevelPaintTools.ElementName(t), () => SetTool(t));
+                if (b != null) _toolButtons[t] = b;
+            }
+
+            _brushRadiusSlider = Find<SliderInt>("brush-radius");
+            _brushRadiusSlider?.SetValueWithoutNotify(_brushRadius);
+            _brushRadiusSlider?.RegisterValueChangedCallback(e => _brushRadius = e.newValue);
+
+            _colorRow = Find<VisualElement>("color-row");
+            _typeRow  = Find<VisualElement>("type-row");
+            _colorSwatches = Find<VisualElement>("color-swatches");
+            BuildSwatches();
+
+            _typeButtons[CellType.Normal] = BindButton("type-normal", () => SetType(CellType.Normal));
+            _typeButtons[CellType.Ice]    = BindButton("type-ice",    () => SetType(CellType.Ice));
+            _typeButtons[CellType.Stone]  = BindButton("type-stone",  () => SetType(CellType.Stone));
+            _typeButtons[CellType.Joker]  = BindButton("type-joker",  () => SetType(CellType.Joker));
+            _typeCounts = Find<Label>("type-counts");
+
+            _selectionRow  = Find<VisualElement>("selection-row");
+            _selectionInfo = Find<Label>("selection-info");
+            BindButton("sel-paint", () =>
+            {
+                if (_selection.Count == 0) return;
+                PushUndo();
+                LevelEditOps.PaintMany(_level, _selection, _paintColor, _paintType, out string why);
+                ShowBrushWarning(why);
+                _grid.Refresh();
+                AfterEdit();
+            });
+            BindButton("sel-erase", () =>
+            {
+                if (_selection.Count == 0) return;
+                PushUndo();
+                LevelEditOps.EraseMany(_level, _selection);
+                _grid.Refresh();
+                AfterEdit();
+            });
+            BindButton("sel-clear", () => { _selection.Clear(); _grid.SetSelection(_selection); RefreshSelectionRow(); });
+
+            _brushWarning = Find<Label>("brush-warning");
+            _undoBtn = BindButton("undo-btn", UndoEdit);
+            _redoBtn = BindButton("redo-btn", RedoEdit);
+
+            SetTool(_tool);
+            SetType(_paintType);
+            RefreshSelectionRow();
+            RefreshUndoButtons();
         }
 
         private void BuildSwatches()
         {
-            var values = System.Enum.GetValues(typeof(CellColor));
-            _swatches  = new Texture2D[values.Length];
-            foreach (CellColor c in values)
+            if (_colorSwatches == null) return;
+            _colorSwatches.Clear();
+            _swatches.Clear();
+            foreach (CellColor c in Enum.GetValues(typeof(CellColor)))
             {
-                Color32 c32 = GameConstants.GetColor(c);
-                var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-                tex.SetPixel(0, 0, new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f, c32.a / 255f));
-                tex.Apply();
-                _swatches[(int)c] = tex;
+                var col = c;
+                var sw = new VisualElement { tooltip = col.ToString() };
+                sw.AddToClassList("cg-swatch");
+                sw.style.backgroundColor = LevelCellPalette.Swatch(col);   // colour is data → inline
+                sw.RegisterCallback<ClickEvent>(_ => SetColor(col));
+                _colorSwatches.Add(sw);
+                _swatches[col] = sw;
             }
+            RefreshSwatches();
         }
 
-        private void OnGUI()
+        private void RefreshSwatches()
         {
-            if (_swatches == null) BuildSwatches();
-            DrawToolbar();
-            GUILayout.Space(2);
-            DrawGridConfigPanel();
-            GUILayout.Space(2);
-            DrawCameraPanel();
-            GUILayout.Space(2);
-            DrawToolPanel();
-            GUILayout.Space(2);
-            DrawMainArea();
-            DrawStatusBar();
+            foreach (var kv in _swatches) kv.Value.EnableInClassList(ActiveSwatchClass, kv.Key == _paintColor);
         }
 
-        // ─── Toolbar ──────────────────────────────────────────────────────
-        private void DrawToolbar()
+        private void SetTool(LevelPaintTool tool)
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            _tool = tool;
+            if (!LevelPaintTools.IsSelection(tool)) { _selection.Clear(); _grid?.SetSelection(_selection); RefreshSelectionRow(); }
+            _rectDragging = false;
+            _grid?.HideRect();
+            foreach (var kv in _toolButtons) kv.Value.EnableInClassList(ActiveToolClass, kv.Key == tool);
+            SetDisplayed(_brushRadiusSlider, LevelPaintTools.UsesRadius(tool));
+            SetDisplayed(_colorRow, LevelPaintTools.UsesColor(tool));
+            SetDisplayed(_typeRow,  LevelPaintTools.UsesColor(tool));
+            ShowBrushWarning(null);
+        }
 
-            if (GUILayout.Button("New",       EditorStyles.toolbarButton, GUILayout.Width(36)))
-                if (ConfirmDiscard()) NewLevel();
-            if (GUILayout.Button("Open",      EditorStyles.toolbarButton, GUILayout.Width(40)))
-                OpenFile();
-            if (GUILayout.Button("Save",      EditorStyles.toolbarButton, GUILayout.Width(36)))
-                SaveFile();
-            if (GUILayout.Button("Save As",   EditorStyles.toolbarButton, GUILayout.Width(52)))
-                SaveFileAs();
-            if (GUILayout.Button("Duplicate", EditorStyles.toolbarButton, GUILayout.Width(62)))
-                DuplicateLevel();
-            if (GUILayout.Button("Export ▸",  EditorStyles.toolbarButton, GUILayout.Width(58)))
-                ExportToResources();
+        private void SetColor(CellColor c)
+        {
+            _paintColor = c;
+            RefreshSwatches();
+            ShowBrushWarning(null);
+        }
 
-            GUILayout.Space(4);
-            if (GUILayout.Button("Import Image…", EditorStyles.toolbarButton, GUILayout.Width(90)))
-                ImportImage();
-
-            // ── Level browser dropdown ────────────────────────────────────
-            GUILayout.Space(6);
-            if (GUILayout.Button("Levels ▼", EditorStyles.toolbarButton, GUILayout.Width(62)))
-                RefreshBrowser();
-
-            if (_browserLabels.Length > 0)
+        private void SetType(CellType t)
+        {
+            _paintType = t;
+            foreach (var kv in _typeButtons)
             {
-                EditorGUI.BeginChangeCheck();
-                int pick = EditorGUILayout.Popup(_browserIndex, _browserLabels,
-                    EditorStyles.toolbarDropDown, GUILayout.Width(130));
-                if (EditorGUI.EndChangeCheck() && pick >= 0 && pick < _browserPaths.Length)
-                    BrowserOpen(_browserPaths[pick]);
+                if (kv.Value == null) continue;
+                bool active = kv.Key == t;
+                kv.Value.EnableInClassList(ActiveTypeClass, active);
+                kv.Value.style.backgroundColor = active ? LevelCellPalette.TypeTint(t) : StyleKeyword.Null;
             }
-
-            GUILayout.Space(6);
-            GUILayout.Label("Name:", EditorStyles.miniLabel, GUILayout.Width(38));
-            _level.metadata.levelName = EditorGUILayout.TextField(
-                _level.metadata.levelName, EditorStyles.toolbarTextField, GUILayout.Width(110));
-
-            GUILayout.FlexibleSpace();
-            GUILayout.Label("Zoom:", EditorStyles.miniLabel, GUILayout.Width(34));
-            _cellPx = (int)GUILayout.HorizontalSlider(_cellPx, 16, 80, GUILayout.Width(80));
-            GUILayout.Label($"{_cellPx}px", EditorStyles.miniLabel, GUILayout.Width(28));
-
-            EditorGUILayout.EndHorizontal();
+            // Stone takes no colour; grey the swatches out so the board does not lie.
+            _colorSwatches?.SetEnabled(t != CellType.Stone);
+            ShowBrushWarning(null);
         }
 
-        // ─── Grid Config Panel ────────────────────────────────────────────
-        private void DrawGridConfigPanel()
+        private void ShowBrushWarning(string text)
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+            SetText(_brushWarning, text);
+            SetDisplayed(_brushWarning, !string.IsNullOrEmpty(text));
+        }
 
-            GUILayout.Label("Grid:", GUILayout.Width(30));
-            GUILayout.Label("W", GUILayout.Width(12));
-            _pendingW = EditorGUILayout.IntField(_pendingW, GUILayout.Width(36));
-            GUILayout.Label("H", GUILayout.Width(12));
-            _pendingH = EditorGUILayout.IntField(_pendingH, GUILayout.Width(36));
-            _pendingW = Mathf.Clamp(_pendingW, 1, 50);
-            _pendingH = Mathf.Clamp(_pendingH, 1, 50);
-            if (GUILayout.Button("Apply", GUILayout.Width(50))) ApplyGridSize();
+        private void RefreshSelectionRow()
+        {
+            SetDisplayed(_selectionRow, _selection.Count > 0);
+            SetText(_selectionInfo, $"{_selection.Count} selected");
+        }
 
-            GUILayout.Space(14);
-            GUILayout.Label("Cell Size:", GUILayout.Width(62));
-            _level.grid.cellSize = EditorGUILayout.FloatField(_level.grid.cellSize, GUILayout.Width(40));
+        // ═══════════════════════════════════════════════════════════════════
+        // Ball card
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindBallCard()
+        {
+            _ballCount   = Find<Label>("ball-count");
+            _ballWarning = Find<Label>("ball-warning");
+            _ballList    = Find<VisualElement>("ball-list");
 
-            GUILayout.Space(14);
-            bool hasImage = !string.IsNullOrEmpty(_lastImportedImagePath);
-            GUI.enabled   = hasImage;
-            GUILayout.Label("Threshold:", GUILayout.Width(62));
-            EditorGUI.BeginChangeCheck();
-            _importThreshold = GUILayout.HorizontalSlider(_importThreshold, 0.05f, 1f, GUILayout.Width(80));
-            GUILayout.Label($"{_importThreshold:F2}", GUILayout.Width(30));
-            if (EditorGUI.EndChangeCheck() && hasImage)
-                ApplyImportThreshold();
-            GUI.enabled = true;
-            if (hasImage)
+            BindButton("ball-shuffle", () => { PushUndo(); LevelEditOps.ShuffleBalls(_level, new System.Random()); RefreshBallList(); AfterEdit(); });
+            BindButton("ball-clear", () =>
             {
-                GUILayout.Label(Path.GetFileName(_lastImportedImagePath),
-                    EditorStyles.miniLabel, GUILayout.Width(100));
-                if (GUILayout.Button("✕", EditorStyles.miniButton, GUILayout.Width(18)))
-                    ClearImportCache();
-            }
+                if ((_level.balls?.Length ?? 0) == 0) return;
+                if (!EditorUtility.DisplayDialog("Clear queue", "Remove all balls?", "Clear", "Cancel")) return;
+                PushUndo(); LevelEditOps.ClearBalls(_level); RefreshBallList(); AfterEdit();
+            });
 
-            GUILayout.FlexibleSpace();
-            EditorGUILayout.EndHorizontal();
-        }
-
-        // ─── Camera Framing Panel (per level) ─────────────────────────────
-        // Edits LevelData.camera — saved into the level's JSON so each level
-        // carries its own grid angle / zoom / position. A side-elevation diagram
-        // shows the tilt + FOV cone so the angle is readable without pressing Play.
-        private void DrawCameraPanel()
-        {
-            var cam = _level.camera ??= new CameraConfig();   // guard old in-memory levels
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            _showCam = EditorGUILayout.Foldout(_showCam, "Camera Framing (this level)", true);
-            if (_showCam)
+            _batchColor = Find<DropdownField>("batch-color");
+            if (_batchColor != null) { _batchColor.choices = new List<string>(BallColorNames); _batchColor.index = 0; }
+            _batchShape = Find<DropdownField>("batch-shape");
+            if (_batchShape != null) { _batchShape.choices = new List<string>(BallShapeNames); _batchShape.index = 0; }
+            _batchPower = Find<SliderInt>("batch-power");
+            _batchCount = Find<IntegerField>("batch-count");
+            BindButton("batch-add", () =>
             {
-                EditorGUILayout.BeginHorizontal();
-
-                // ── Sliders ───────────────────────────────────────────────
-                EditorGUILayout.BeginVertical();
-                cam.tiltAngle     = EditorGUILayout.Slider("Tilt Angle",    cam.tiltAngle,     30f, 85f);
-                cam.fieldOfView   = EditorGUILayout.Slider("Field of View", cam.fieldOfView,   30f, 90f);
-                cam.padding       = EditorGUILayout.Slider("Padding (zoom)", cam.padding,       1f,  1.5f);
-                cam.gridScreenPos = EditorGUILayout.Slider("Grid Pos (0=bot,1=top)", cam.gridScreenPos, 0f, 1f);
-                cam.offset        = EditorGUILayout.Vector3Field("Pos Offset", cam.offset);
-
-                EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button("Reset", GUILayout.Width(56)))
-                {
-                    cam.tiltAngle     = 50f;
-                    cam.fieldOfView   = 60f;
-                    cam.padding       = 1.08f;
-                    cam.gridScreenPos = 0.5f;
-                    cam.offset        = Vector3.zero;
-                    GUI.FocusControl(null);
-                    Repaint();
-                }
-                GUILayout.Label("Grid Pos 0.5 = centred.  Saved per level.",
-                    EditorStyles.miniLabel);
-                EditorGUILayout.EndHorizontal();
-                EditorGUILayout.EndVertical();
-
-                // ── Side-elevation diagram ────────────────────────────────
-                Rect dia = GUILayoutUtility.GetRect(180, 118,
-                    GUILayout.Width(180), GUILayout.Height(118));
-                DrawCameraDiagram(dia, cam);
-
-                EditorGUILayout.EndHorizontal();
-            }
-
-            EditorGUILayout.EndVertical();
+                var color = (CellColor)(Mathf.Max(0, _batchColor?.index ?? 0) + 1);
+                var shape = (BallShape)Mathf.Max(0, _batchShape?.index ?? 0);
+                int power = _batchPower?.value ?? 1;
+                int count = Mathf.Clamp(_batchCount?.value ?? 1, 1, 50);
+                PushUndo();
+                if (!LevelEditOps.TryAddBalls(_level, color, power, shape, count, out string why)) { ShowBallWarning(why); return; }
+                ShowBallWarning(null);
+                RefreshBallList();
+                AfterEdit();
+            });
         }
 
-        // Side view (X = horizontal distance, Y = height) of the camera looking
-        // down at the grid plane, so the tilt angle and FOV are visible at a glance.
-        private void DrawCameraDiagram(Rect r, CameraConfig cam)
+        private void ShowBallWarning(string text)
         {
-            EditorGUI.DrawRect(r, new Color(0.12f, 0.12f, 0.14f));
-            if (Event.current.type != EventType.Repaint) return;
-
-            // Grid plane (seen edge-on) near the bottom of the box.
-            float groundY = r.yMax - 22f;
-            Vector3 gL = new Vector3(r.x + 18f,    groundY);
-            Vector3 gR = new Vector3(r.xMax - 18f, groundY);
-            Vector3 T  = new Vector3((gL.x + gR.x) * 0.5f, groundY);   // look target = grid centre
-
-            Handles.color = new Color(0.45f, 0.70f, 1f);
-            Handles.DrawAAPolyLine(3f, gL, gR);
-
-            // Camera eye derived from the tilt angle (toward grid: forward + screen-down).
-            float   tilt = cam.tiltAngle * Mathf.Deg2Rad;
-            const float d = 66f;
-            Vector3 dir  = new Vector3(Mathf.Cos(tilt), Mathf.Sin(tilt), 0f);
-            Vector3 eye  = T - dir * d;
-
-            // FOV cone around the line of sight.
-            float   half = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
-            Vector3 a    = Rotate2D(dir, half);
-            Vector3 b    = Rotate2D(dir, -half);
-            Handles.color = new Color(1f, 0.85f, 0.2f, 0.45f);
-            Handles.DrawAAPolyLine(1.5f, eye, eye + a * (d * 1.55f));
-            Handles.DrawAAPolyLine(1.5f, eye, eye + b * (d * 1.55f));
-
-            // Line of sight + eye marker.
-            Handles.color = new Color(1f, 0.85f, 0.2f);
-            Handles.DrawAAPolyLine(2f, eye, T);
-            Handles.color = Color.white;
-            Handles.DrawSolidDisc(eye, Vector3.forward, 4f);
-
-            GUI.Label(new Rect(eye.x - 6f, eye.y - 17f, 60f, 16f), "cam", EditorStyles.miniLabel);
-            GUI.Label(new Rect(r.x + 4f, r.y + 2f, 170f, 16f),
-                $"tilt {cam.tiltAngle:0}°   fov {cam.fieldOfView:0}°", EditorStyles.miniLabel);
+            SetText(_ballWarning, text);
+            SetDisplayed(_ballWarning, !string.IsNullOrEmpty(text));
         }
 
-        private static Vector3 Rotate2D(Vector3 v, float rad)
+        // Rows are DATA, so they are built in code; the static frame around them
+        // is in the UXML. Rebuilt whole on every queue change (≤ 50 rows).
+        private void RefreshBallList()
         {
-            float c = Mathf.Cos(rad), s = Mathf.Sin(rad);
-            return new Vector3(v.x * c - v.y * s, v.x * s + v.y * c, 0f);
-        }
-
-        // ─── Tool Panel ───────────────────────────────────────────────────
-        private void DrawToolPanel()
-        {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            // Row 1: tool buttons + brush radius + selection actions
-            EditorGUILayout.BeginHorizontal();
-
-            DrawToolButton("Paint",     EditTool.Paint);
-            DrawToolButton("Erase",     EditTool.Erase);
-            DrawToolButton("Fill",      EditTool.Fill);
-            DrawToolButton("Brush",     EditTool.Brush);
-            DrawToolButton("Rect Sel",  EditTool.RectSelect);
-            DrawToolButton("Multi Sel", EditTool.MultiSelect);
-
-            if (_activeTool == EditTool.Brush)
-            {
-                GUILayout.Space(8);
-                GUILayout.Label("r:", GUILayout.Width(14));
-                _brushRadius = EditorGUILayout.IntSlider(_brushRadius, 1, 5, GUILayout.Width(100));
-            }
-
-            GUILayout.FlexibleSpace();
-
-            if (_selection.Count > 0)
-            {
-                GUILayout.Label($"{_selection.Count} sel", EditorStyles.miniLabel, GUILayout.Width(46));
-                if (GUILayout.Button("Paint",    EditorStyles.miniButton, GUILayout.Width(40))) PaintSelection();
-                if (GUILayout.Button("Erase",    EditorStyles.miniButton, GUILayout.Width(40))) EraseSelection();
-                if (GUILayout.Button("✕ Desel",  EditorStyles.miniButton, GUILayout.Width(52)))
-                { _selection.Clear(); Repaint(); }
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            // Row 2: color swatches
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Label("Color:", GUILayout.Width(42));
-            DrawColorSwatches();
-            GUILayout.FlexibleSpace();
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.EndVertical();
-        }
-
-        private void DrawToolButton(string label, EditTool tool)
-        {
-            bool active = _activeTool == tool;
-            GUI.backgroundColor = active ? new Color(0.45f, 0.75f, 1f) : Color.white;
-            if (GUILayout.Button(label, EditorStyles.miniButton, GUILayout.Width(62)))
-            {
-                _activeTool = tool;
-                if (tool != EditTool.RectSelect && tool != EditTool.MultiSelect)
-                    _selection.Clear();
-                _isRectDragging = false;
-            }
-            GUI.backgroundColor = Color.white;
-        }
-
-        private void DrawColorSwatches()
-        {
-            if (_swatches == null) return;
-
-            foreach (CellColor c in System.Enum.GetValues(typeof(CellColor)))
-            {
-                int idx = (int)c;
-                if (idx >= _swatches.Length) continue;
-
-                bool selected = _paintColor == c;
-                Rect r = GUILayoutUtility.GetRect(24, 24, GUILayout.Width(24), GUILayout.Height(24));
-
-                // outer border (white = selected, gray = not)
-                EditorGUI.DrawRect(r, selected ? Color.white : new Color(0.35f, 0.35f, 0.35f));
-
-                Rect inner = new Rect(r.x + 2, r.y + 2, r.width - 4, r.height - 4);
-
-                if (c == CellColor.None)
-                    DrawCheckerboard(inner);
-                else if (_swatches[idx] != null)
-                    GUI.DrawTexture(inner, _swatches[idx], ScaleMode.StretchToFill);
-
-                if (Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition))
-                {
-                    _paintColor = c;
-                    Event.current.Use();
-                    Repaint();
-                }
-
-                GUILayout.Space(2);
-            }
-        }
-
-        private static void DrawCheckerboard(Rect r)
-        {
-            Color light = new Color(0.6f, 0.6f, 0.6f);
-            Color dark  = new Color(0.25f, 0.25f, 0.25f);
-            float h = r.height * 0.5f, w = r.width * 0.5f;
-            EditorGUI.DrawRect(new Rect(r.x,     r.y,     w, h), light);
-            EditorGUI.DrawRect(new Rect(r.x + w, r.y,     w, h), dark);
-            EditorGUI.DrawRect(new Rect(r.x,     r.y + h, w, h), dark);
-            EditorGUI.DrawRect(new Rect(r.x + w, r.y + h, w, h), light);
-        }
-
-        // ─── Main Area (grid left + queue right) ─────────────────────────
-        private void DrawMainArea()
-        {
-            Rect reserved = GUILayoutUtility.GetRect(1, 1,
-                GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
-
-            // Only the Repaint pass yields the true rect; cache it so the Layout
-            // pass (which gets a degenerate rect) reuses the last good geometry.
-            // Without this the ball panel below collapses and renders blank.
-            if (Event.current.type == EventType.Repaint &&
-                reserved.width > 1f && reserved.height > 1f)
-            {
-                bool first = _mainAreaRect.width <= 1f;
-                _mainAreaRect = reserved;
-                if (first) Repaint();   // re-run layout once now that we have a size
-            }
-
-            Rect area = _mainAreaRect.width > 1f ? _mainAreaRect : reserved;
-
-            float gw       = Mathf.Max(100, area.width - QueuePanelW - 2);
-            Rect gridRect  = new Rect(area.x, area.y, gw, area.height);
-            Rect queueRect = new Rect(area.xMax - QueuePanelW, area.y, QueuePanelW, area.height);
-
-            DrawGrid(gridRect);
-
-            GUILayout.BeginArea(queueRect);
-            DrawBallQueuePanel(new Rect(0, 0, QueuePanelW, area.height));
-            GUILayout.EndArea();
-
-            HandleGridMouseEvent(gridRect);
-        }
-
-        private void DrawGrid(Rect viewportRect)
-        {
-            int totalW = _level.grid.width  * _cellPx;
-            int totalH = _level.grid.height * _cellPx;
-            Rect contentRect = new Rect(0, 0, totalW + 4, totalH + 4);
-
-            _scrollPos = GUI.BeginScrollView(viewportRect, _scrollPos, contentRect);
-
-            EditorGUI.DrawRect(contentRect, new Color(0.13f, 0.13f, 0.13f));
-
-            for (int y = 0; y < _level.grid.height; y++)
-                for (int x = 0; x < _level.grid.width; x++)
-                {
-                    Rect cr = new Rect(x * _cellPx + 2, y * _cellPx + 2, _cellPx - 1, _cellPx - 1);
-                    DrawCell(cr, x, y);
-                }
-
-            if (_isRectDragging)
-            {
-                int minX = Mathf.Min(_rectX0, _rectX1);
-                int minY = Mathf.Min(_rectY0, _rectY1);
-                int maxX = Mathf.Max(_rectX0, _rectX1);
-                int maxY = Mathf.Max(_rectY0, _rectY1);
-                Rect sel = new Rect(minX * _cellPx + 2, minY * _cellPx + 2,
-                                    (maxX - minX + 1) * _cellPx - 1,
-                                    (maxY - minY + 1) * _cellPx - 1);
-                EditorGUI.DrawRect(sel, new Color(0.3f, 0.6f, 1f, 0.28f));
-            }
-
-            GUI.EndScrollView();
-        }
-
-        // ─── Ball Queue Panel ─────────────────────────────────────────────
-        private void DrawBallQueuePanel(Rect rect)
-        {
-            EditorGUI.DrawRect(rect, new Color(0.17f, 0.17f, 0.17f));
-
-            // ── Header ────────────────────────────────────────────────────
-            int ballCount = _level.balls?.Length ?? 0;
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            GUILayout.Label($"Balls  ({ballCount} total)", EditorStyles.miniLabel);
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Shuffle", EditorStyles.toolbarButton, GUILayout.Width(52)))
-                ShuffleBalls();
-            if (GUILayout.Button("+ Add 1", EditorStyles.toolbarButton, GUILayout.Width(52)))
-                AddBall();
-            if (GUILayout.Button("Clear", EditorStyles.toolbarButton, GUILayout.Width(40)))
-                if (EditorUtility.DisplayDialog("Clear Queue", "Remove all balls?", "Clear", "Cancel"))
-                { StopPlay(); _level.balls = System.Array.Empty<BallData>(); Repaint(); }
-            EditorGUILayout.EndHorizontal();
-
-            // ── AI auto-play bar ──────────────────────────────────────────
-            DrawAutoPlayBar();
-
-            // ── Batch add (top of panel — always visible) ─────────────────
-            DrawBatchAdd();
-
-            // ── Color requirements (collapsible) ──────────────────────────
-            DrawColorRequirements();
-
-            // Scrollable ball list
-            _queueScroll = EditorGUILayout.BeginScrollView(_queueScroll,
-                GUILayout.ExpandHeight(true));
-
-            var balls = _level.balls ?? System.Array.Empty<BallData>();
-            int toRemove   = -1;
-            int toMoveUp   = -1;
-            int toMoveDown = -1;
+            if (_ballList == null) return;
+            _ballList.Clear();
+            var balls = _level.balls ?? new BallData[0];
+            SetText(_ballCount, $"Balls ({balls.Length})");
 
             for (int i = 0; i < balls.Length; i++)
             {
+                int idx = i;
                 var ball = balls[i];
+                var row = new VisualElement();
+                row.AddToClassList("cg-ballrow");
+                if (i % 2 == 1) row.AddToClassList("cg-ballrow--alt");
 
-                // Alternating row background
-                Rect rowRect = EditorGUILayout.BeginHorizontal(
-                    i % 2 == 0 ? GUIStyle.none : EditorStyles.helpBox);
+                var num = new Label((i + 1).ToString());
+                num.AddToClassList("cg-ballrow__idx");
+                row.Add(num);
 
-                // Color swatch
-                int swatchIdx = (int)ball.color;
-                Rect sr = GUILayoutUtility.GetRect(16, 16, GUILayout.Width(16), GUILayout.Height(16));
-                if (_swatches != null && swatchIdx < _swatches.Length && _swatches[swatchIdx] != null)
-                    GUI.DrawTexture(new Rect(sr.x, sr.y + 1, 14, 14), _swatches[swatchIdx]);
+                var sw = new VisualElement();
+                sw.AddToClassList("cg-ballrow__swatch");
+                sw.style.backgroundColor = LevelCellPalette.Swatch(ball.color);
+                row.Add(sw);
 
-                // Color dropdown (None excluded → index 0 = Red)
-                int colorIdx = Mathf.Clamp((int)ball.color - 1, 0, BallColorNames.Length - 1);
-                colorIdx   = EditorGUILayout.Popup(colorIdx, BallColorNames, GUILayout.Width(68));
-                ball.color = (CellColor)(colorIdx + 1);
+                var colorDd = new DropdownField(new List<string>(BallColorNames), Mathf.Clamp((int)ball.color - 1, 0, BallColorNames.Length - 1));
+                colorDd.AddToClassList("cg-dd--color");
+                colorDd.RegisterValueChangedCallback(_ =>
+                {
+                    PushUndo();
+                    ball.color = (CellColor)(colorDd.index + 1);
+                    sw.style.backgroundColor = LevelCellPalette.Swatch(ball.color);
+                    AfterEdit();
+                });
+                row.Add(colorDd);
 
-                // Shape toggle: square sizes [1][2][3] (mutually exclusive with) [L]
+                var shapeDd = new DropdownField(new List<string>(BallShapeNames), Mathf.Clamp((int)ball.shape, 0, BallShapeNames.Length - 1));
+                shapeDd.AddToClassList("cg-dd--shape");
+                shapeDd.RegisterValueChangedCallback(_ =>
+                {
+                    PushUndo();
+                    ball.shape = (BallShape)shapeDd.index;
+                    RefreshBallList();   // power buttons enable/disable with L
+                    AfterEdit();
+                });
+                row.Add(shapeDd);
+
+                // Power scales every shape except L, whose arms run to the edges.
                 for (int p = 1; p <= 3; p++)
                 {
-                    GUI.backgroundColor = (ball.shape == BallShape.Square && ball.powerLevel == p)
-                        ? new Color(0.4f, 0.85f, 0.4f)
-                        : new Color(0.7f, 0.7f, 0.7f);
-                    if (GUILayout.Button(p.ToString(), EditorStyles.miniButton, GUILayout.Width(18)))
+                    int power = p;
+                    var pb = new Button(() =>
                     {
-                        ball.powerLevel = p;
-                        ball.shape      = BallShape.Square;
-                    }
+                        if (ball.powerLevel == power) return;
+                        PushUndo();
+                        ball.powerLevel = power;
+                        RefreshBallList();
+                        AfterEdit();
+                    }) { text = p.ToString() };
+                    pb.AddToClassList("cg-ballrow__power");
+                    pb.EnableInClassList("cg-ballrow__power--active", ball.powerLevel == p);
+                    pb.EnableInClassList("cg-ballrow__power--off", ball.shape == BallShape.L);
+                    pb.SetEnabled(ball.shape != BallShape.L);
+                    row.Add(pb);
                 }
-                GUI.backgroundColor = ball.shape == BallShape.L
-                    ? new Color(0.95f, 0.7f, 0.3f)
-                    : new Color(0.7f, 0.7f, 0.7f);
-                if (GUILayout.Button("L", EditorStyles.miniButton, GUILayout.Width(18)))
-                    ball.shape = BallShape.L;
-                GUI.backgroundColor = Color.white;
 
-                // Reorder
-                GUI.enabled = i > 0;
-                if (GUILayout.Button("↑", EditorStyles.miniButton, GUILayout.Width(18))) toMoveUp = i;
-                GUI.enabled = i < balls.Length - 1;
-                if (GUILayout.Button("↓", EditorStyles.miniButton, GUILayout.Width(18))) toMoveDown = i;
-                GUI.enabled = true;
+                var up = new Button(() => { PushUndo(); LevelEditOps.MoveBall(_level, idx, -1); RefreshBallList(); AfterEdit(); }) { text = "↑" };
+                up.AddToClassList("cg-ballrow__btn"); up.SetEnabled(i > 0); row.Add(up);
+                var down = new Button(() => { PushUndo(); LevelEditOps.MoveBall(_level, idx, +1); RefreshBallList(); AfterEdit(); }) { text = "↓" };
+                down.AddToClassList("cg-ballrow__btn"); down.SetEnabled(i < balls.Length - 1); row.Add(down);
+                var del = new Button(() => { PushUndo(); LevelEditOps.RemoveBall(_level, idx); RefreshBallList(); AfterEdit(); }) { text = "✕" };
+                del.AddToClassList("cg-ballrow__btn"); del.AddToClassList("cg-btn--danger"); row.Add(del);
 
-                // Delete
-                GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
-                if (GUILayout.Button("✕", EditorStyles.miniButton, GUILayout.Width(18))) toRemove = i;
-                GUI.backgroundColor = Color.white;
-
-                EditorGUILayout.EndHorizontal();
+                _ballList.Add(row);
             }
-
-            EditorGUILayout.EndScrollView();
-
-            // Apply deferred mutations
-            if (toRemove   >= 0)                              RemoveBall(toRemove);
-            if (toMoveUp   > 0)                               SwapBalls(toMoveUp,   toMoveUp   - 1);
-            if (toMoveDown >= 0 && toMoveDown < balls.Length - 1) SwapBalls(toMoveDown, toMoveDown + 1);
-
-            // Footer: per-color paint coverage
-            DrawQueueFooter(balls);
         }
 
-        // ── Color Requirements ────────────────────────────────────────────
-        // Shows grid cell count per color vs balls that cover each color.
-        // P1 ≈ 1 cell, P2 ≈ 4 cells, P3 ≈ 9 cells coverage estimate.
-        private void DrawColorRequirements()
+        // ═══════════════════════════════════════════════════════════════════
+        // Generate card — the same LevelBuilder the Produce tab runs
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindGenerateCard()
         {
-            _showReqs = EditorGUILayout.Foldout(_showReqs, "Color Requirements", true);
-            if (!_showReqs) return;
-
-            // Count grid cells per color
-            var cellCount = new Dictionary<CellColor, int>();
-            if (_level.cells != null)
-                foreach (var c in _level.cells)
-                    if (c.outlineColor != CellColor.None)
-                    {
-                        if (!cellCount.ContainsKey(c.outlineColor)) cellCount[c.outlineColor] = 0;
-                        cellCount[c.outlineColor]++;
-                    }
-
-            // Count balls per (color, powerLevel)
-            var ballCount = new Dictionary<(CellColor, int), int>();
-            if (_level.balls != null)
-                foreach (var b in _level.balls)
-                {
-                    var k = (b.color, b.powerLevel);
-                    if (!ballCount.ContainsKey(k)) ballCount[k] = 0;
-                    ballCount[k]++;
-                }
-
-            if (cellCount.Count == 0)
+            _genBandDd = Find<DropdownField>("gen-band");
+            if (_genBandDd != null)
             {
-                EditorGUILayout.LabelField("  (no colored cells)", EditorStyles.centeredGreyMiniLabel);
+                _genBandDd.choices = new List<string>(BandNames);
+                _genBandDd.index = Mathf.Clamp(_genBand, 0, 3);
+                _genBandDd.RegisterValueChangedCallback(_ => { _genBand = _genBandDd.index; RefreshGenerateCard(); });
+            }
+            _genSeedField = Find<IntegerField>("gen-seed");
+            _genSeedField?.SetValueWithoutNotify(_genSeed);
+            _genSeedField?.RegisterValueChangedCallback(e => _genSeed = e.newValue);
+            BindButton("gen-random", () => { _genSeed = UnityEngine.Random.Range(1, 999999); _genSeedField?.SetValueWithoutNotify(_genSeed); });
+            _genRecipe = Find<Label>("gen-recipe");
+            _genStatus = Find<Label>("gen-status");
+            BindButton("gen-build", GenerateIntoEditor);
+        }
+
+        private void RefreshGenerateCard()
+        {
+            var band = (LevelDifficulty)Mathf.Clamp(_genBand, 0, 3);
+            SetText(_genRecipe, _bands.For(band).Summary());
+        }
+
+        private void GenerateIntoEditor()
+        {
+            if (!ConfirmLeavingLevel("Generating replaces the open board and queue.")) return;
+            var band = (LevelDifficulty)Mathf.Clamp(_genBand, 0, 3);
+            var spec = _bands.For(band);
+            var built = LevelBuilder.TryBuild(spec, _genSeed, 12, out string error);
+            if (built == null)
+            {
+                SetText(_genStatus, "✕ " + error);
+                _genStatus?.AddToClassList("cg-danger");
                 return;
             }
-
-            // Coverage estimates per power level (P1=1, P2=4, P3=9 cells)
-            int[] coverage = { 0, 1, 4, 9 };
-
-            // Reuse one style per call — mutate color per row to avoid per-row alloc
-            var nameStyle = new GUIStyle(EditorStyles.miniLabel);
-            var iconStyle = new GUIStyle(EditorStyles.miniLabel);
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Label("Color", EditorStyles.miniLabel, GUILayout.Width(52));
-            GUILayout.Label("Cells", EditorStyles.miniLabel, GUILayout.Width(34));
-            GUILayout.Label("P1",    EditorStyles.miniLabel, GUILayout.Width(22));
-            GUILayout.Label("P2",    EditorStyles.miniLabel, GUILayout.Width(22));
-            GUILayout.Label("P3",    EditorStyles.miniLabel, GUILayout.Width(22));
-            GUILayout.Label("Est.",  EditorStyles.miniLabel, GUILayout.Width(28));
-            GUILayout.Label("",      EditorStyles.miniLabel);
-            EditorGUILayout.EndHorizontal();
-
-            foreach (var kv in cellCount)
-            {
-                CellColor col   = kv.Key;
-                int       cells = kv.Value;
-
-                int n1  = ballCount.TryGetValue((col, 1), out var c1) ? c1 : 0;
-                int n2  = ballCount.TryGetValue((col, 2), out var c2) ? c2 : 0;
-                int n3  = ballCount.TryGetValue((col, 3), out var c3) ? c3 : 0;
-                int est = n1 * coverage[1] + n2 * coverage[2] + n3 * coverage[3];
-
-                bool   ok      = est >= cells;
-                bool   warning = !ok && est >= cells * 0.5f;
-                string icon    = ok ? "✓" : (warning ? "⚠" : "✕");
-
-                Color32 c32  = GameConstants.GetColor(col);
-                Color   tint = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
-                Color   iconC = ok ? new Color(0.4f, 0.9f, 0.4f)
-                                   : (warning ? new Color(1f, 0.8f, 0.1f) : new Color(1f, 0.4f, 0.4f));
-
-                nameStyle.normal.textColor = tint;
-                iconStyle.normal.textColor = iconC;
-
-                EditorGUILayout.BeginHorizontal();
-                Rect sr = GUILayoutUtility.GetRect(10, 12, GUILayout.Width(10));
-                EditorGUI.DrawRect(new Rect(sr.x, sr.y + 2, 10, 10), tint);
-                GUILayout.Label(col.ToString(),  nameStyle, GUILayout.Width(42));
-                GUILayout.Label(cells.ToString(), EditorStyles.miniLabel, GUILayout.Width(34));
-                GUILayout.Label(n1.ToString(),    EditorStyles.miniLabel, GUILayout.Width(22));
-                GUILayout.Label(n2.ToString(),    EditorStyles.miniLabel, GUILayout.Width(22));
-                GUILayout.Label(n3.ToString(),    EditorStyles.miniLabel, GUILayout.Width(22));
-                GUILayout.Label(est.ToString(),   EditorStyles.miniLabel, GUILayout.Width(28));
-                GUILayout.Label(icon, iconStyle);
-                EditorGUILayout.EndHorizontal();
-            }
-
-            EditorGUILayout.EndVertical();
+            _genStatus?.RemoveFromClassList("cg-danger");
+            PushUndo();
+            string keepName = _level.metadata?.levelName;
+            _level = built;
+            LevelEditOps.Normalize(_level);
+            if (!string.IsNullOrEmpty(keepName) && keepName != "Untitled") _level.metadata.levelName = keepName;
+            _selection.Clear();
+            ResetPlayback();
+            RefreshEverything();
+            SetText(_genStatus, $"✓ Generated {band} (seed {_genSeed}) — {LevelEditOps.CountTargets(_level)} targets, {_level.balls.Length} balls. Unsaved until you save.");
         }
 
-        // ── Batch Add ─────────────────────────────────────────────────────
-        // Row 1: color + power selector
-        // Row 2: count + Add + SaveExport shortcut
-        private void DrawBatchAdd()
+        // ═══════════════════════════════════════════════════════════════════
+        // AI preview card
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindPlayCard()
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            // ── Row 1: Color + Power ──────────────────────────────────────
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Label("Color:", EditorStyles.miniLabel, GUILayout.Width(36));
-
-            int bIdx = Mathf.Clamp((int)_batchColor, 0, (_swatches?.Length ?? 0) - 1);
-            if (_swatches != null && bIdx >= 0 && bIdx < _swatches.Length && _swatches[bIdx] != null)
-            {
-                Rect sr = GUILayoutUtility.GetRect(13, 13, GUILayout.Width(13), GUILayout.Height(13));
-                GUI.DrawTexture(new Rect(sr.x, sr.y + 1, 13, 13), _swatches[bIdx]);
-            }
-            int colorIdx = Mathf.Clamp((int)_batchColor - 1, 0, BallColorNames.Length - 1);
-            colorIdx    = EditorGUILayout.Popup(colorIdx, BallColorNames, GUILayout.Width(72));
-            _batchColor = (CellColor)(colorIdx + 1);
-
-            GUILayout.Space(8);
-            GUILayout.Label("Power:", EditorStyles.miniLabel, GUILayout.Width(38));
-            for (int p = 1; p <= 3; p++)
-            {
-                GUI.backgroundColor = _batchPower == p
-                    ? new Color(0.3f, 0.8f, 0.4f)
-                    : new Color(0.65f, 0.65f, 0.65f);
-                if (GUILayout.Button($"P{p}", EditorStyles.miniButton, GUILayout.Width(26)))
-                    _batchPower = p;
-            }
-            GUI.backgroundColor = Color.white;
-            EditorGUILayout.EndHorizontal();
-
-            // ── Row 2: Count + Add ────────────────────────────────────────
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Label("Count:", EditorStyles.miniLabel, GUILayout.Width(40));
-            if (GUILayout.Button("-", EditorStyles.miniButton, GUILayout.Width(20)))
-                _batchCount = Mathf.Max(1, _batchCount - 1);
-            GUILayout.Label(_batchCount.ToString(), EditorStyles.miniLabel, GUILayout.Width(24));
-            if (GUILayout.Button("+", EditorStyles.miniButton, GUILayout.Width(20)))
-                _batchCount = Mathf.Min(50, _batchCount + 1);
-            _batchCount = EditorGUILayout.IntField(_batchCount, GUILayout.Width(32));
-            _batchCount = Mathf.Clamp(_batchCount, 1, 50);
-
-            GUILayout.FlexibleSpace();
-            GUI.backgroundColor = new Color(0.35f, 0.65f, 1f);
-            if (GUILayout.Button($"+ Add {_batchCount}", EditorStyles.miniButton, GUILayout.Width(70)))
-            {
-                StopPlay();
-                var list = new List<BallData>(_level.balls ?? System.Array.Empty<BallData>());
-                for (int i = 0; i < _batchCount; i++)
-                    list.Add(new BallData(_batchColor, _batchPower));
-                _level.balls = list.ToArray();
-                Repaint();
-            }
-            GUI.backgroundColor = Color.white;
-            EditorGUILayout.EndHorizontal();
-
-            // ── Save & Export shortcut ────────────────────────────────────
-            bool hasName = !string.IsNullOrEmpty(_level.metadata.levelName) &&
-                           _level.metadata.levelName != "Untitled";
-            EditorGUILayout.BeginHorizontal();
-            if (!hasName)
-            {
-                var warnStyle = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
-                    { normal = { textColor = new Color(1f, 0.7f, 0.2f) } };
-                GUILayout.Label("Set level name (toolbar) to export", warnStyle);
-            }
-            else
-            {
-                GUILayout.Label($"→ {_level.metadata.levelName}.json",
-                    EditorStyles.centeredGreyMiniLabel);
-            }
-            GUILayout.FlexibleSpace();
-            GUI.enabled = hasName;
-            GUI.backgroundColor = hasName ? new Color(0.4f, 0.9f, 0.5f) : Color.gray;
-            if (GUILayout.Button("Save & Export", EditorStyles.miniButton, GUILayout.Width(90)))
-            {
-                SaveFile();
-                ExportToResources();
-            }
-            GUI.backgroundColor = Color.white;
-            GUI.enabled = true;
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.EndVertical();
+            _playBtn    = BindButton("play-btn",  StartOrResumePlay);
+            _stopBtn    = BindButton("stop-btn",  PausePlay);
+            _resetBtn   = BindButton("reset-btn", ResetPlayback);
+            _playSpeed  = Find<Slider>("play-speed");
+            _playSpeed?.RegisterValueChangedCallback(e => _playStepDelay = Mathf.Lerp(0.80f, 0.04f, e.newValue));
+            _playStatus = Find<Label>("play-status");
+            if (_playSpeed != null) _playStepDelay = Mathf.Lerp(0.80f, 0.04f, _playSpeed.value);
         }
 
-        private void DrawQueueFooter(BallData[] balls)
-        {
-            var result = LevelValidator.Validate(_level);
-
-            // ── header bar: overall status ────────────────────────────────
-            Color headerBg = result.isValid
-                ? new Color(0.15f, 0.35f, 0.15f)
-                : new Color(0.38f, 0.15f, 0.15f);
-            string headerLabel = result.isValid
-                ? $"✓  Valid  —  {balls.Length} balls"
-                : $"✕  Invalid  —  {balls.Length} balls";
-
-            Rect hRect = EditorGUILayout.GetControlRect(GUILayout.Height(18));
-            EditorGUI.DrawRect(hRect, headerBg);
-            var headerStyle = new GUIStyle(EditorStyles.miniLabel)
-                { normal = { textColor = Color.white }, fontStyle = UnityEngine.FontStyle.Bold };
-            EditorGUI.LabelField(hRect, "  " + headerLabel, headerStyle);
-
-            // ── global errors ─────────────────────────────────────────────
-            if (result.globalErrors.Length > 0)
-            {
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                var errStyle = new GUIStyle(EditorStyles.miniLabel)
-                    { normal = { textColor = new Color(1f, 0.45f, 0.45f) }, wordWrap = true };
-                foreach (var err in result.globalErrors)
-                    GUILayout.Label("✕  " + err, errStyle);
-                EditorGUILayout.EndVertical();
-            }
-
-            // ── per-color rows ────────────────────────────────────────────
-            if (result.rows.Length > 0)
-            {
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                foreach (var row in result.rows)
-                {
-                    Color32 c32   = GameConstants.GetColor(row.color);
-                    Color   tint  = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
-
-                    string icon = row.severity switch
-                    {
-                        LevelValidator.Severity.OK      => "✓",
-                        LevelValidator.Severity.Warning => "⚠",
-                        _                               => "✕"
-                    };
-                    Color iconColor = row.severity switch
-                    {
-                        LevelValidator.Severity.OK      => new Color(0.4f, 0.9f, 0.4f),
-                        LevelValidator.Severity.Warning => new Color(1f,   0.8f, 0.1f),
-                        _                               => new Color(1f,   0.4f, 0.4f)
-                    };
-
-                    EditorGUILayout.BeginHorizontal();
-
-                    // Colored swatch square
-                    Rect sr = GUILayoutUtility.GetRect(10, 10, GUILayout.Width(10), GUILayout.Height(10));
-                    EditorGUI.DrawRect(new Rect(sr.x, sr.y + 3, 10, 10), tint);
-
-                    // Icon
-                    var iconStyle = new GUIStyle(EditorStyles.miniLabel)
-                        { normal = { textColor = iconColor } };
-                    GUILayout.Label(icon, iconStyle, GUILayout.Width(14));
-
-                    // Color name + note
-                    var nameStyle = new GUIStyle(EditorStyles.miniLabel)
-                        { normal = { textColor = tint } };
-                    GUILayout.Label(row.color.ToString(), nameStyle, GUILayout.Width(46));
-
-                    var noteStyle = new GUIStyle(EditorStyles.miniLabel)
-                        { normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }, wordWrap = true };
-                    GUILayout.Label(row.note, noteStyle);
-
-                    EditorGUILayout.EndHorizontal();
-                }
-                EditorGUILayout.EndVertical();
-            }
-        }
-
-        // ─── Ball Queue Helpers ───────────────────────────────────────────
-        private void AddBall()
-        {
-            StopPlay();
-            var list = new List<BallData>(_level.balls ?? System.Array.Empty<BallData>());
-            list.Add(new BallData(_paintColor != CellColor.None ? _paintColor : CellColor.Red, 1));
-            _level.balls = list.ToArray();
-            Repaint();
-        }
-
-        private void RemoveBall(int i)
-        {
-            StopPlay();
-            var list = new List<BallData>(_level.balls);
-            list.RemoveAt(i);
-            _level.balls = list.ToArray();
-            Repaint();
-        }
-
-        private void SwapBalls(int a, int b)
-        {
-            StopPlay();
-            var arr = _level.balls;
-            (arr[a], arr[b]) = (arr[b], arr[a]);
-            Repaint();
-        }
-
-        // ─── Shuffle ──────────────────────────────────────────────────────
-        // Fisher-Yates shuffle of the whole ball queue.
-        private void ShuffleBalls()
-        {
-            StopPlay();
-            var arr = _level.balls;
-            if (arr == null || arr.Length < 2) return;
-            var rng = new System.Random();
-            for (int i = arr.Length - 1; i > 0; i--)
-            {
-                int j = rng.Next(i + 1);
-                (arr[i], arr[j]) = (arr[j], arr[i]);
-            }
-            Repaint();
-        }
-
-        // ─── AI Auto-play ─────────────────────────────────────────────────
-        private void DrawAutoPlayBar()
-        {
-            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-
-            if (!_isPlaying)
-            {
-                GUI.backgroundColor = new Color(0.40f, 0.85f, 0.45f);
-                if (GUILayout.Button("▶ Play (AI)", EditorStyles.miniButton, GUILayout.Width(80)))
-                    StartPlay();
-            }
-            else
-            {
-                GUI.backgroundColor = new Color(1f, 0.55f, 0.40f);
-                if (GUILayout.Button("■ Stop", EditorStyles.miniButton, GUILayout.Width(80)))
-                    StopPlay();
-            }
-            GUI.backgroundColor = Color.white;
-
-            GUILayout.Label("Speed", EditorStyles.miniLabel, GUILayout.Width(38));
-            float speed = 1f - Mathf.InverseLerp(0.04f, 0.80f, _playStepDelay);   // 0 slow → 1 fast
-            speed = GUILayout.HorizontalSlider(speed, 0f, 1f, GUILayout.Width(64));
-            _playStepDelay = Mathf.Lerp(0.80f, 0.04f, speed);
-
-            if (_simActive && !_isPlaying &&
-                GUILayout.Button("Reset", EditorStyles.miniButton, GUILayout.Width(46)))
-                StopPlay();
-
-            GUILayout.FlexibleSpace();
-            EditorGUILayout.EndHorizontal();
-
-            if (!string.IsNullOrEmpty(_playStatus))
-            {
-                bool done = _simActive && !_isPlaying;
-                Color c = !done            ? new Color(0.80f, 0.80f, 0.80f)
-                        : _playPlan.solved ? new Color(0.45f, 0.90f, 0.45f)
-                                           : new Color(1f,    0.50f, 0.50f);
-                var st = new GUIStyle(EditorStyles.miniLabel)
-                    { normal = { textColor = c }, wordWrap = true };
-                GUILayout.Label(_playStatus, st);
-            }
-        }
-
-        private void StartPlay()
+        // The plan is computed once and cached; Stop pauses (overlay + cache
+        // stay, Play resumes); Reset drops both. Every edit resets. This is a
+        // purely visual preview of the greedy solver — it runs no runtime code.
+        private void StartOrResumePlay()
         {
             if (_isPlaying) return;
-
-            SyncCells();   // make sure _level.cells reflects in-editor paint edits
-            _playPlan = LevelAutoSolver.Solve(_level);
-
-            _simFilled.Clear();
-            _simCurrentArea.Clear();
-            _simLandX = _simLandY = -1;
-            _playIndex = 0;
-
-            if (_playPlan.totalColored == 0)
+            if (!_hasPlan)
             {
-                _simActive  = false;
-                _isPlaying  = false;
-                _playStatus = "No colored cells to solve.";
-                Repaint();
-                return;
+                _playPlan = LevelAutoSolver.Solve(_level);
+                _hasPlan  = true;
+                _playIndex = 0;
+                _simFilled.Clear(); _simHit.Clear();
+                _simLandX = _simLandY = -1;
+                if (_playPlan.totalColored == 0)
+                {
+                    SetText(_playStatus, "No paint targets to solve.");
+                    _hasPlan = false;
+                    return;
+                }
             }
-
-            _simActive  = true;
-            _isPlaying  = true;
-            _playStatus = $"Playing…  0/{_playPlan.moves.Count}";
-            _nextStepAt = EditorApplication.timeSinceStartup + _playStepDelay;
-            EditorApplication.update -= PlayTick;   // guard against double-registration
-            EditorApplication.update += PlayTick;
-            Repaint();
+            _simActive = true;
+            _isPlaying = true;
+            RefreshPlayButtons();
+            _playItem?.Pause();
+            _playItem = rootVisualElement.schedule.Execute(PlayTick).Every(Mathf.RoundToInt(_playStepDelay * 1000f));
         }
 
-        // Cancels playback (if any) and clears the display-only overlay.
+        private void PausePlay()
+        {
+            _isPlaying = false;
+            _playItem?.Pause();
+            RefreshPlayButtons();
+            SetText(_playStatus, $"Paused at {_playIndex}/{_playPlan.moves?.Count ?? 0} balls.");
+        }
+
         private void StopPlay()
         {
-            bool was = _isPlaying || _simActive;
             _isPlaying = false;
+            _playItem?.Pause();
+        }
+
+        private void ResetPlayback()
+        {
+            bool was = _simActive || _hasPlan;
+            StopPlay();
             _simActive = false;
-            EditorApplication.update -= PlayTick;
-            _simFilled.Clear();
-            _simCurrentArea.Clear();
+            _hasPlan   = false;
+            _simFilled.Clear(); _simHit.Clear();
             _simLandX = _simLandY = -1;
-            if (was) { _playStatus = ""; Repaint(); }
+            _grid?.SetPlayback(false, null, null, -1, -1);
+            RefreshPlayButtons();
+            if (was) SetText(_playStatus, "");
+        }
+
+        private void PlayTick()
+        {
+            if (!_isPlaying) return;
+            var moves = _playPlan.moves;
+            if (moves == null || _playIndex >= moves.Count) { FinishPlay(); return; }
+
+            var m = moves[_playIndex];
+            _simHit.Clear();
+            _simLandX = m.landX; _simLandY = m.landY;
+            if (!m.wasted)
+            {
+                if (m.hit    != null) foreach (var p in m.hit)    _simHit.Add((p.x, p.y));
+                if (m.filled != null) foreach (var p in m.filled) _simFilled.Add((p.x, p.y));
+            }
+            _playIndex++;
+            _grid.SetPlayback(true, _simFilled, _simHit, _simLandX, _simLandY);
+            SetText(_playStatus, $"Playing…  {_playIndex}/{moves.Count} balls   ({_simFilled.Count}/{_playPlan.totalColored} cells)");
+
+            // Speed slider moved mid-run → re-arm at the new cadence.
+            int ms = Mathf.RoundToInt(_playStepDelay * 1000f);
+            _playItem?.Pause();
+            _playItem = rootVisualElement.schedule.Execute(PlayTick).Every(ms);
         }
 
         private void FinishPlay()
         {
             _isPlaying = false;
-            EditorApplication.update -= PlayTick;
-            _simCurrentArea.Clear();
-            _simLandX = _simLandY = -1;
+            _playItem?.Pause();
+            _simHit.Clear(); _simLandX = _simLandY = -1;
+            _grid.SetPlayback(true, _simFilled, null, -1, -1);
+            RefreshPlayButtons();
 
             var p = _playPlan;
             if (p.solved)
             {
                 int used = p.totalBalls - p.leftoverTotal;
-                _playStatus = p.leftoverTotal > 0
-                    ? $"✓ SOLVED — used {used}/{p.totalBalls} balls.  Leftover ({p.leftoverTotal}): {FormatLeftover(p.leftover)}"
-                    : $"✓ SOLVED — used all {p.totalBalls} balls, none left over.";
+                SetText(_playStatus, p.leftoverTotal > 0
+                    ? $"✓ SOLVED — used {used}/{p.totalBalls} balls, {p.leftoverTotal} left over."
+                    : $"✓ SOLVED — used all {p.totalBalls} balls.");
+            }
+            else
+                SetText(_playStatus, $"✗ FAILED — {p.remaining}/{p.totalColored} cells left after {p.totalBalls} balls (greedy, authored order).");
+        }
+
+        private void RefreshPlayButtons()
+        {
+            SetDisplayed(_playBtn,  !_isPlaying);
+            SetDisplayed(_stopBtn,  _isPlaying);
+            SetDisplayed(_resetBtn, _simActive && !_isPlaying);
+            if (_playBtn != null) _playBtn.text = _hasPlan && !_isPlaying && _simActive ? "▶ Resume" : "▶ Play";
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Status card (validator + solver + quick sweep pointer)
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindStatusCard()
+        {
+            _statusHeader   = Find<Label>("status-header");
+            _statusErrors   = Find<VisualElement>("status-errors");
+            _statusWarnings = Find<VisualElement>("status-warnings");
+            _statusRows     = Find<VisualElement>("status-rows");
+            _statusQuick    = Find<VisualElement>("status-quick");
+        }
+
+        // Validation walks the board per ball kind; fine per click, wasteful per
+        // dragged cell — so edits queue one refresh a beat later.
+        private void QueueStatus()
+        {
+            _statusItem?.Pause();
+            _statusItem = rootVisualElement.schedule.Execute(RefreshStatusNow).StartingIn(120);
+        }
+
+        private void RefreshStatusNow()
+        {
+            if (_statusRows == null || _statusErrors == null || _statusWarnings == null || _statusQuick == null) return;
+            var v = LevelValidator.Validate(_level);
+            var s = LevelAutoSolver.Solve(_level);
+
+            bool ok = v.isValid && s.solved;
+            SetText(_statusHeader, ok ? "✓ Valid — greedy solver clears it" : v.isValid ? "⚠ Valid, but the greedy solver could not clear it" : "✕ Invalid");
+            _statusHeader?.EnableInClassList("cg-status__header--ok", ok);
+            _statusHeader?.EnableInClassList("cg-status__header--bad", !v.isValid);
+
+            _statusErrors.Clear();
+            foreach (var e in v.globalErrors) _statusErrors.Add(Msg("✕  " + e, "cg-msg--error"));
+            if (!s.solved && s.totalColored > 0)
+                _statusErrors.Add(Msg($"⚠  Greedy solver left {s.remaining}/{s.totalColored} cells in the authored order.", "cg-msg--warn"));
+
+            _statusWarnings.Clear();
+            foreach (var w in v.globalWarnings) _statusWarnings.Add(Msg("⚠  " + w, "cg-msg--warn"));
+
+            _statusRows.Clear();
+            foreach (var row in v.rows)
+            {
+                var r = new VisualElement();
+                r.AddToClassList("cg-status");
+                var dot = new VisualElement();
+                dot.AddToClassList("cg-status__dot");
+                dot.style.backgroundColor = row.isWild ? new Color(1f, 0.95f, 0.62f) : LevelCellPalette.Swatch(row.color);
+                r.Add(dot);
+                var icon = new Label(row.severity == LevelValidator.Severity.OK ? "✓" : row.severity == LevelValidator.Severity.Warning ? "⚠" : "✕");
+                icon.AddToClassList("cg-status__icon");
+                icon.AddToClassList(row.severity == LevelValidator.Severity.OK ? "cg-ok" : row.severity == LevelValidator.Severity.Warning ? "cg-warning" : "cg-danger");
+                r.Add(icon);
+                var name = new Label(row.isWild ? "Joker" : row.color.ToString());
+                name.AddToClassList("cg-status__name");
+                r.Add(name);
+                var note = new Label(row.note);
+                note.AddToClassList("cg-status__note");
+                r.Add(note);
+                _statusRows.Add(r);
+            }
+
+            // Quick card: only the band bot's outcome bar + verdict from the last
+            // sweep of THIS level; the full explanation lives in the Solving tab.
+            _statusQuick.Clear();
+            if (_lastSweep.TryGetValue(CurrentLevelName(), out var res))
+            {
+                _statusQuick.Add(LevelSolvingTabController.BuildQuickCard(res));
             }
             else
             {
-                _playStatus = $"✗ FAILED — {p.remaining}/{p.totalColored} cells left after {p.totalBalls} balls (greedy AI).";
-            }
-            Repaint();
-        }
-
-        // "Red P1(2×2)×3, Blue P2(3×3)×2" — leftover balls by colour, power and paint size.
-        private static string FormatLeftover(LevelAutoSolver.BallCount[] groups)
-        {
-            if (groups == null || groups.Length == 0) return "—";
-            var sb = new System.Text.StringBuilder();
-            for (int i = 0; i < groups.Length; i++)
-            {
-                var g  = groups[i];
-                int sz = GameConstants.GetPaintSize(g.power);
-                if (i > 0) sb.Append(", ");
-                sb.Append(g.color).Append(" P").Append(g.power)
-                  .Append('(').Append(sz).Append('×').Append(sz).Append(")×").Append(g.count);
-            }
-            return sb.ToString();
-        }
-
-        // Driven by EditorApplication.update — advances one ball per step delay.
-        private void PlayTick()
-        {
-            if (!_isPlaying) return;
-            if (EditorApplication.timeSinceStartup < _nextStepAt) return;
-
-            var moves = _playPlan.moves;
-            if (moves == null || _playIndex >= moves.Count) { FinishPlay(); return; }
-
-            var m = moves[_playIndex];
-            _simCurrentArea.Clear();
-            _simLandX = m.landX;
-            _simLandY = m.landY;
-            if (!m.wasted && m.filled != null)
-                foreach (var pt in m.filled)
-                {
-                    _simFilled.Add((pt.x, pt.y));
-                    _simCurrentArea.Add((pt.x, pt.y));
-                }
-
-            _playIndex++;
-            _playStatus = $"Playing…  {_playIndex}/{moves.Count} balls   " +
-                          $"({_simFilled.Count}/{_playPlan.totalColored} cells)";
-            _nextStepAt = EditorApplication.timeSinceStartup + _playStepDelay;
-            Repaint();
-        }
-
-        // ─── Cell Rendering ───────────────────────────────────────────────
-        private void DrawCell(Rect rect, int x, int y)
-        {
-            _cellDict.TryGetValue((x, y), out var cell);
-            CellColor color = cell?.outlineColor ?? CellColor.None;
-            // During AI playback the overlay marks cells the AI has filled.
-            bool filled     = (cell?.isFilled ?? false) ||
-                              (_simActive && _simFilled.Contains((x, y)));
-
-            if (color == CellColor.None)
-            {
-                EditorGUI.DrawRect(rect, new Color(0.22f, 0.22f, 0.22f));
-                float cx = rect.x + rect.width  * 0.5f - 1;
-                float cy = rect.y + rect.height * 0.5f - 1;
-                EditorGUI.DrawRect(new Rect(cx, cy, 2, 2), new Color(0.3f, 0.3f, 0.3f));
-            }
-            else
-            {
-                Color32 c32 = GameConstants.GetColor(color);
-                Color   col = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
-
-                if (filled)
-                {
-                    EditorGUI.DrawRect(rect, col);
-                }
-                else
-                {
-                    int border = Mathf.Max(2, _cellPx / 10);
-                    EditorGUI.DrawRect(rect, col);
-                    EditorGUI.DrawRect(new Rect(rect.x + border, rect.y + border,
-                                                rect.width  - border * 2,
-                                                rect.height - border * 2),
-                                       new Color(0.17f, 0.17f, 0.17f));
-                }
-            }
-
-            if (_selection.Contains((x, y)))
-                EditorGUI.DrawRect(rect, new Color(0.3f, 0.6f, 1f, 0.35f));
-
-            // AI playback overlays: flash the just-painted block + mark the landing cell.
-            if (_simActive)
-            {
-                if (_simCurrentArea.Contains((x, y)))
-                    EditorGUI.DrawRect(rect, new Color(1f, 1f, 1f, 0.45f));
-                if (x == _simLandX && y == _simLandY)
-                    EditorGUI.DrawRect(rect, new Color(1f, 0.85f, 0.10f, 0.55f));
-            }
-
-            if (x == _hoverX && y == _hoverY)
-                EditorGUI.DrawRect(rect, new Color(1f, 1f, 1f, 0.10f));
-        }
-
-        // ─── Mouse / Tool Dispatch ────────────────────────────────────────
-        protected virtual void HandleGridMouseEvent(Rect viewportRect)
-        {
-            Event e = Event.current;
-
-            // Grid editing is locked while the AI is stepping through a level.
-            if (_isPlaying) { _hoverX = _hoverY = -1; return; }
-
-            // A click to edit clears a finished AI preview so the board is live again.
-            if (_simActive && e.type == EventType.MouseDown && e.button == 0 &&
-                viewportRect.Contains(e.mousePosition))
-                StopPlay();
-
-            // Outside the scroll view, e.mousePosition is in window space.
-            // Convert to content space: subtract viewport origin, add scroll offset.
-            Vector2 content = e.mousePosition - viewportRect.position + _scrollPos;
-            int cx = Mathf.FloorToInt((content.x - 2) / _cellPx);
-            int cy = Mathf.FloorToInt((content.y - 2) / _cellPx);
-            bool inside = viewportRect.Contains(e.mousePosition) &&
-                          cx >= 0 && cx < _level.grid.width &&
-                          cy >= 0 && cy < _level.grid.height;
-
-            _hoverX = inside ? cx : -1;
-            _hoverY = inside ? cy : -1;
-
-            switch (e.type)
-            {
-                case EventType.MouseDown when e.button == 0:
-                    _mouseWasDown = true;
-                    if (inside) { OnCellAction(cx, cy, first: true); e.Use(); }
-                    break;
-
-                case EventType.MouseDrag when e.button == 0 && _mouseWasDown:
-                    if (inside) OnCellAction(cx, cy, first: false);
-                    e.Use();
-                    Repaint();
-                    break;
-
-                case EventType.MouseUp when e.button == 0:
-                    if (_mouseWasDown)
-                    {
-                        if (_isRectDragging) CommitRectSelect();
-                        _mouseWasDown   = false;
-                        _isRectDragging = false;
-                    }
-                    e.Use();
-                    Repaint();
-                    break;
-
-                case EventType.MouseMove:
-                    Repaint();
-                    break;
+                var hint = new Label("No sweep yet for this level — run one in the Solving tab to measure its difficulty.");
+                hint.AddToClassList("cg-note"); hint.AddToClassList("cg-dim");
+                hint.style.marginTop = 6;
+                _statusQuick.Add(hint);
             }
         }
 
-        private void OnCellAction(int x, int y, bool first)
+        private static Label Msg(string text, string cls)
         {
-            switch (_activeTool)
-            {
-                case EditTool.Paint:
-                    SetCell(x, y, _paintColor);
-                    break;
-
-                case EditTool.Erase:
-                    SetCell(x, y, CellColor.None);
-                    break;
-
-                case EditTool.Fill:
-                    if (first) FloodFill(x, y);
-                    break;
-
-                case EditTool.Brush:
-                    ApplyBrush(x, y);
-                    break;
-
-                case EditTool.RectSelect:
-                    if (first) { _rectX0 = _rectX1 = x; _rectY0 = _rectY1 = y; _isRectDragging = true; }
-                    else        { _rectX1 = x; _rectY1 = y; }
-                    break;
-
-                case EditTool.MultiSelect:
-                    if (first)
-                    {
-                        if (_selection.Contains((x, y))) _selection.Remove((x, y));
-                        else _selection.Add((x, y));
-                        Repaint();
-                    }
-                    break;
-            }
+            var l = new Label(text);
+            l.AddToClassList("cg-msg");
+            l.AddToClassList(cls);
+            return l;
         }
 
-        // ─── Tool Implementations ─────────────────────────────────────────
-        private void SetCell(int x, int y, CellColor color)
+        // ═══════════════════════════════════════════════════════════════════
+        // File card
+        // ═══════════════════════════════════════════════════════════════════
+        private void BindFileCard()
         {
-            if (!_cellDict.TryGetValue((x, y), out var cell))
-            {
-                cell = new CellData(x, y, color);
-                _cellDict[(x, y)] = cell;
-            }
-            else
-            {
-                cell.outlineColor = color;
-            }
-            SyncCells();
-            Repaint();
+            _savePath  = Find<Label>("save-path");
+            _saveFresh = Find<Label>("save-fresh");
+            BindButton("save-btn",      () => SaveFile());
+            BindButton("save-as-btn",   SaveFileAs);
+            BindButton("duplicate-btn", DuplicateLevel);
+            BindButton("new-btn",       () => { if (ConfirmLeavingLevel("You are starting a new level.")) NewLevel(); });
+            BindButton("open-btn",      OpenFile);
+            BindButton("import-btn",    ImportImage);
+            _importThreshold = Find<Slider>("import-threshold");
+            _importThreshold?.SetValueWithoutNotify(_importThresholdValue);
+            _importThreshold?.RegisterValueChangedCallback(e => { _importThresholdValue = e.newValue; if (_importTex != null) ApplyImport(); });
+            _importFile  = Find<Label>("import-file");
+            _importClear = BindButton("import-clear", ClearImport);
         }
 
-        private void ApplyBrush(int cx, int cy)
+        private void RefreshFileCard()
         {
-            for (int dy = -_brushRadius; dy <= _brushRadius; dy++)
-                for (int dx = -_brushRadius; dx <= _brushRadius; dx++)
-                {
-                    int x = cx + dx, y = cy + dy;
-                    if (x < 0 || x >= _level.grid.width || y < 0 || y >= _level.grid.height) continue;
-                    if (_cellDict.TryGetValue((x, y), out var cell))
-                        cell.outlineColor = _paintColor;
-                    else
-                        _cellDict[(x, y)] = new CellData(x, y, _paintColor);
-                }
-            SyncCells();
-            Repaint();
+            string name = _level.metadata?.levelName;
+            bool hasName = !string.IsNullOrEmpty(name) && name != "Untitled";
+            SetText(_savePath, !string.IsNullOrEmpty(_filePath)
+                ? "→ " + Path.Combine("Resources/Levels", Path.GetFileName(_filePath))
+                : hasName ? $"→ Resources/Levels/{name}.json (not saved yet)" : "Set a level name to save.");
+
+            bool dirty = IsDirty();
+            bool stale = IsDiskStale();
+            string fresh = dirty ? "● Unsaved changes — the game is still loading the last saved version."
+                         : stale ? "● The file on disk changed since it was opened (Produce run or external edit). Re-open to see it."
+                         : string.IsNullOrEmpty(_filePath) ? "" : "✓ Saved — the game loads exactly this.";
+            SetText(_saveFresh, fresh);
+            _saveFresh?.EnableInClassList("cg-warning", dirty || stale);
+            _saveFresh?.EnableInClassList("cg-ok", !dirty && !stale);
+
+            SetText(_importFile, string.IsNullOrEmpty(_importPath) ? "" : Path.GetFileName(_importPath));
+            SetDisplayed(_importClear, !string.IsNullOrEmpty(_importPath));
+            SetDisplayed(_importThreshold, !string.IsNullOrEmpty(_importPath));
         }
 
-        private void FloodFill(int startX, int startY)
+        private void NewLevel()
         {
-            if (!_cellDict.TryGetValue((startX, startY), out var start)) return;
-            CellColor target = start.outlineColor;
-            if (target == _paintColor) return;
-
-            var queue   = new Queue<(int, int)>();
-            var visited = new HashSet<(int, int)>();
-            queue.Enqueue((startX, startY));
-            visited.Add((startX, startY));
-
-            int[] ddx = {  0,  0, -1, 1 };
-            int[] ddy = { -1,  1,  0, 0 };
-
-            while (queue.Count > 0)
-            {
-                var (x, y) = queue.Dequeue();
-                if (_cellDict.TryGetValue((x, y), out var cell))
-                    cell.outlineColor = _paintColor;
-
-                for (int d = 0; d < 4; d++)
-                {
-                    int nx = x + ddx[d], ny = y + ddy[d];
-                    if (nx < 0 || nx >= _level.grid.width || ny < 0 || ny >= _level.grid.height) continue;
-                    if (visited.Contains((nx, ny))) continue;
-                    if (!_cellDict.TryGetValue((nx, ny), out var nc) || nc.outlineColor != target) continue;
-                    visited.Add((nx, ny));
-                    queue.Enqueue((nx, ny));
-                }
-            }
-
-            SyncCells();
-            Repaint();
-        }
-
-        private void PaintSelection()
-        {
-            foreach (var (x, y) in _selection)
-                if (_cellDict.TryGetValue((x, y), out var cell))
-                    cell.outlineColor = _paintColor;
-            SyncCells();
-            Repaint();
-        }
-
-        private void EraseSelection()
-        {
-            foreach (var (x, y) in _selection)
-                if (_cellDict.TryGetValue((x, y), out var cell))
-                    cell.outlineColor = CellColor.None;
-            SyncCells();
-            Repaint();
-        }
-
-        private void CommitRectSelect()
-        {
-            int minX = Mathf.Clamp(Mathf.Min(_rectX0, _rectX1), 0, _level.grid.width  - 1);
-            int maxX = Mathf.Clamp(Mathf.Max(_rectX0, _rectX1), 0, _level.grid.width  - 1);
-            int minY = Mathf.Clamp(Mathf.Min(_rectY0, _rectY1), 0, _level.grid.height - 1);
-            int maxY = Mathf.Clamp(Mathf.Max(_rectY0, _rectY1), 0, _level.grid.height - 1);
-            _selection.Clear();
-            for (int y = minY; y <= maxY; y++)
-                for (int x = minX; x <= maxX; x++)
-                    _selection.Add((x, y));
-        }
-
-        // Rebuilds _level.cells from _cellDict (needed when new cells are added mid-session).
-        private void SyncCells()
-        {
-            var arr = new CellData[_cellDict.Count];
-            int i   = 0;
-            foreach (var kv in _cellDict) arr[i++] = kv.Value;
-            _level.cells = arr;
-        }
-
-        // ─── Status Bar ───────────────────────────────────────────────────
-        private void DrawStatusBar()
-        {
-            int colored = 0;
-            if (_level.cells != null)
-                foreach (var c in _level.cells)
-                    if (c.outlineColor != CellColor.None) colored++;
-
-            string hover    = _hoverX >= 0 ? $"  |  ({_hoverX},{_hoverY})" : "";
-            string sel      = _selection.Count > 0 ? $"  |  {_selection.Count} selected" : "";
-            string fileName = string.IsNullOrEmpty(_filePath) ? "unsaved" : Path.GetFileName(_filePath);
-
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            GUILayout.Label(
-                $"{_level.grid.width}×{_level.grid.height}  |  {colored} colored  |  " +
-                $"{_level.balls?.Length ?? 0} balls  |  {fileName}{hover}{sel}",
-                EditorStyles.miniLabel);
-            EditorGUILayout.EndHorizontal();
-        }
-
-        // ─── Level Operations ─────────────────────────────────────────────
-        protected void NewLevel()
-        {
-            _level    = new LevelData();
+            _level = new LevelData();
+            LevelEditOps.Normalize(_level);
             _filePath = null;
-            _pendingW = _level.grid.width;
-            _pendingH = _level.grid.height;
+            _savedJson = LevelSerializer.ToJson(_level);
+            _undo.Clear(); _redo.Clear();
             _selection.Clear();
-            RebuildCellDict();
-            Repaint();
+            ClearImport();
+            ResetPlayback();
+            RefreshEverything();
         }
 
-        protected void ApplyGridSize()
+        private bool LoadFromPath(string path)
         {
-            var newCells = new List<CellData>();
-            for (int y = 0; y < _pendingH; y++)
-                for (int x = 0; x < _pendingW; x++)
-                {
-                    if (_cellDict.TryGetValue((x, y), out var existing))
-                        newCells.Add(existing);
-                    else
-                        newCells.Add(new CellData(x, y, CellColor.None));
-                }
-            _level.grid.width  = _pendingW;
-            _level.grid.height = _pendingH;
-            _level.cells       = newCells.ToArray();
-            RebuildCellDict();
-            Repaint();
-        }
-
-        protected void RebuildCellDict()
-        {
-            StopPlay();   // any AI preview belongs to the old grid — drop it
-            _level.camera ??= new CameraConfig();   // older levels predate this field
-            _cellDict.Clear();
-            if (_level.cells == null) return;
-            foreach (var cell in _level.cells)
-                _cellDict[(cell.gridX, cell.gridY)] = cell;
-        }
-
-        // ─── Image Import ─────────────────────────────────────────────────
-        private void ImportImage()
-        {
-            string path = EditorUtility.OpenFilePanelWithFilters(
-                "Import Image", "",
-                new[] { "Image files", "png,jpg,jpeg", "All files", "*" });
-            if (!string.IsNullOrEmpty(path)) ImportImageFromPath(path);
-        }
-
-        private void ImportImageFromPath(string path)
-        {
-            // Load and cache — only re-read disk when the path changes.
-            if (_lastImportedImagePath != path || _cachedImportTex == null)
+            var loaded = LevelSerializer.Load(path);
+            if (loaded == null)
             {
-                if (_cachedImportTex != null) DestroyImmediate(_cachedImportTex);
-                _cachedImportTex = ImageImportUtility.LoadTexture(path);
-                if (_cachedImportTex == null)
-                {
-                    EditorUtility.DisplayDialog("Import Failed", $"Could not read image:\n{path}", "OK");
-                    return;
-                }
-                _lastImportedImagePath = path;
+                EditorUtility.DisplayDialog("Load failed", $"Could not parse level file:\n{path}", "OK");
+                return false;
             }
-
-            ApplyImportThreshold();
-            Debug.Log($"[LevelEditor] Imported {Path.GetFileName(path)} → {_level.grid.width}×{_level.grid.height}");
+            LevelEditOps.Normalize(loaded);
+            _level     = loaded;
+            _filePath  = path;
+            _savedJson = LevelSerializer.ToJson(_level);
+            _undo.Clear(); _redo.Clear();
+            _selection.Clear();
+            ClearImport();
+            ResetPlayback();
+            _browser.Refresh(_filePath);
+            RefreshEverything();
+            return true;
         }
 
-        // Re-applies the cached texture with the current threshold — called on every slider change.
-        private void ApplyImportThreshold()
+        private void OpenFile()
         {
-            if (_cachedImportTex == null) return;
-            if (_level.cells == null || _level.cells.Length != _level.grid.width * _level.grid.height)
-                ApplyGridSize();
-            ImageImportUtility.ImportImageToGrid(_level, _cachedImportTex, _importThreshold);
-            RebuildCellDict();
-            Repaint();
+            string path = EditorUtility.OpenFilePanelWithFilters("Open level or import image", EditorConstants.LevelsAbsoluteFolder,
+                new[] { "Level & image files", "json,png,jpg,jpeg", "Level files", "json", "Image files", "png,jpg,jpeg" });
+            if (string.IsNullOrEmpty(path)) return;
+            if (IsImagePath(path)) { ImportImageFromPath(path); return; }
+            if (!ConfirmLeavingLevel("You are opening another level.")) return;
+            LoadFromPath(path);
         }
 
-        private void ClearImportCache()
+        // Saving IS publishing (Resources/Levels is what the game loads), so the
+        // validator and the greedy solver both run here as a confirmation — not a
+        // hard block, since saving work in progress is legitimate.
+        private bool SaveFile()
         {
-            if (_cachedImportTex != null) DestroyImmediate(_cachedImportTex);
-            _cachedImportTex       = null;
-            _lastImportedImagePath = null;
-            Repaint();
+            if (string.IsNullOrEmpty(_filePath)) { SaveFileAs(); return !string.IsNullOrEmpty(_filePath) && !IsDirty(); }
+            if (!ConfirmSaveIfUnsound()) return false;
+
+            // The file stem is the level's identity (LevelLoader, PlayerPrefs) —
+            // keep the metadata name in step so the two never disagree.
+            _level.metadata.levelName = Path.GetFileNameWithoutExtension(_filePath);
+            LevelSerializer.Save(_level, _filePath);
+            AssetDatabase.Refresh();   // re-import so Resources.Load sees the change
+            _savedJson = LevelSerializer.ToJson(_level);
+            _browser.Refresh(_filePath);
+            _galleryTab?.MarkStale();
+            _solvingTab?.InvalidateCatalog();
+            RefreshEverything();
+            Debug.Log($"[LevelEditor] Saved → {_filePath}");
+            return true;
         }
 
+        private void SaveFileAs()
+        {
+            string def  = !string.IsNullOrEmpty(_level.metadata.levelName) && _level.metadata.levelName != "Untitled"
+                ? _level.metadata.levelName : NextFreeLevelName();
+            string path = EditorUtility.SaveFilePanel("Save level", EditorConstants.LevelsAbsoluteFolder, def, "json");
+            if (string.IsNullOrEmpty(path)) return;
+
+            string prev = _filePath;
+            _filePath = path;
+            if (!SaveFile()) _filePath = prev;   // backed out at the gate — don't adopt the new path
+        }
+
+        private static string NextFreeLevelName()
+        {
+            int n = 1;
+            while (LevelCatalog.Exists(n)) n++;
+            return EditorConstants.LevelFileName(n);
+        }
+
+        private bool ConfirmSaveIfUnsound()
+        {
+            var result = LevelValidator.Validate(_level);
+            var solve  = LevelAutoSolver.Solve(_level);
+            if (result.isValid && solve.solved) return true;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"\"{Path.GetFileNameWithoutExtension(_filePath)}\" did not pass validation:").AppendLine();
+            foreach (var err in result.globalErrors) sb.AppendLine($"  ✕  {err}");
+            foreach (var row in result.rows)
+                if (row.severity == LevelValidator.Severity.Error) sb.AppendLine($"  ✕  {row.color}: {row.note}");
+            if (!solve.solved)
+                sb.AppendLine($"  ✕  Auto-solver could not clear it — {solve.remaining} of {solve.totalColored} cells left unpainted");
+            foreach (var warn in result.globalWarnings) sb.AppendLine($"  ⚠  {warn}");
+            foreach (var row in result.rows)
+                if (row.severity == LevelValidator.Severity.Warning) sb.AppendLine($"  ⚠  {row.color}: {row.note}");
+            sb.AppendLine().Append("Save anyway?");
+            return EditorUtility.DisplayDialog("Level did not validate", sb.ToString(), "Save anyway", "Cancel");
+        }
+
+        private void DuplicateLevel()
+        {
+            string def  = NextFreeLevelName();
+            string path = EditorUtility.SaveFilePanel("Duplicate level", EditorConstants.LevelsAbsoluteFolder, def, "json");
+            if (string.IsNullOrEmpty(path)) return;
+            var copy = LevelSerializer.FromJson(LevelSerializer.ToJson(_level));
+            copy.metadata.levelName = Path.GetFileNameWithoutExtension(path);
+            LevelSerializer.Save(copy, path);
+            AssetDatabase.Refresh();
+            _browser.Refresh(_filePath);
+            _galleryTab?.MarkStale();
+            _solvingTab?.InvalidateCatalog();
+            RefreshTitlebar();
+            Debug.Log($"[LevelEditor] Duplicated → {path}");
+        }
+
+        // ── Image import ──────────────────────────────────────────────────
         private static bool IsImagePath(string path)
         {
             string ext = Path.GetExtension(path).ToLowerInvariant();
             return ext == ".png" || ext == ".jpg" || ext == ".jpeg";
         }
 
-        // ─── File I/O ─────────────────────────────────────────────────────
-        private void OpenFile()
+        private void ImportImage()
         {
-            // Accept both level files and images in one picker.
-            string path = EditorUtility.OpenFilePanelWithFilters(
-                "Open Level or Import Image", LevelDirectory(),
-                new[] { "Level & Image files", "json,png,jpg,jpeg",
-                        "Level files", "json",
-                        "Image files", "png,jpg,jpeg" });
-            if (string.IsNullOrEmpty(path)) return;
+            string path = EditorUtility.OpenFilePanelWithFilters("Import image", "", new[] { "Image files", "png,jpg,jpeg", "All files", "*" });
+            if (!string.IsNullOrEmpty(path)) ImportImageFromPath(path);
+        }
 
-            if (IsImagePath(path))
+        private void ImportImageFromPath(string path)
+        {
+            if (_importPath != path || _importTex == null)
             {
-                ImportImageFromPath(path);
-                return;
+                if (_importTex != null) DestroyImmediate(_importTex);
+                _importTex = ImageImportUtility.LoadTexture(path);
+                if (_importTex == null)
+                {
+                    EditorUtility.DisplayDialog("Import failed", $"Could not read image:\n{path}", "OK");
+                    return;
+                }
+                _importPath = path;
             }
+            PushUndo();
+            ApplyImport();
+        }
 
-            var loaded = LevelSerializer.Load(path);
-            if (loaded == null)
-            {
-                EditorUtility.DisplayDialog("Load Failed",
-                    $"Could not parse level file:\n{path}", "OK");
-                return;
-            }
-            _level    = loaded;
-            _filePath = path;
-            _pendingW = _level.grid.width;
-            _pendingH = _level.grid.height;
+        // Re-applied on every threshold change — the texture is cached.
+        private void ApplyImport()
+        {
+            if (_importTex == null) return;
+            ImageImportUtility.ImportImageToGrid(_level, _importTex, _importThresholdValue);
+            LevelEditOps.Normalize(_level);
             _selection.Clear();
-            RebuildCellDict();
-            Repaint();
+            ResetPlayback();
+            RefreshEverything();
         }
 
-        private void SaveFile()
+        private void ClearImport()
         {
-            if (string.IsNullOrEmpty(_filePath)) { SaveFileAs(); return; }
-            LevelSerializer.Save(_level, _filePath);
-            Debug.Log($"[LevelEditor] Saved → {_filePath}");
+            if (_importTex != null) DestroyImmediate(_importTex);
+            _importTex  = null;
+            _importPath = null;
+            RefreshFileCard();
         }
 
-        private void SaveFileAs()
+        // ═══════════════════════════════════════════════════════════════════
+        // Full refresh
+        // ═══════════════════════════════════════════════════════════════════
+        private void RefreshEverything()
         {
-            string def  = _level.metadata.levelName.Length > 0 ? _level.metadata.levelName : "level";
-            string path = EditorUtility.SaveFilePanel("Save Level", LevelDirectory(), def, "json");
-            if (string.IsNullOrEmpty(path)) return;
-            _filePath = path;
-            SaveFile();
-        }
-
-        private void DuplicateLevel()
-        {
-            string def  = _level.metadata.levelName.Length > 0
-                ? _level.metadata.levelName + "_copy"
-                : "level_copy";
-            string path = EditorUtility.SaveFilePanel("Duplicate Level", LevelDirectory(), def, "json");
-            if (string.IsNullOrEmpty(path)) return;
-
-            // Save to new path but keep working on the original
-            LevelSerializer.Save(_level, path);
-            Debug.Log($"[LevelEditor] Duplicated → {path}");
-            RefreshBrowser();
-        }
-
-        // Exports to Resources/Levels so the runtime (and Android builds) can load
-        // it via Resources.Load. Resources works on every platform; StreamingAssets
-        // file IO does not on Android.
-        private void ExportToResources()
-        {
-            if (string.IsNullOrEmpty(_level.metadata.levelName) ||
-                _level.metadata.levelName == "Untitled")
-            {
-                EditorUtility.DisplayDialog("Export Failed",
-                    "Set a level name before exporting.", "OK");
-                return;
-            }
-
-            string dir  = Path.Combine(Application.dataPath, "Resources", "Levels");
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-
-            string dest = Path.Combine(dir, _level.metadata.levelName + ".json");
-            LevelSerializer.Save(_level, dest);
-            AssetDatabase.Refresh();
-            Debug.Log($"[LevelEditor] Exported → {dest}");
-            EditorUtility.DisplayDialog("Exported",
-                $"Level saved to:\nResources/Levels/{_level.metadata.levelName}.json", "OK");
-        }
-
-        // ─── Level Browser ────────────────────────────────────────────────
-        private void RefreshBrowser()
-        {
-            string dir = LevelDirectory();
-            if (!Directory.Exists(dir))
-            {
-                _browserPaths  = System.Array.Empty<string>();
-                _browserLabels = System.Array.Empty<string>();
-                _browserIndex  = -1;
-                return;
-            }
-
-            var files = Directory.GetFiles(dir, "*.json");
-            System.Array.Sort(files);
-            _browserPaths  = files;
-            _browserLabels = new string[files.Length];
-            for (int i = 0; i < files.Length; i++)
-                _browserLabels[i] = Path.GetFileNameWithoutExtension(files[i]);
-
-            // Sync selection to current file
-            _browserIndex = -1;
-            if (!string.IsNullOrEmpty(_filePath))
-                for (int i = 0; i < _browserPaths.Length; i++)
-                    if (_browserPaths[i] == _filePath) { _browserIndex = i; break; }
-
-            Repaint();
-        }
-
-        private void BrowserOpen(string path)
-        {
-            if (!ConfirmDiscard()) return;
-            var loaded = LevelSerializer.Load(path);
-            if (loaded == null)
-            {
-                EditorUtility.DisplayDialog("Load Failed",
-                    $"Could not parse:\n{path}", "OK");
-                return;
-            }
-            _level    = loaded;
-            _filePath = path;
-            _pendingW = _level.grid.width;
-            _pendingH = _level.grid.height;
-            _selection.Clear();
-            RebuildCellDict();
-            RefreshBrowser();
-        }
-
-        private bool ConfirmDiscard() =>
-            EditorUtility.DisplayDialog("New Level", "Discard unsaved changes?", "Discard", "Cancel");
-
-        private static string LevelDirectory()
-        {
-            string dir = Path.Combine(Application.dataPath, "_Project", "Levels");
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-            return dir;
+            if (_grid == null) return;
+            _grid.SetLevel(_level);
+            _grid.SetSelection(_selection);
+            RefreshLevelCard();
+            RefreshBallList();
+            RefreshGenerateCard();
+            RefreshBoardInfo();
+            RefreshSelectionRow();
+            RefreshTitlebar();
+            RefreshFileCard();
+            RefreshUndoButtons();
+            RefreshPlayButtons();
+            RefreshStatusNow();
         }
     }
 }

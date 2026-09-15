@@ -6,20 +6,33 @@ namespace CatapultGames.Editor
     // Greedy AI that "plays" a level to check whether the ball queue can clear it.
     // The ball ORDER is fixed (as authored); only the landing cell is chosen.
     // For each ball it lands on the cell that fills the most matching, still-empty
-    // cells — the same rule gameplay uses (PaintingSystem + GameConstants).
+    // cells — the same rule gameplay uses.
+    //
+    // The board itself is a CoverageAnalyzer.TargetBoard, and every move goes
+    // through BestPlacement / ApplyPlacement. That is deliberate: shape, colour
+    // match (Joker), stamp reach (Stone) and hit cost (Ice) are then decided by
+    // exactly the code the runtime and the validator use, so this solver cannot
+    // quietly play by different rules than the game does.
     //
     // This is a heuristic, not an exhaustive solver: if it reports "solved" the
     // level is definitely beatable; a "failed" result means greedy play couldn't
     // clear it (a smarter player might, but it's a strong red flag for the design).
+    //
+    // Since BallQueueView lets the player pull one of the next few balls forward
+    // (BallQueue.SelectSlot), the fixed order makes this solver PESSIMISTIC — the
+    // player has strictly more freedom than it does. That is the safe direction:
+    // "solved" still guarantees beatable. Only read a "failed" result as weaker
+    // evidence than it used to be.
     public static class LevelAutoSolver
     {
         public struct Move
         {
-            public bool          wasted;       // true when the ball filled nothing
+            public bool          wasted;       // true when the ball painted nothing
             public int           landX, landY; // chosen landing cell (-1 when wasted)
             public CellColor     color;
             public int           power;
-            public Vector2Int[]  filled;       // cells newly filled by this move
+            public Vector2Int[]  hit;          // cells this move put paint into
+            public Vector2Int[]  filled;       // the subset that finished (Ice needs two)
         }
 
         // A (colour, power) group of leftover balls.
@@ -34,7 +47,7 @@ namespace CatapultGames.Editor
         {
             public List<Move> moves;
             public bool       solved;
-            public int        totalColored;   // colored cells needing fill
+            public int        totalColored;   // cells that still needed paint at the start
             public int        remaining;      // still empty when the plan ends
             public int        ballsUsed;      // balls that actually painted something
             public int        totalBalls;
@@ -46,87 +59,56 @@ namespace CatapultGames.Editor
         {
             var moves = new List<Move>();
 
-            int w = level?.grid?.width  ?? 0;
-            int h = level?.grid?.height ?? 0;
+            // Authored-filled cells are already absent from the board, so progress
+            // starts at zero and "solved" means every remaining target was filled.
+            var board      = CoverageAnalyzer.BuildTargets(level);
+            int totalCells = board.TargetCellCount();
+            int completed  = 0;
 
-            // Index colored cells; seed the filled set with any authored-filled cells.
-            var outline = new Dictionary<(int, int), CellColor>();
-            var filled  = new HashSet<(int, int)>();
-            int totalColored = 0;
-
-            if (level?.cells != null)
-            {
-                foreach (var c in level.cells)
-                {
-                    if (c == null || c.outlineColor == CellColor.None) continue;
-                    outline[(c.gridX, c.gridY)] = c.outlineColor;
-                    totalColored++;
-                    if (c.isFilled) filled.Add((c.gridX, c.gridY));
-                }
-            }
-
-            var balls = level?.balls ?? System.Array.Empty<BallData>();
+            var balls     = level?.balls ?? System.Array.Empty<BallData>();
             int ballsUsed = 0;
             int stopIndex = balls.Length;   // index of the first ball never thrown
 
+            var hitBuf  = new List<Vector2Int>();
+            var fillBuf = new List<Vector2Int>();
+
             for (int bi = 0; bi < balls.Length; bi++)
             {
-                var ball = balls[bi];
-                if (filled.Count >= totalColored) { stopIndex = bi; break; }   // solved — stop
-                if (ball == null) continue;
+                if (completed >= totalCells) { stopIndex = bi; break; }   // solved — stop
 
+                var ball = balls[bi];
+                if (ball == null) continue;
                 int power = Mathf.Clamp(ball.powerLevel, 1, 3);
 
-                // Find the landing cell that fills the most matching empty cells.
-                int bestCount = 0;
-                int bestX = -1, bestY = -1;
-                List<Vector2Int> bestCells = null;
+                // Landing cell that lands the most hits, by the game's own rules.
+                int gain = CoverageAnalyzer.BestPlacement(board, ball, out int lx, out int ly);
 
-                if (ball.color != CellColor.None)
-                {
-                    for (int ly = 0; ly < h; ly++)
-                    for (int lx = 0; lx < w; lx++)
-                    {
-                        List<Vector2Int> hit = null;
-                        int count = 0;
-                        foreach (var p in GameConstants.GetPaintedCells(lx, ly, ball, w, h))
-                        {
-                            if (p.x < 0 || p.x >= w || p.y < 0 || p.y >= h) continue;
-                            var key = (p.x, p.y);
-                            if (!outline.TryGetValue(key, out var oc) || oc != ball.color) continue;
-                            if (filled.Contains(key)) continue;
-                            (hit ??= new List<Vector2Int>()).Add(p);
-                            count++;
-                        }
-                        if (count > bestCount)
-                        {
-                            bestCount = count;
-                            bestX = lx; bestY = ly;
-                            bestCells = hit;
-                        }
-                    }
-                }
-
-                if (bestCount == 0 || bestCells == null)
+                if (gain == 0)
                 {
                     moves.Add(new Move { wasted = true, landX = -1, landY = -1,
-                                         color = ball.color, power = power,
+                                         color  = ball.color, power = power,
+                                         hit    = System.Array.Empty<Vector2Int>(),
                                          filled = System.Array.Empty<Vector2Int>() });
                     continue;
                 }
 
-                foreach (var p in bestCells) filled.Add((p.x, p.y));
+                hitBuf.Clear();
+                fillBuf.Clear();
+                CoverageAnalyzer.ApplyPlacement(board, ball, lx, ly, hitBuf, fillBuf);
+
+                completed += fillBuf.Count;
                 ballsUsed++;
                 moves.Add(new Move
                 {
                     wasted = false,
-                    landX  = bestX, landY = bestY,
+                    landX  = lx, landY = ly,
                     color  = ball.color, power = power,
-                    filled = bestCells.ToArray()
+                    hit    = hitBuf.ToArray(),
+                    filled = fillBuf.ToArray()
                 });
             }
 
-            bool solved = filled.Count >= totalColored && totalColored > 0;
+            bool solved = completed >= totalCells && totalCells > 0;
 
             // When solved before the queue ran out, the balls from stopIndex on
             // were never thrown — group them by (colour, power) for the report.
@@ -158,8 +140,8 @@ namespace CatapultGames.Editor
             {
                 moves         = moves,
                 solved        = solved,
-                totalColored  = totalColored,
-                remaining     = Mathf.Max(0, totalColored - filled.Count),
+                totalColored  = totalCells,
+                remaining     = Mathf.Max(0, totalCells - completed),
                 ballsUsed     = ballsUsed,
                 totalBalls    = balls.Length,
                 leftover      = leftover.ToArray(),

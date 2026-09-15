@@ -39,8 +39,9 @@ namespace CatapultGames
                     cellMap.TryGetValue((x, y), out var data);
                     CellColor color  = data?.outlineColor ?? CellColor.None;
                     bool      filled = data?.isFilled     ?? false;
+                    CellType  type   = data?.cellType     ?? CellType.Normal;
 
-                    var view = CellView.Create(transform, x, y, level.grid.cellSize, color, filled);
+                    var view = CellView.Create(transform, x, y, level.grid.cellSize, color, filled, type);
                     _cells[(x, y)] = view;
                 }
             }
@@ -77,12 +78,57 @@ namespace CatapultGames
                 SetFilled(p.x, p.y, filled);
         }
 
+        // ─── Paint hits ───────────────────────────────────────────────────
+        // One stamp's worth of paint on one cell. Ice takes two hits, so the paint
+        // wave calls this rather than SetFilled and the cell decides what a hit
+        // means. Returns true when the cell FILLED on this hit.
+        public bool ApplyHit(int x, int y)
+        {
+            if (!_cells.TryGetValue((x, y), out var cell)) return false;
+
+            // The hit count, not the return value, is what says something changed:
+            // cracking an Ice cell changes the board without filling anything.
+            int  before = cell.HitsTaken;
+            bool filled = cell.AddHit();
+            if (cell.HitsTaken != before) OnGridChanged?.Invoke();
+            return filled;
+        }
+
+        // Undo one hit (see CellView.RemoveHit). Used by GameManager.UndoLastShot,
+        // which replays the shot's hit list backwards.
+        public void UndoHit(int x, int y)
+        {
+            if (!_cells.TryGetValue((x, y), out var cell)) return;
+
+            int before = cell.HitsTaken;
+            cell.RemoveHit();
+            if (cell.HitsTaken != before) OnGridChanged?.Invoke();
+        }
+
+        // Any Joker cell still waiting for paint? While one exists, balls of EVERY
+        // colour are still useful, so GameManager must not purge a finished colour.
+        public bool HasUnfilledWildCells()
+        {
+            foreach (var cell in _cells.Values)
+                if (cell != null && cell.Type == CellType.Joker &&
+                    cell.IsPaintTarget && !cell.IsFilled) return true;
+            return false;
+        }
+
+        // Is this cell a Stone — the type that absorbs a stamp and shadows whatever
+        // lies behind it (GameConstants.GetStampPath)? Read by PaintingSystem.
+        public bool IsBlocking(int x, int y) =>
+            _cells.TryGetValue((x, y), out var cell) && cell != null &&
+            cell.Type == CellType.Stone;
+
         // ─── Highlight + paint preview (aim) ──────────────────────────────
         private readonly HashSet<(int, int)> _highlighted = new();
         private readonly HashSet<(int, int)> _previewed   = new();
+        private readonly HashSet<(int, int)> _footprinted = new();
 
-        // Clears BOTH aim visuals — the landing highlight and the paint-preview
-        // ghosts — since they are always shown and hidden together while aiming.
+        // Clears ALL THREE aim visuals — the landing highlight, the paint-preview
+        // ghosts, and the rest of the stamp footprint — since they are always shown
+        // and hidden together while aiming.
         public void ClearHighlights()
         {
             foreach (var k in _highlighted)
@@ -92,6 +138,10 @@ namespace CatapultGames
             foreach (var k in _previewed)
                 if (_cells.TryGetValue(k, out var c)) c.SetPreview(false);
             _previewed.Clear();
+
+            foreach (var k in _footprinted)
+                if (_cells.TryGetValue(k, out var c)) c.SetFootprint(false);
+            _footprinted.Clear();
         }
 
         public void SetHighlight(int x, int y, bool on)
@@ -110,6 +160,35 @@ namespace CatapultGames
             cell.SetPreview(on);
             if (on) _previewed.Add((x, y));
             else    _previewed.Remove((x, y));
+        }
+
+        // Mark a cell as covered by the aimed stamp but not painted by it
+        // (see CellView.SetFootprint). Used by AimPreview.
+        public void SetFootprint(int x, int y, bool on)
+        {
+            if (!_cells.TryGetValue((x, y), out var cell)) return;
+            cell.SetFootprint(on);
+            if (on) _footprinted.Add((x, y));
+            else    _footprinted.Remove((x, y));
+        }
+
+        // ─── Active colour ────────────────────────────────────────────────
+        // Lifts and un-mutes every unfilled cell of the colour currently loaded in
+        // the catapult, so the board itself answers "what can this ball paint?".
+        // Driven by AimPreview off BallQueue.OnChanged; pass CellColor.None to clear.
+        //
+        // A plain state flag rather than an animation: it survives the transient aim
+        // states for free, because CellView.Refresh() reads it (see CellView).
+        // Joker cells match whatever is loaded, so they light up for every ball —
+        // that is exactly the information the player needs from them.
+        public void SetActiveColor(CellColor color)
+        {
+            foreach (var cell in _cells.Values)
+            {
+                if (cell == null) continue;
+                cell.SetAwaiting(!cell.IsFilled &&
+                                 GameConstants.ColorMatches(cell.OutlineColor, cell.Type, color));
+            }
         }
 
         // ─── Coordinate helpers ───────────────────────────────────────────
@@ -184,11 +263,13 @@ namespace CatapultGames
         }
 
         // ─── Progress helpers ─────────────────────────────────────────────
+        // Stone cells are excluded everywhere paint targets are counted — they are
+        // scenery, and counting them would make every level with one unwinnable.
         public int CountTotalColored()
         {
             int n = 0;
             foreach (var kv in _cells)
-                if (kv.Value.OutlineColor != CellColor.None) n++;
+                if (kv.Value.IsPaintTarget) n++;
             return n;
         }
 
@@ -198,7 +279,7 @@ namespace CatapultGames
             foreach (var kv in _cells)
             {
                 var c = kv.Value;
-                if (c.OutlineColor != CellColor.None && !c.IsFilled) n++;
+                if (c.IsPaintTarget && !c.IsFilled) n++;
             }
             return n;
         }
@@ -230,6 +311,7 @@ namespace CatapultGames
             foreach (var kv in _cells)
             {
                 var c  = kv.Value;
+                if (!c.IsPaintTarget) continue;     // bare board and Stone are not progress
                 int ci = (int)c.OutlineColor;
                 if (ci <= 0 || ci >= n) continue;   // 0 = None → skipped
                 _ccTotal[ci]++;
@@ -256,7 +338,7 @@ namespace CatapultGames
             foreach (var kv in _cells)
             {
                 var cell = kv.Value;
-                if (cell.OutlineColor != CellColor.None && !cell.IsFilled)
+                if (cell.IsPaintTarget && !cell.IsFilled)
                     return false;
             }
             return true;

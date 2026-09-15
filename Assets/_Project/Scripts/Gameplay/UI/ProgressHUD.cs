@@ -1,24 +1,63 @@
 using System.Collections;
-using System.Text;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace CatapultGames
 {
-    // Shows per-color progress: for every colour in the level, how many of its
-    // cubes already exist and how many are needed in total ("filled / total").
+    // Per-colour progress: a bar for every colour in the level, plus one total.
+    //
+    // Was a block of "Colour  filled / total" text, which nobody reads mid-shot —
+    // the numbers only tell you where you stand if you stop and add them up. Bars
+    // answer "how close am I, and in which colour" at a glance.
+    //
+    // Rows are built from code (levels vary in colour count) and only rebuilt when
+    // the SET of colours changes; a normal refresh just moves the fills.
+    //
     // Subscribe to GridRenderer.OnGridChanged at runtime.
+    [RequireComponent(typeof(RectTransform))]
     public class ProgressHUD : MonoBehaviour
     {
-        [SerializeField] private TextMeshProUGUI _label;
+        [SerializeField] private TextMeshProUGUI _label;   // the running total
         [SerializeField] private GridRenderer    _grid;
 
-        private readonly StringBuilder _sb = new();
+        // ── Layout (reference-resolution pixels; the CanvasScaler does the rest) ──
+        private const float RowHeight  = 46f;
+        private const float BarsTop    = -170f;  // clears the total label's band above
+        private const float SwatchSize = 26f;
+        private const float BarLeft    = 36f;
+        private const float BarRight   = 96f;    // room for the "12/34" readout
+        private const float BarHeight  = 14f;
+        private const float PanelWidth = 420f;
+
+        private sealed class Row
+        {
+            public CellColor       color;
+            public RectTransform   fill;
+            public TextMeshProUGUI count;
+        }
+
+        private readonly List<Row> _rows = new();
+
         private bool      _configured;
         private int       _prevFilled = -1;     // total filled last refresh (for the pop)
         private Vector3   _labelRest  = Vector3.one;
         private Coroutine _punch;
         private bool      _dirty;               // grid changed → refresh once next LateUpdate
+        private RectTransform _barsRoot;
+
+        private void Awake()
+        {
+            // The builder parents this under the safe-area rect but adds a plain
+            // MonoBehaviour, so without RequireComponent there was no RectTransform
+            // here and the children anchored against a degenerate parent. Stretch to
+            // fill the safe area so child anchors mean what they say.
+            var rt = (RectTransform)transform;
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+        }
 
         private void OnEnable()  { if (_grid) _grid.OnGridChanged += MarkDirty; }
         private void OnDisable() { if (_grid) _grid.OnGridChanged -= MarkDirty; }
@@ -35,8 +74,6 @@ namespace CatapultGames
             Refresh();
         }
 
-        // The original label was a tiny single-number box, so multi-line per-colour
-        // text would wrap one char per line. Force no-wrap, overflow, top-left.
         private void ConfigureLabel()
         {
             if (_configured || _label == null) return;
@@ -59,37 +96,140 @@ namespace CatapultGames
             Refresh();
         }
 
+        // ── Refresh ───────────────────────────────────────────────────────
         private void Refresh()
         {
-            if (!_label || _grid == null) return;
+            if (_grid == null) return;
             ConfigureLabel();
 
-            var rows = _grid.CountByColor();
-            if (rows.Count == 0) { _label.text = string.Empty; return; }
+            var progress = _grid.CountByColor();
+            EnsureRows(progress);
 
-            // Each line: "<Colour>  filled / total", tinted with that colour.
-            // Plain ASCII only so it renders with the default TMP font.
-            _sb.Clear();
-            int totalFilled = 0;
-            for (int i = 0; i < rows.Count; i++)
+            int totalFilled = 0, totalCells = 0;
+            for (int i = 0; i < progress.Count && i < _rows.Count; i++)
             {
-                var r = rows[i];
-                totalFilled += r.filled;
-                _sb.Append("<color=#").Append(LegibleHex(GameConstants.GetColor(r.color))).Append('>')
-                   .Append(r.color.ToString()).Append("  ")
-                   .Append(r.filled).Append(" / ").Append(r.total)
-                   .Append("</color>");
-                if (i < rows.Count - 1) _sb.Append('\n');
+                var p = progress[i];
+                totalFilled += p.filled;
+                totalCells  += p.total;
+
+                var row = _rows[i];
+                float ratio = p.total > 0 ? (float)p.filled / p.total : 0f;
+
+                // Width by anchor, so the fill tracks the bar at any screen size.
+                if (row.fill != null) row.fill.anchorMax = new Vector2(Mathf.Clamp01(ratio), 1f);
+                if (row.count != null) row.count.text = $"{p.filled}/{p.total}";
             }
-            _label.text = _sb.ToString();
+
+            if (_label != null)
+                _label.text = totalCells > 0 ? $"{totalFilled} / {totalCells}" : string.Empty;
 
             // Pop the counter whenever progress goes up.
-            if (_prevFilled >= 0 && totalFilled > _prevFilled && isActiveAndEnabled)
+            if (_prevFilled >= 0 && totalFilled > _prevFilled && isActiveAndEnabled && _label != null)
             {
                 if (_punch != null) StopCoroutine(_punch);
                 _punch = StartCoroutine(PunchLabel());
             }
             _prevFilled = totalFilled;
+        }
+
+        // ── Row construction ──────────────────────────────────────────────
+        // CountByColor returns colours in enum order, so a level's row order is
+        // stable and only the SET of colours can change (a colour is never removed
+        // mid-level). Rebuild only then.
+        private void EnsureRows(List<GridRenderer.ColorProgress> progress)
+        {
+            bool same = _rows.Count == progress.Count;
+            if (same)
+                for (int i = 0; i < progress.Count; i++)
+                    if (_rows[i].color != progress[i].color) { same = false; break; }
+
+            if (same) return;
+
+            if (_barsRoot == null) _barsRoot = MakeRect("ProgressBars", (RectTransform)transform);
+            for (int i = _barsRoot.childCount - 1; i >= 0; i--) Destroy(_barsRoot.GetChild(i).gameObject);
+            _rows.Clear();
+
+            _barsRoot.anchorMin        = new Vector2(0f, 1f);
+            _barsRoot.anchorMax        = new Vector2(0f, 1f);
+            _barsRoot.pivot            = new Vector2(0f, 1f);
+            _barsRoot.anchoredPosition = new Vector2(24f, BarsTop);
+            _barsRoot.sizeDelta        = new Vector2(PanelWidth, RowHeight * progress.Count);
+
+            for (int i = 0; i < progress.Count; i++)
+                _rows.Add(BuildRow(progress[i].color, i));
+        }
+
+        private Row BuildRow(CellColor color, int index)
+        {
+            Color tint = Legible(GameConstants.GetColor(color));
+
+            var row = MakeRect($"Row_{color}", _barsRoot);
+            row.anchorMin        = new Vector2(0f, 1f);
+            row.anchorMax        = new Vector2(1f, 1f);
+            row.pivot            = new Vector2(0f, 1f);
+            row.anchoredPosition = new Vector2(0f, -index * RowHeight);
+            row.sizeDelta        = new Vector2(0f, RowHeight);
+
+            // Colour swatch — identity never rests on the bar's colour alone, since
+            // two palette hues can read alike at bar width on a small screen.
+            var swatch = MakeRect("Swatch", row);
+            swatch.anchorMin = swatch.anchorMax = new Vector2(0f, 0.5f);
+            swatch.pivot     = new Vector2(0f, 0.5f);
+            swatch.sizeDelta = new Vector2(SwatchSize, SwatchSize);
+            AddImage(swatch, tint);
+
+            // Track
+            var track = MakeRect("Track", row);
+            track.anchorMin = new Vector2(0f, 0.5f);
+            track.anchorMax = new Vector2(1f, 0.5f);
+            track.pivot     = new Vector2(0.5f, 0.5f);
+            track.offsetMin = new Vector2(BarLeft,   -BarHeight * 0.5f);
+            track.offsetMax = new Vector2(-BarRight,  BarHeight * 0.5f);
+            AddImage(track, new Color(1f, 1f, 1f, 0.13f));
+
+            // Fill — width driven by anchorMax.x in Refresh
+            var fill = MakeRect("Fill", track);
+            fill.anchorMin = new Vector2(0f, 0f);
+            fill.anchorMax = new Vector2(0f, 1f);
+            fill.pivot     = new Vector2(0f, 0.5f);
+            fill.offsetMin = fill.offsetMax = Vector2.zero;
+            AddImage(fill, tint);
+
+            // Readout
+            var countGo = new GameObject("Count", typeof(RectTransform));
+            var countRt = (RectTransform)countGo.transform;
+            countRt.SetParent(row, false);
+            countRt.anchorMin = countRt.anchorMax = new Vector2(1f, 0.5f);
+            countRt.pivot     = new Vector2(1f, 0.5f);
+            countRt.sizeDelta = new Vector2(BarRight - 8f, RowHeight);
+            countRt.anchoredPosition = Vector2.zero;
+
+            var tmp = countGo.AddComponent<TextMeshProUGUI>();
+            tmp.fontSize  = 28;
+            tmp.color     = tint;
+            tmp.alignment = TextAlignmentOptions.MidlineRight;
+#pragma warning disable CS0618
+            tmp.enableWordWrapping = false;
+#pragma warning restore CS0618
+
+            return new Row { color = color, fill = fill, count = tmp };
+        }
+
+        private static RectTransform MakeRect(string name, RectTransform parent)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(parent, false);
+            return rt;
+        }
+
+        // An Image with no sprite draws a plain coloured quad — which is all a bar
+        // needs, and avoids shipping sprite assets for the HUD.
+        private static void AddImage(RectTransform rt, Color color)
+        {
+            var img = rt.gameObject.AddComponent<Image>();
+            img.color       = color;
+            img.raycastTarget = false;   // the HUD must never eat aim gestures
         }
 
         private IEnumerator PunchLabel()
@@ -107,16 +247,13 @@ namespace CatapultGames
             _punch = null;
         }
 
-        // Lifts very dark colours (e.g. the charcoal "Black") toward white so the
-        // text stays readable on the dark HUD, then returns it as RRGGBB hex.
-        private static string LegibleHex(Color32 c)
+        // Lifts very dark colours (e.g. the charcoal "Black") toward white so they
+        // stay readable on the dark HUD.
+        private static Color Legible(Color32 c)
         {
             float lum = (0.299f * c.r + 0.587f * c.g + 0.114f * c.b) / 255f;
             Color col = new Color(c.r / 255f, c.g / 255f, c.b / 255f);
-            if (lum < 0.5f)
-                col = Color.Lerp(col, Color.white, 0.5f - lum);
-            Color32 o = col;
-            return o.r.ToString("X2") + o.g.ToString("X2") + o.b.ToString("X2");
+            return lum < 0.5f ? Color.Lerp(col, Color.white, 0.5f - lum) : col;
         }
     }
 }

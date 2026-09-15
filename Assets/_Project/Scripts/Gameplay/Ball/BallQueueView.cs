@@ -6,21 +6,33 @@ namespace CatapultGames
 {
     // S-shaped conveyor visual for the ball queue.
     //
-    // _catapultPivot: the slingshot's BallPivot transform.
-    //   Index-0 ball is parented here so it automatically follows drag stretch.
+    // _catapultPivot: the catapult's BallPivot transform.
+    //   Index-0 ball is parented here so it rides the catapult.
     // _waypoints[0]: world position to which the next ball slides when index-0 is consumed.
     //   Set it to the same world position as _catapultPivot so the slide looks right.
-    // _waypoints[1..N]: the S-curve queue positions behind the slingshot.
+    // _waypoints[1..N]: the S-curve queue positions behind the catapult.
     public class BallQueueView : MonoBehaviour
     {
         [SerializeField] private BallQueue   _queue;
-        [SerializeField] private Transform   _catapultPivot;   // BallPivot on the slingshot
+        [SerializeField] private Transform   _catapultPivot;   // BallPivot on the catapult
         [SerializeField] private Transform[] _waypoints;       // [0]=catapult rest pos, [1..N]=queue
         [SerializeField] private float       _advanceDuration = 0.12f;
 
         [Header("Scales")]
         [SerializeField] private float _currentBallScale = 0.70f;  // ball at catapult — bigger
         [SerializeField] private float _queueBallScale   = 0.42f;  // queue balls
+
+        [Header("Selection")]
+        [Tooltip("How many balls the player may choose between, counting the one on " +
+                 "the catapult. 1 disables choosing.")]
+        [SerializeField] private int _selectableSlots = 3;
+
+        [Tooltip("Selectable queue balls are drawn slightly larger, so the choosable " +
+                 "few read differently from the rest of the queue.")]
+        [SerializeField] private float _selectableBallScale = 0.52f;
+
+        [Tooltip("Tap radius around a selectable ball, as a fraction of screen height.")]
+        [SerializeField] private float _pickRadiusScreenFraction = 0.055f;
 
         private readonly List<GameObject> _ballGos = new();
         private Coroutine _anim;
@@ -219,10 +231,44 @@ namespace CatapultGames
                     _ballGos.Add(null);
                     continue;
                 }
-                var bv2 = BallVisual.Create(transform, ball.color, ball.powerLevel, ball.shape, _queueBallScale);
+                float scale = qi < _selectableSlots ? _selectableBallScale : _queueBallScale;
+                var bv2 = BallVisual.Create(transform, ball.color, ball.powerLevel, ball.shape, scale);
                 bv2.transform.position = _waypoints[wi].position;
                 _ballGos.Add(bv2.gameObject);
             }
+        }
+
+        // ── Selection picking ─────────────────────────────────────────────
+        // Which selectable queue ball, if any, is under a screen point.
+        //
+        // Screen-space distance rather than a raycast: the game has no colliders by
+        // design (no physics anywhere), and a tap radius is a better touch target
+        // than the ball's silhouette anyway. Camera shake needs no correction here —
+        // WorldToScreenPoint uses the shaken camera, which is exactly what is drawn.
+        //
+        // Slot 0 (the catapult ball) is excluded: it is already the current ball.
+        public bool TryPickSlot(Vector2 screenPos, Camera cam, out int offset)
+        {
+            offset = -1;
+            if (cam == null || _queue == null) return false;
+
+            float radius  = Screen.height * Mathf.Max(0.01f, _pickRadiusScreenFraction);
+            float bestSqr = radius * radius;
+
+            int limit = Mathf.Min(_selectableSlots, _ballGos.Count);
+            for (int i = 1; i < limit; i++)
+            {
+                var go = _ballGos[i];
+                if (go == null) continue;
+
+                Vector3 sp = cam.WorldToScreenPoint(go.transform.position);
+                if (sp.z <= 0f) continue;   // behind the camera
+
+                float sqr = ((Vector2)sp - screenPos).sqrMagnitude;
+                if (sqr < bestSqr) { bestSqr = sqr; offset = i; }
+            }
+
+            return offset > 0;
         }
     }
 }

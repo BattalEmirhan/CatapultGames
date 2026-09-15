@@ -4,9 +4,9 @@ using UnityEngine.EventSystems;
 
 namespace CatapultGames
 {
-    // Gameplay2 input — TAP TO TARGET.
+    // Player input — TAP TO TARGET.
     //
-    // Instead of the slingshot drag, the player picks a grid cell directly:
+    // The player picks a grid cell directly:
     //   • a quick tap fires the catapult ball at that cell, and
     //   • pressing and sliding the finger moves the target across cells (the arc
     //     follows the finger); releasing fires at the cell under the finger.
@@ -24,12 +24,14 @@ namespace CatapultGames
     //   _gameManager  — GameManager (optional; stops input once the level ends)
     public class TapLaunchController : MonoBehaviour
     {
-        [SerializeField] private Camera       _camera;
-        [SerializeField] private GridRenderer _grid;
-        [SerializeField] private BallLauncher _launcher;
-        [SerializeField] private AimPreview   _aimPreview;   // optional
-        [SerializeField] private Transform    _launchOrigin;
-        [SerializeField] private GameManager  _gameManager;  // optional
+        [SerializeField] private Camera        _camera;
+        [SerializeField] private GridRenderer  _grid;
+        [SerializeField] private BallLauncher  _launcher;
+        [SerializeField] private AimPreview    _aimPreview;   // optional
+        [SerializeField] private Transform     _launchOrigin;
+        [SerializeField] private GameManager   _gameManager;  // optional
+        [SerializeField] private BallQueue     _queue;        // optional; enables picking
+        [SerializeField] private BallQueueView _queueView;    // optional; enables picking
 
         [Tooltip("Launch angle above horizontal used to solve the arc to the tapped cell.")]
         [SerializeField] [Range(20f, 80f)] private float _launchAngle = 50f;
@@ -48,6 +50,7 @@ namespace CatapultGames
         // ── State ─────────────────────────────────────────────────────────
         private bool    _pressed;
         private bool    _startedOverUI;  // gesture began on a UI element → ignore
+        private bool    _startedOnQueue; // gesture picked a queued ball → not a shot
         private Vector2 _lastPos;        // last pressed pointer pos (release reads this)
         private int     _hoverX = -1, _hoverY = -1;
         private bool    _hasHover;       // finger is / was over a valid cell this gesture
@@ -74,11 +77,16 @@ namespace CatapultGames
                     _startedOverUI  = IsPointerOverUI();
                     _pressStartTime = Time.time;
                     _currentLift    = 0f;
+
+                    // A press that lands on one of the next queued balls picks it
+                    // instead of aiming. Resolved once, at press time, so sliding on
+                    // from there can't turn a pick into a shot.
+                    _startedOnQueue = !_startedOverUI && TrySelectQueueBall(pos);
                 }
 
                 _lastPos = pos;
 
-                if (!_startedOverUI)
+                if (!_startedOverUI && !_startedOnQueue)
                 {
                     // Quick tap → aim straight under the finger (no lift). Hold → the
                     // lift ramps in after the tap window, raising the target above the
@@ -105,7 +113,7 @@ namespace CatapultGames
                 _pressed = false;
 
                 // Fire at the last previewed target (same lift), so what you saw fires.
-                if (!_startedOverUI)
+                if (!_startedOverUI && !_startedOnQueue)
                 {
                     if (TryGetCell(_lastPos, _currentLift, out int gx, out int gy))
                         LaunchAt(gx, gy);
@@ -115,6 +123,24 @@ namespace CatapultGames
 
                 ClearHover();
             }
+        }
+
+        // ── Queue picking ─────────────────────────────────────────────────
+        // Pull one of the next queued balls to the front. Selection is modelled as
+        // reordering the queue, so nothing else in the shot chain has to know it
+        // happened: AimPreview redraws off BallQueue.OnChanged (including the
+        // board's active-colour marking) and BallLauncher still just fires Current.
+        private bool TrySelectQueueBall(Vector2 screenPos)
+        {
+            if (_queueView == null || _queue == null) return false;
+
+            var cam = _camera != null ? _camera : Camera.main;
+            if (!_queueView.TryPickSlot(screenPos, cam, out int offset)) return false;
+            if (!_queue.SelectSlot(offset)) return false;
+
+            Haptics.Light();
+            _aimPreview?.Hide();
+            return true;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────
@@ -173,7 +199,7 @@ namespace CatapultGames
         {
             Vector3 velocity = VelocityTo(gx, gy);
             if (velocity == Vector3.zero || _launcher == null) return;
-            _launcher.Launch(velocity, 1f);
+            _launcher.Launch(velocity);
             Telemetry.RecordLaunch();
         }
 

@@ -1,9 +1,30 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace CatapultGames
 {
     public static class GameConstants
     {
+        // ── Gravity ───────────────────────────────────────────────────────
+        // The one and only downward acceleration in the game. Two consumers read
+        // it and they must never disagree, or the aim preview stops matching
+        // where the ball really lands:
+        //   · TrajectorySimulator — integrates the arc AimPreview draws and
+        //                           BallLauncher flies the ball along
+        //   · LaunchSolver        — solves the velocity that reaches the aimed
+        //                           cell (uses the magnitude)
+        //
+        // Signed world-space Y, matching Physics.gravity's convention. Note the
+        // ball is not a physics body, so Unity's own Physics.gravity plays no
+        // part — this constant is the whole story.
+        //
+        // Raise the MAGNITUDE for flatter, faster-looking arcs: a steeper pull
+        // needs more launch speed to reach the same cell.
+        public const float Gravity = -9.81f;
+
+        // |Gravity| — for range solves that work in positive g.
+        public const float GravityMagnitude = -Gravity;
+
         // Shared trajectory simulation resolution.
         // AimPreview and BallLauncher MUST use the SAME values so the previewed
         // landing cell always matches where the ball actually lands.
@@ -53,14 +74,83 @@ namespace CatapultGames
             return result;
         }
 
-        // Shape-aware paint footprint. Square balls use the NxN rule above; L balls
-        // use a corner L that auto-rotates toward the nearest grid corner (needs the
-        // grid size to know which corner the landing cell is closest to).
+        // ── Non-square stamp sizing ───────────────────────────────────────
+        // Runs (Line / Column) are odd-length so they centre on the aimed cell;
+        // Plus / Diagonal grow by arm length. Both scale with powerLevel, which is
+        // what keeps the power buttons meaningful for every shape except L.
+        private static int GetRunLength(int powerLevel) => powerLevel switch
+        {
+            1 => 3, 2 => 5, 3 => 7, _ => 1
+        };
+
+        private static int GetArmLength(int powerLevel) => powerLevel switch
+        {
+            1 => 1, 2 => 2, 3 => 3, _ => 0
+        };
+
+        // Shape-aware paint footprint — the single place a stamp's shape is decided.
+        // Everything downstream (PaintingSystem, AimPreview, CoverageAnalyzer,
+        // LevelValidator, LevelAutoSolver) reads it through here, so a new shape only
+        // has to be added once.
+        //
+        // Coordinates may fall outside the grid; every consumer bounds-checks.
         public static Vector2Int[] GetPaintedCells(int landX, int landY, BallData ball, int gridW, int gridH)
         {
-            if (ball != null && ball.shape == BallShape.L)
-                return GetLCells(landX, landY, gridW, gridH);
-            return GetPaintedCells(landX, landY, ball?.powerLevel ?? 1);
+            int power = ball?.powerLevel ?? 1;
+
+            return (ball?.shape ?? BallShape.Square) switch
+            {
+                BallShape.L        => GetLCells(landX, landY, gridW, gridH),
+                BallShape.Line     => GetRunCells(landX, landY, power, 1, 0),
+                BallShape.Column   => GetRunCells(landX, landY, power, 0, 1),
+                BallShape.Plus     => GetCrossCells(landX, landY, power, diagonal: false),
+                BallShape.Diagonal => GetCrossCells(landX, landY, power, diagonal: true),
+                _                  => GetPaintedCells(landX, landY, power)
+            };
+        }
+
+        // A straight run centred on the landing cell, stepping by (dx, dy).
+        private static Vector2Int[] GetRunCells(int landX, int landY, int powerLevel, int dx, int dy)
+        {
+            int len  = GetRunLength(powerLevel);
+            int half = (len - 1) / 2;
+
+            var cells = new Vector2Int[len];
+            for (int i = 0; i < len; i++)
+            {
+                int step = i - half;
+                cells[i] = new Vector2Int(landX + dx * step, landY + dy * step);
+            }
+            return cells;
+        }
+
+        // Cross on the landing cell: four arms, orthogonal (Plus) or diagonal (X).
+        private static Vector2Int[] GetCrossCells(int landX, int landY, int powerLevel, bool diagonal)
+        {
+            int arm = GetArmLength(powerLevel);
+
+            var cells = new Vector2Int[4 * arm + 1];
+            cells[0]  = new Vector2Int(landX, landY);
+
+            int i = 1;
+            for (int d = 1; d <= arm; d++)
+            {
+                if (diagonal)
+                {
+                    cells[i++] = new Vector2Int(landX + d, landY + d);
+                    cells[i++] = new Vector2Int(landX - d, landY - d);
+                    cells[i++] = new Vector2Int(landX + d, landY - d);
+                    cells[i++] = new Vector2Int(landX - d, landY + d);
+                }
+                else
+                {
+                    cells[i++] = new Vector2Int(landX + d, landY);
+                    cells[i++] = new Vector2Int(landX - d, landY);
+                    cells[i++] = new Vector2Int(landX, landY + d);
+                    cells[i++] = new Vector2Int(landX, landY - d);
+                }
+            }
+            return cells;
         }
 
         // The L: bend cell on the landing position, both arms running toward the grid
@@ -86,13 +176,101 @@ namespace CatapultGames
         }
 
         // How many cells a ball paints at most — square area, or the L's two full grid
-        // edges (W + H - 1). Used by coverage validation. Shape-aware.
+        // edges (W + H - 1). Shape-aware.
+        //
+        // This is the stamp's SIZE, not what it would paint on a real board: a 4x4
+        // stamp dropped on a one-row stripe covers 4 cells, not 16. Do not use it to
+        // judge whether a level is completable — CoverageAnalyzer does that against
+        // the actual cells.
         public static int GetPaintCellCount(BallData ball, int gridW, int gridH)
         {
-            if (ball != null && ball.shape == BallShape.L) return gridW + gridH - 1;
-            int s = GetPaintSize(ball?.powerLevel ?? 1);
-            return s * s;
+            int power = ball?.powerLevel ?? 1;
+
+            return (ball?.shape ?? BallShape.Square) switch
+            {
+                BallShape.L        => gridW + gridH - 1,
+                BallShape.Line     => GetRunLength(power),
+                BallShape.Column   => GetRunLength(power),
+                BallShape.Plus     => 4 * GetArmLength(power) + 1,
+                BallShape.Diagonal => 4 * GetArmLength(power) + 1,
+                _                  => GetPaintSize(power) * GetPaintSize(power)
+            };
         }
+
+        // ── Cell types: match, cost and reach ─────────────────────────────
+        // The three questions a special cell answers, all in one place so that
+        // painting (PaintingSystem, live grid), analysis (CoverageAnalyzer, arrays)
+        // and the auto-solver can never drift apart on what a cell does.
+
+        // Does this ball's colour fill that cell? Joker takes any colour, Stone
+        // takes none, and a bare board cell is not a target at all.
+        public static bool ColorMatches(CellColor cellColor, CellType cellType, CellColor ballColor)
+        {
+            if (cellType == CellType.Stone)     return false;
+            if (cellColor == CellColor.None)    return false;
+            if (ballColor == CellColor.None)    return false;
+            return cellType == CellType.Joker || cellColor == ballColor;
+        }
+
+        // Paint hits a cell swallows before it fills. Ice takes two — the first
+        // cracks it — so it costs paint without costing an extra cell.
+        public static int GetRequiredHits(CellType cellType) =>
+            cellType == CellType.Ice ? 2 : 1;
+
+        // Cells strictly BETWEEN the landing cell and (cellX, cellY): the straight
+        // path the stamp travels to reach that cell. A Stone anywhere along it
+        // absorbs the stamp and the far cell stays unpainted.
+        //
+        // "Strictly between" leaves the landing cell out, so each consumer checks
+        // that one separately: a stamp aimed AT a Stone is absorbed whole and paints
+        // nothing at all. (Without that check, aiming at a Stone would be a way to
+        // paint straight through it — the shadow only starts one cell out.)
+        //
+        // Only orthogonal and 45° rays are walked, because those are the lines every
+        // stamp is built from — runs, plus/diagonal arms, L arms, and a square's own
+        // rows, columns and diagonals. A 4x4 square's off-ray corners have no
+        // unambiguous "behind", so they are never shadowed; that keeps the rule
+        // statable in one sentence, which matters because the player has to predict
+        // it before spending a ball (AimPreview draws the result either way).
+        //
+        // Fills `into` (cleared first) rather than allocating: BestPlacement calls
+        // this for every candidate landing cell on the board.
+        public static void GetStampPath(int landX, int landY, int cellX, int cellY,
+                                        List<Vector2Int> into)
+        {
+            into.Clear();
+
+            int dx = cellX - landX;
+            int dy = cellY - landY;
+            if (!(dx == 0 || dy == 0 || Mathf.Abs(dx) == Mathf.Abs(dy))) return;
+
+            int steps = Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dy));
+            int sx    = dx == 0 ? 0 : (dx > 0 ? 1 : -1);
+            int sy    = dy == 0 ? 0 : (dy > 0 ? 1 : -1);
+
+            for (int i = 1; i < steps; i++)
+                into.Add(new Vector2Int(landX + sx * i, landY + sy * i));
+        }
+
+        // ── Scoring ───────────────────────────────────────────────────────
+        // One shot's payout, kept here with the painting rules because it is a rule
+        // about the same thing: how much a stamp landing well is worth. GameManager
+        // owns the running total, BallLauncher only reports the cell count.
+        public const int PointsPerCell = 10;
+
+        // A dense hit pays more per cell than the same cells spread over several
+        // shots — that is the whole reward for reading the board before firing.
+        public static int GetShotMultiplier(int cellsPainted) =>
+            cellsPainted >= 8 ? 4 :
+            cellsPainted >= 4 ? 3 :
+            cellsPainted >= 2 ? 2 : 1;
+
+        // Consecutive shots that painted something. Capped so a long level cannot
+        // run away with the score, and reset by the first wasted ball.
+        public const int MaxComboMultiplier = 5;
+
+        public static int GetComboMultiplier(int streak) =>
+            Mathf.Clamp(streak, 1, MaxComboMultiplier);
 
         public static readonly Color32[] CellColorPalette = new Color32[]
         {
@@ -100,7 +278,8 @@ namespace CatapultGames
             new Color32(220,  50,  50, 255),  // Red
             new Color32( 60, 180,  60, 255),  // Green
             new Color32( 50, 100, 220, 255),  // Blue
-            new Color32( 65,  65,  75, 255),  // Black (charcoal — visible on dark bg)
+            new Color32(100, 103, 118, 255),  // Black (slate — the darkest hue that still
+                                              // separates from the board when unfilled)
             new Color32(240, 240, 240, 255),  // White
             new Color32(230,  80, 160, 255),  // Pink
             new Color32(130,  50, 210, 255),  // Purple

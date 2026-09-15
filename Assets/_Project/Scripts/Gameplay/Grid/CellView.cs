@@ -6,21 +6,55 @@ namespace CatapultGames
     // Each grid cell is a 3-D cube.
     //   Unfilled → flat thin plate (height = ThinH), muted colour
     //   Filled   → full cube (height = FullH) rises with a punch animation
+    //
+    // Special types (CellType) ride on the same cube: Ice needs two hits and shows
+    // a cracked mid-height state after the first, Stone is a permanent block that
+    // never fills, Joker reads as a pale wildcard. All of it resolves in Refresh(),
+    // so the aim states keep working unchanged.
     [DisallowMultipleComponent]
     public class CellView : MonoBehaviour
     {
         public int       GridX        { get; private set; }
         public int       GridY        { get; private set; }
         public CellColor OutlineColor { get; private set; }
-        public bool      IsFilled     { get; private set; }
+        public CellType  Type         { get; private set; }
+
+        // Paint hits taken so far, and how many this cell needs (Ice: 2).
+        // IsFilled is derived rather than stored, so "cracked" is not a third state
+        // to keep in sync — it is simply 1 of 2 hits.
+        public int  HitsTaken    { get; private set; }
+        public int  HitsRequired => GameConstants.GetRequiredHits(Type);
+        public bool IsFilled     => HitsTaken >= HitsRequired;
+
+        // Does this cell want paint at all? Stone never does, and neither does bare
+        // board — every progress, win and coverage count goes through this.
+        public bool IsPaintTarget => Type != CellType.Stone && OutlineColor != CellColor.None;
 
         private MeshRenderer _mr;
         private Material     _mat;        // per-cell instance (animates its own colour)
         private float        _baseSide;   // resting XZ cube width (for squash & stretch)
 
-        private const float ThinH     = 0.14f;  // height when unfilled
+        private const float ThinH     = 0.11f;  // height when unfilled
         private const float FullH     = 0.80f;  // height when filled
         private const float CubeGap   = 0.92f;  // fraction of cellSize (leaves gap between cubes)
+
+        // How far an unfilled cell's colour is dragged toward the dark board.
+        // Resting cells stay quiet; the colour currently in the catapult reads much
+        // closer to its true hue, which is what makes "what can I paint right now"
+        // answerable by looking at the board instead of at the queue.
+        private const float RestingMute  = 0.54f;
+        private const float AwaitingMute = 0.28f;
+
+        private static readonly Color DarkTint      = new Color(0.08f, 0.09f, 0.14f);
+        private static readonly Color EmptyBase     = new Color(0.16f, 0.16f, 0.20f);
+        private static readonly Color FootprintTint = new Color(0.55f, 0.78f, 1f);
+
+        // Special-type tints. Each one has to be recognisable at a glance in
+        // perspective on a phone, so they differ in HEIGHT as well as colour.
+        private static readonly Color IceTint   = new Color(0.72f, 0.92f, 1f);
+        private static readonly Color StoneTint = new Color(0.40f, 0.40f, 0.45f);
+        private const float StoneH   = FullH * 0.62f;   // a block, clearly not a filled cell
+        private const float CrackedH = ThinH * 3.2f;    // ice, one hit in: visibly half-risen
 
         // Per-cell materials all share ONE shader, so URP's SRP Batcher folds the whole
         // grid into a single batch — efficient without a MaterialPropertyBlock (an MPB
@@ -28,25 +62,26 @@ namespace CatapultGames
         private static Material _sharedBase;
 
         // ─── Factory ──────────────────────────────────────────────────────
-        public static CellView Create(Transform parent, int gx, int gy,
-                                      float cellSize, CellColor color, bool filled)
+        public static CellView Create(Transform parent, int gx, int gy, float cellSize,
+                                      CellColor color, bool filled, CellType type = CellType.Normal)
         {
             var go = new GameObject($"Cell_{gx}_{gy}");
             go.transform.SetParent(parent, false);
             go.transform.localPosition = new Vector3(gx * cellSize, 0f, gy * cellSize);
 
             var view = go.AddComponent<CellView>();
-            view.Init(gx, gy, cellSize, color, filled);
+            view.Init(gx, gy, cellSize, color, filled, type);
             return view;
         }
 
         // ─── Init ─────────────────────────────────────────────────────────
-        private void Init(int gx, int gy, float cellSize, CellColor color, bool filled)
+        private void Init(int gx, int gy, float cellSize, CellColor color, bool filled, CellType type)
         {
             GridX        = gx;
             GridY        = gy;
             OutlineColor = color;
-            IsFilled     = filled;
+            Type         = type;
+            HitsTaken    = filled && type != CellType.Stone ? GameConstants.GetRequiredHits(type) : 0;
 
             int gridLayer = LayerMask.NameToLayer("CG_Grid");
             if (gridLayer < 0) gridLayer = 0;
@@ -92,17 +127,56 @@ namespace CatapultGames
         }
 
         // ─── Public API ───────────────────────────────────────────────────
+        // Jump straight to filled or empty — level load, and clearing a cell whole.
+        // Compares HIT COUNTS, not IsFilled: clearing a cracked Ice cell has to reset
+        // its hit, and by IsFilled alone that cell already looks "not filled".
         public void SetFilled(bool filled)
         {
-            if (IsFilled == filled) return;
-            if (_previewing) SetPreview(false);   // stop any aim ghost before the real fill
-            IsFilled = filled;
+            if (Type == CellType.Stone) return;          // stone is never a target
+
+            int target = filled ? HitsRequired : 0;
+            if (HitsTaken == target) return;
+            SetHits(target, animate: filled);
+        }
+
+        // One stamp's worth of paint. Ice cracks on the first hit and fills on the
+        // second; every other type fills at once. Returns true when THIS hit
+        // completed the cell, which is what progress and win checks count.
+        public bool AddHit()
+        {
+            if (Type == CellType.Stone || IsFilled) return false;
+            SetHits(HitsTaken + 1, animate: true);
+            return IsFilled;
+        }
+
+        // Exact inverse of AddHit, for undo: a filled cell drops back a hit, a
+        // cracked ice cell goes back to intact. Painting only ever adds hits, so
+        // removing the same ones puts the cell back where it was.
+        public void RemoveHit()
+        {
+            if (Type == CellType.Stone || HitsTaken <= 0) return;
+            SetHits(HitsTaken - 1, animate: false);
+        }
+
+        private void SetHits(int hits, bool animate)
+        {
+            bool wasFilled = IsFilled;
+            if (_previewing) SetPreview(false);   // drop the aim ghost before a real change
+
+            HitsTaken = Mathf.Clamp(hits, 0, HitsRequired);
             Refresh();
-            if (filled)
+
+            if (!animate) return;
+
+            if (IsFilled && !wasFilled)
             {
                 StartCoroutine(RisePunch());
-                Color col = GameConstants.GetColorF(OutlineColor);
-                GameFX.Instance.CellPop(transform.position + Vector3.up * (FullH * 0.6f), col);
+                GameFX.Instance.CellPop(transform.position + Vector3.up * (FullH * 0.6f),
+                                        GameConstants.GetColorF(OutlineColor));
+            }
+            else if (!IsFilled)
+            {
+                StartCoroutine(CrackPunch());     // ice took a hit and is still standing
             }
         }
 
@@ -113,6 +187,8 @@ namespace CatapultGames
         }
 
         // ─── Visual ───────────────────────────────────────────────────────
+        // Every non-animated look resolves here, so the transient aim states can
+        // all return by simply calling Refresh() again.
         private void Refresh()
         {
             if (_mr == null) return;
@@ -121,22 +197,60 @@ namespace CatapultGames
             Color   col    = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
             bool    isNone = OutlineColor == CellColor.None;
 
-            if (isNone)
+            Color colour;
+            float height;
+
+            if (Type == CellType.Stone)
             {
-                SetColor(new Color(0.16f, 0.16f, 0.20f));  // dark slate base
-                ApplyHeight(ThinH * 0.7f);
+                // A wall, not a target. Grey and chunky so it reads as an obstacle
+                // at the camera's tilt, and unaffected by everything below.
+                colour = StoneTint;
+                height = StoneH;
+            }
+            else if (isNone)
+            {
+                colour = EmptyBase;              // dark slate base
+                height = ThinH * 0.7f;
             }
             else if (IsFilled)
             {
-                SetColor(col);
-                ApplyHeight(FullH);
+                colour = col;
+                height = FullH;
             }
             else
             {
-                // Muted version of the outline colour (shows "this cell needs this colour")
-                SetColor(Color.Lerp(col, new Color(0.08f, 0.09f, 0.14f), 0.62f));
-                ApplyHeight(ThinH);
+                // Muted version of the outline colour (shows "this cell needs this
+                // colour"), lifted a step while that colour is the one loaded.
+                colour = Color.Lerp(col, DarkTint, _awaiting ? AwaitingMute : RestingMute);
+                height = _awaiting ? ThinH * 1.5f : ThinH;
+
+                if (Type == CellType.Ice)
+                {
+                    // Frosted over its target colour. Once cracked it sits half-risen,
+                    // so "this one needs a second ball" is readable without a counter.
+                    bool cracked = HitsTaken > 0;
+                    colour = Color.Lerp(colour, IceTint, cracked ? 0.72f : 0.52f);
+                    height = cracked ? CrackedH : Mathf.Max(height, ThinH * 1.25f);
+                }
+                else if (Type == CellType.Joker)
+                {
+                    // Washed toward white: any colour is allowed to spend itself here.
+                    colour = Color.Lerp(colour, Color.white, 0.55f);
+                    height = Mathf.Max(height, ThinH * 1.7f);
+                }
             }
+
+            // The aimed stamp covers this cell but will not paint it — wrong colour,
+            // already filled, or bare board. Shown so the player reads where the
+            // stamp actually sits, not just the part of it that pays off.
+            if (_footprint)
+            {
+                colour = Color.Lerp(colour, FootprintTint, IsFilled ? 0.26f : 0.50f);
+                if (!IsFilled) height = Mathf.Max(height, ThinH * 2.1f);
+            }
+
+            SetColor(colour);
+            ApplyHeight(height);
         }
 
         // Sets cube Y scale and lifts it so the bottom sits at Y = 0
@@ -167,6 +281,31 @@ namespace CatapultGames
             }
         }
 
+        // ─── Stamp footprint (aim) ────────────────────────────────────────
+        // Set on the cells the stamp covers but does NOT paint. Together with the
+        // paint ghosts below, the player sees the whole stamp — which matters
+        // because the aimed cell sits at a different spot inside it per power
+        // level (GameConstants.GetPaintOffset), so "where did my ball go" is
+        // otherwise something you learn only by wasting balls.
+        private bool _footprint;
+
+        public void SetFootprint(bool on)
+        {
+            if (_mr == null || _footprint == on) return;
+            _footprint = on;
+            if (!_previewing) Refresh();   // the ghost coroutine owns the look while it runs
+        }
+
+        // ─── Awaiting (this cell's colour is loaded right now) ────────────
+        private bool _awaiting;
+
+        public void SetAwaiting(bool on)
+        {
+            if (_mr == null || _awaiting == on) return;
+            _awaiting = on;
+            if (!_previewing) Refresh();
+        }
+
         // ─── Paint preview (aim) ──────────────────────────────────────────
         // A "ghost" of the filled cube: the cell rises part-way in its real fill
         // colour and gently breathes while the player aims, so the painted
@@ -194,10 +333,17 @@ namespace CatapultGames
             Color   col   = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
             Color   ghost = Color.Lerp(col, Color.white, 0.45f);
 
+            // An Ice cell that this shot would only crack rises to the cracked height
+            // instead — the preview promises exactly what the ball delivers, which is
+            // the whole reason the aim ghost is trusted.
+            bool  fillsIt = HitsTaken + 1 >= HitsRequired;
+            float top     = fillsIt ? PreviewH : CrackedH;
+            if (!fillsIt) col = Color.Lerp(col, IceTint, 0.55f);
+
             while (true)
             {
                 float b = 0.5f + 0.5f * Mathf.Sin(Time.time * 6f);   // 0 → 1 breathing
-                ApplyHeight(Mathf.Lerp(PreviewH * 0.80f, PreviewH, b));
+                ApplyHeight(Mathf.Lerp(top * 0.80f, top, b));
                 SetColor(Color.Lerp(col, ghost, b));
                 yield return null;
             }
@@ -235,6 +381,35 @@ namespace CatapultGames
 
             ApplyHeight(FullH);
             SetColor(baseCol);
+        }
+
+        // ─── Ice crack (a hit that did not fill) ──────────────────────────
+        // A hard squash that springs back, with a white flash — the ball clearly
+        // did something, it just wasn't enough. Deliberately unlike RisePunch, so
+        // "cracked" is never mistaken for "filled" out of the corner of the eye.
+        private IEnumerator CrackPunch()
+        {
+            const float dur = 0.18f;
+            float restH = _mr != null ? _mr.transform.localScale.y : ThinH;
+            float t     = 0f;
+
+            Color32 c32   = GameConstants.GetColor(OutlineColor);
+            Color   baseCol  = _mat != null ? _mat.color : Color.white;
+            Color   flashCol = Color.Lerp(new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f),
+                                          Color.white, 0.80f);
+
+            while (t < dur)
+            {
+                float p     = t / dur;
+                float punch = Mathf.Sin(p * Mathf.PI);              // 0 → 1 → 0
+                ApplyScale(_baseSide * (1f + 0.16f * punch),        // squash outward
+                           restH     * (1f - 0.35f * punch));       // and downward
+                SetColor(Color.Lerp(baseCol, flashCol, punch));
+                t += Time.deltaTime;
+                yield return null;
+            }
+
+            Refresh();   // back to whatever the cell's state says it looks like
         }
 
         // ─── Celebration pulse (its colour was fully cleared) ─────────────

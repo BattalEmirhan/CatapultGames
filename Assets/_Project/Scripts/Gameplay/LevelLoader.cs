@@ -2,11 +2,11 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // Task 16 — Level loader.
+    // Level loader.
     // Reads a LevelData JSON from Resources/Levels/ (TextAsset) and populates
     // the GridRenderer, BallQueue, and GridCameraController at runtime.
-    // Resources.Load works on every platform — including Android, where the
-    // old StreamingAssets file IO did not.
+    // Resources.Load works on every platform, including Android — and it is the
+    // one and only place levels live (the Level Editor saves straight into it).
     //
     // PlayerPrefs key "SelectedLevel" stores the level name (file name w/o ext).
     // If the key is missing, _defaultLevelName is used.
@@ -19,6 +19,7 @@ namespace CatapultGames
         [SerializeField] private ProgressHUD          _progressHUD;  // optional
         [SerializeField] private LevelPickerHUD       _levelPicker;  // optional
         [SerializeField] private LaunchAreaAnchor     _launchAnchor; // optional — pins balls to screen bottom
+        [SerializeField] private GameManager          _gameManager;  // optional — score reset on load
 
         [Header("Fallback")]
         [SerializeField] private string _defaultLevelName = "Level_01";
@@ -77,6 +78,9 @@ namespace CatapultGames
             _launchAnchor?.Reanchor();
             _queue.Load(SanitizeBalls(data.balls));
             _progressHUD?.Bind(_grid);
+            // A level switch is a new run: the picker HUD loads in place rather than
+            // reloading the scene, so the score would otherwise carry over.
+            _gameManager?.ResetScore();
         }
 
         // Strip null entries and clamp powerLevel to 1-3 so bad JSON never crashes gameplay.

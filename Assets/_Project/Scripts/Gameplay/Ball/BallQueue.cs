@@ -29,6 +29,77 @@ namespace CatapultGames
             return i >= 0 && i < _balls.Count ? _balls[i] : null;
         }
 
+        // Every ball not yet fired, current one first. Fills a caller-owned list so
+        // the mid-run solvability check (GameManager) can run per landing without
+        // allocating. BallData instances are shared, not copied — read only.
+        public void CopyRemaining(List<BallData> into)
+        {
+            if (into == null) return;
+            into.Clear();
+            for (int i = _index; i < _balls.Count; i++)
+                if (_balls[i] != null) into.Add(_balls[i]);
+        }
+
+        // Bring a queued ball to the front so it becomes Current — the player picking
+        // one of the next few instead of always firing whatever is loaded.
+        //
+        // A move, not a swap: the balls it jumps keep their relative order, so the
+        // authored sequence still plays out and the choice costs nothing but position.
+        // Everything downstream is untouched by this — AimPreview reads Current,
+        // BallLauncher consumes Current — which is why selection is modelled as
+        // reordering rather than as a second "which ball" concept.
+        public bool SelectSlot(int offset)
+        {
+            if (offset <= 0) return false;          // slot 0 is already the current ball
+
+            int i = _index + offset;
+            if (i < 0 || i >= _balls.Count) return false;
+
+            var ball = _balls[i];
+            if (ball == null) return false;
+
+            _balls.RemoveAt(i);
+            _balls.Insert(_index, ball);
+            OnChanged?.Invoke();
+            return true;
+        }
+
+        // ── Undo support ──────────────────────────────────────────────────
+        // A whole-queue snapshot rather than a "put the ball back" call, because
+        // undoing one shot can also have to undo a RemoveColor purge that the shot
+        // triggered. Restoring the entire state covers both without special cases.
+        public readonly struct Snapshot
+        {
+            internal readonly BallData[] balls;
+            internal readonly int        index;
+            internal Snapshot(BallData[] balls, int index) { this.balls = balls; this.index = index; }
+            public bool IsValid => balls != null;
+        }
+
+        public Snapshot Capture() => new Snapshot(_balls.ToArray(), _index);
+
+        public void Restore(Snapshot snapshot)
+        {
+            if (!snapshot.IsValid) return;
+            _balls.Clear();
+            _balls.AddRange(snapshot.balls);
+            _index = Mathf.Clamp(snapshot.index, 0, _balls.Count);
+            OnChanged?.Invoke();
+        }
+
+        // Extra balls handed out mid-run (the "keep going" offer). They join the
+        // back of the queue, so the authored order plays out first.
+        public void Append(IEnumerable<BallData> extra)
+        {
+            if (extra == null) return;
+
+            int before = _balls.Count;
+            foreach (var b in extra)
+                if (b != null) _balls.Add(b);
+
+            if (_balls.Count != before) OnChanged?.Invoke();
+        }
+
         // ── API ───────────────────────────────────────────────────────────
         public void Load(BallData[] balls)
         {

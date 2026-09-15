@@ -4,11 +4,11 @@ using UnityEngine;
 namespace CatapultGames
 {
     // Shared parabolic arc simulation used by both AimPreview and BallLauncher.
-    // Simulates projectile motion in world space (Y = up, gravity = -9.81).
+    // Simulates projectile motion in world space (Y = up), under the game's one
+    // gravity value (GameConstants.Gravity).
     // Stops when the trajectory crosses Y = 0 (the grid plane).
     public static class TrajectorySimulator
     {
-        private const float GravityY = -9.81f;
 
         // Returns list of world-space sample points along the arc.
         // landingPos is the interpolated Y=0 crossing point.
@@ -28,7 +28,7 @@ namespace CatapultGames
             for (int i = 0; i < maxSteps; i++)
             {
                 float prevY = pos.y;
-                vel.y += GravityY * timeStep;
+                vel.y += GameConstants.Gravity * timeStep;
                 pos   += vel      * timeStep;
 
                 // Only check for ground hit once the ball is coming back down

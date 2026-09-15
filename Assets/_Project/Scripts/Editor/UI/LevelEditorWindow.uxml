@@ -1,0 +1,313 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="True">
+    <!--
+        THE WHOLE WINDOW TREE. LevelEditorWindow.CreateGUI clones this and only
+        binds: element names below are the contract C# queries with Q<>(name).
+        Rename one here without the matching C# change and you get a silent null —
+        every Find<T>() in the window is null-safe for exactly that reason.
+
+        Panels are SIBLINGS; only one is in layout at a time (cg-hidden).
+    -->
+    <ui:VisualElement name="window-root" class="cg-root">
+
+        <!-- ── Title bar: target state + catalog browser ─────────────────── -->
+        <ui:VisualElement name="titlebar" class="cg-titlebar">
+            <ui:Label text="Level Editor" class="cg-titlebar__title" />
+            <ui:Label name="target-info" text="Unsaved scratch level" class="cg-titlebar__subtitle" />
+            <ui:VisualElement class="cg-spacer" />
+            <ui:VisualElement name="browser" class="cg-browser">
+                <ui:Button name="browser-prev" text="◀" class="cg-browser__btn" />
+                <ui:Label name="browser-label" text="— / 0" class="cg-browser__label" />
+                <ui:Button name="browser-next" text="▶" class="cg-browser__btn" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- ── Tab bar ───────────────────────────────────────────────────── -->
+        <ui:VisualElement name="tabbar" class="cg-tabbar">
+            <ui:Button name="tab-editor"  text="Editor"  class="cg-tab" />
+            <ui:Button name="tab-gallery" text="Gallery" class="cg-tab" />
+            <ui:Button name="tab-produce" text="Produce" class="cg-tab" />
+            <ui:Button name="tab-solving" text="Solving" class="cg-tab" />
+        </ui:VisualElement>
+
+        <!-- ═══════════════════════ EDITOR ═══════════════════════════════ -->
+        <ui:VisualElement name="tab-panel-editor" class="cg-panel cg-panel--row">
+
+            <!-- Board (own scroll, both axes) -->
+            <ui:VisualElement class="cg-boardcol">
+                <ui:VisualElement class="cg-boardbar">
+                    <ui:Label text="Zoom" class="cg-note" />
+                    <ui:SliderInt name="zoom-slider" low-value="12" high-value="64" value="32" class="cg-boardbar__zoom" />
+                    <ui:Label name="hover-info" text="" class="cg-note cg-mono" />
+                    <ui:VisualElement class="cg-spacer" />
+                    <ui:Label name="board-info" text="" class="cg-note" />
+                </ui:VisualElement>
+                <ui:ScrollView name="grid-scroll" mode="VerticalAndHorizontal" class="cg-boardscroll">
+                    <ui:VisualElement name="grid-host" class="cg-gridhost" />
+                </ui:ScrollView>
+            </ui:VisualElement>
+
+            <!-- Side column: cards -->
+            <ui:ScrollView name="editor-side" class="cg-side">
+
+                <!-- Level card -->
+                <ui:VisualElement class="cg-card">
+                    <ui:Label text="Level" class="cg-card__header" />
+                    <ui:TextField name="level-name" label="Name" />
+                    <ui:VisualElement class="cg-row">
+                        <ui:IntegerField name="grid-width"  label="W" value="8" class="cg-field--short" />
+                        <ui:IntegerField name="grid-height" label="H" value="8" class="cg-field--short" />
+                        <ui:Button name="grid-apply" text="Resize" />
+                        <ui:FloatField name="cell-size" label="Cell" value="1" class="cg-field--short" />
+                    </ui:VisualElement>
+                    <ui:Foldout name="camera-foldout" text="Camera framing (this level)" value="false" class="cg-subfoldout">
+                        <ui:VisualElement class="cg-row">
+                            <ui:VisualElement class="cg-grow">
+                                <ui:Slider name="cam-tilt"    label="Tilt"     low-value="30" high-value="85" value="50"   show-input-field="true" />
+                                <ui:Slider name="cam-fov"     label="FOV"      low-value="30" high-value="90" value="60"   show-input-field="true" />
+                                <ui:Slider name="cam-padding" label="Padding"  low-value="1"  high-value="1.5" value="1.08" show-input-field="true" />
+                                <ui:Slider name="cam-gridpos" label="Grid pos" low-value="0"  high-value="1"  value="0.5"  show-input-field="true" />
+                                <ui:Vector3Field name="cam-offset" label="Offset" />
+                                <ui:VisualElement class="cg-row">
+                                    <ui:Button name="cam-reset" text="Reset" />
+                                    <ui:Label text="Grid pos 0.5 = centred. Saved per level." class="cg-note" />
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:VisualElement name="camera-diagram" class="cg-camdiagram" />
+                        </ui:VisualElement>
+                    </ui:Foldout>
+                </ui:VisualElement>
+
+                <!-- Brushes card -->
+                <ui:VisualElement class="cg-card">
+                    <ui:VisualElement class="cg-row">
+                        <ui:Label text="Brushes" class="cg-card__header cg-grow" />
+                        <ui:Button name="undo-btn" text="↶ Undo" class="cg-btn--mini" />
+                        <ui:Button name="redo-btn" text="↷ Redo" class="cg-btn--mini" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:Button name="tool-paint" text="Paint"     class="cg-tool" />
+                        <ui:Button name="tool-erase" text="Erase"     class="cg-tool" />
+                        <ui:Button name="tool-fill"  text="Fill"      class="cg-tool" />
+                        <ui:Button name="tool-brush" text="Brush"     class="cg-tool" />
+                        <ui:Button name="tool-rect"  text="Rect sel"  class="cg-tool" />
+                        <ui:Button name="tool-multi" text="Multi sel" class="cg-tool" />
+                    </ui:VisualElement>
+                    <ui:SliderInt name="brush-radius" label="Radius" low-value="1" high-value="5" value="1" show-input-field="true" />
+                    <ui:VisualElement name="color-row" class="cg-row">
+                        <ui:Label text="Colour" class="cg-label--key" />
+                        <ui:VisualElement name="color-swatches" class="cg-row cg-wrap" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="type-row" class="cg-row">
+                        <ui:Label text="Type" class="cg-label--key" />
+                        <ui:Button name="type-normal" text="Normal" class="cg-type" tooltip="One hit fills it." />
+                        <ui:Button name="type-ice"    text="Ice"    class="cg-type" tooltip="Two hits: the first only cracks it." />
+                        <ui:Button name="type-stone"  text="Stone"  class="cg-type" tooltip="Never paints, and blocks the stamp behind it. Takes no colour." />
+                        <ui:Button name="type-joker"  text="Joker"  class="cg-type" tooltip="Any colour fills it." />
+                    </ui:VisualElement>
+                    <ui:Label name="type-counts" text="" class="cg-note" />
+                    <ui:VisualElement name="selection-row" class="cg-row">
+                        <ui:Label name="selection-info" text="0 selected" class="cg-note" />
+                        <ui:Button name="sel-paint" text="Paint" class="cg-btn--mini" />
+                        <ui:Button name="sel-erase" text="Erase" class="cg-btn--mini" />
+                        <ui:Button name="sel-clear" text="✕ Deselect" class="cg-btn--mini" />
+                    </ui:VisualElement>
+                    <ui:Label name="brush-warning" text="" class="cg-warning cg-hidden" />
+                </ui:VisualElement>
+
+                <!-- Balls card -->
+                <ui:VisualElement class="cg-card">
+                    <ui:VisualElement class="cg-row">
+                        <ui:Label name="ball-count" text="Balls (0)" class="cg-card__header cg-grow" />
+                        <ui:Button name="ball-shuffle" text="Shuffle" class="cg-btn--mini" />
+                        <ui:Button name="ball-clear"   text="Clear"   class="cg-btn--mini cg-btn--danger" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:DropdownField name="batch-color" label="" class="cg-dd--color" />
+                        <ui:DropdownField name="batch-shape" label="" class="cg-dd--shape" />
+                        <ui:SliderInt name="batch-power" label="P" low-value="1" high-value="3" value="1" show-input-field="true" class="cg-field--power" />
+                        <ui:IntegerField name="batch-count" label="×" value="3" class="cg-field--short" />
+                        <ui:Button name="batch-add" text="+ Add" class="cg-btn--accent" />
+                    </ui:VisualElement>
+                    <ui:Label name="ball-warning" text="" class="cg-warning cg-hidden" />
+                    <ui:VisualElement name="ball-list" class="cg-balllist" />
+                </ui:VisualElement>
+
+                <!-- Generate card -->
+                <ui:VisualElement class="cg-card">
+                    <ui:Label text="Generate" class="cg-card__header" />
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:DropdownField name="gen-band" label="Band" />
+                        <ui:IntegerField name="gen-seed" label="Seed" value="1" class="cg-field--short" />
+                        <ui:Button name="gen-random" text="🎲" class="cg-btn--mini" tooltip="New random seed" />
+                        <ui:Button name="gen-build" text="Generate" class="cg-btn--accent" />
+                    </ui:VisualElement>
+                    <ui:Label name="gen-recipe" text="" class="cg-note" />
+                    <ui:Label name="gen-status" text="Recipe per band is edited in the Produce tab — the same builder runs here." class="cg-note" />
+                </ui:VisualElement>
+
+                <!-- AI playback card -->
+                <ui:VisualElement class="cg-card">
+                    <ui:VisualElement class="cg-row">
+                        <ui:Label text="AI preview" class="cg-card__header cg-grow" />
+                        <ui:Button name="play-btn"  text="▶ Play"  class="cg-btn--mini cg-btn--ok" />
+                        <ui:Button name="stop-btn"  text="■ Stop"  class="cg-btn--mini cg-btn--warn cg-hidden" />
+                        <ui:Button name="reset-btn" text="Reset"   class="cg-btn--mini cg-hidden" />
+                    </ui:VisualElement>
+                    <ui:Slider name="play-speed" label="Speed" low-value="0" high-value="1" value="0.6" />
+                    <ui:Label name="play-status" text="" class="cg-note" />
+                    <ui:Label text="Greedy playthrough in the authored ball order — a visual preview, not a runtime simulation." class="cg-note cg-dim" />
+                </ui:VisualElement>
+
+                <!-- Status card -->
+                <ui:VisualElement class="cg-card">
+                    <ui:Label name="status-header" text="Status" class="cg-card__header" />
+                    <ui:VisualElement name="status-errors" />
+                    <ui:VisualElement name="status-warnings" />
+                    <ui:VisualElement name="status-rows" />
+                    <ui:VisualElement name="status-quick" />
+                </ui:VisualElement>
+
+                <!-- Save / files card -->
+                <ui:VisualElement class="cg-card">
+                    <ui:Label text="File" class="cg-card__header" />
+                    <ui:Label name="save-path"  text="" class="cg-note cg-mono" />
+                    <ui:Label name="save-fresh" text="" class="cg-note" />
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:Button name="save-btn"      text="Save"        class="cg-btn--accent" />
+                        <ui:Button name="save-as-btn"   text="Save as…" />
+                        <ui:Button name="duplicate-btn" text="Duplicate…" />
+                        <ui:Button name="new-btn"       text="New" />
+                        <ui:Button name="open-btn"      text="Open…" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:Button name="import-btn" text="Import image…" />
+                        <ui:Slider name="import-threshold" label="Threshold" low-value="0.05" high-value="1" value="0.35" show-input-field="true" class="cg-grow" />
+                        <ui:Label name="import-file" text="" class="cg-note cg-mono" />
+                        <ui:Button name="import-clear" text="✕" class="cg-btn--mini cg-hidden" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+
+            </ui:ScrollView>
+        </ui:VisualElement>
+
+        <!-- ═══════════════════════ GALLERY ══════════════════════════════ -->
+        <ui:ScrollView name="tab-panel-gallery" class="cg-panel cg-hidden">
+            <ui:VisualElement class="cg-card">
+                <ui:VisualElement class="cg-row cg-wrap">
+                    <ui:TextField name="gallery-search" label="Search" class="cg-grow" />
+                    <ui:DropdownField name="gallery-band" label="Band" />
+                    <ui:Button name="gallery-refresh" text="⟳ Reload" class="cg-btn--mini" />
+                </ui:VisualElement>
+                <ui:VisualElement class="cg-row">
+                    <ui:Label name="gallery-info" text="" class="cg-note cg-grow" />
+                    <ui:Button name="gallery-page-prev" text="◀" class="cg-btn--mini" />
+                    <ui:Label name="gallery-page-label" text="1 / 1" class="cg-note cg-mono" />
+                    <ui:Button name="gallery-page-next" text="▶" class="cg-btn--mini" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="gallery-cards" class="cg-cards" />
+        </ui:ScrollView>
+
+        <!-- ═══════════════════════ PRODUCE ══════════════════════════════ -->
+        <ui:ScrollView name="tab-panel-produce" class="cg-panel cg-hidden">
+            <ui:VisualElement class="cg-card">
+                <ui:Label text="Range" class="cg-card__header" />
+                <ui:VisualElement class="cg-row cg-wrap">
+                    <ui:IntegerField name="produce-from" label="From" value="1"  class="cg-field--short" />
+                    <ui:IntegerField name="produce-to"   label="To"   value="10" class="cg-field--short" />
+                    <ui:IntegerField name="produce-seed" label="Seed" value="1000" class="cg-field--short" />
+                    <ui:IntegerField name="produce-attempts" label="Attempts" value="12" class="cg-field--short" />
+                    <ui:Toggle name="produce-overwrite" label="Overwrite existing" />
+                </ui:VisualElement>
+                <ui:Label name="produce-summary" text="" class="cg-note" />
+                <ui:Label name="produce-schedule" text="" class="cg-note cg-mono" />
+                <ui:VisualElement class="cg-row">
+                    <ui:Button name="produce-run" text="Produce" class="cg-btn--accent" />
+                    <ui:Label text="Levels are written straight into Resources/Levels — what you produce is what the game loads." class="cg-note cg-dim" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement class="cg-card">
+                <ui:VisualElement class="cg-row">
+                    <ui:Label text="Band recipe" class="cg-card__header cg-grow" />
+                    <ui:DropdownField name="band-select" label="" />
+                    <ui:Button name="band-reset" text="Reset band" class="cg-btn--mini" />
+                </ui:VisualElement>
+                <ui:Label name="band-summary" text="" class="cg-note cg-mono" />
+                <ui:Foldout name="band-foldout" text="Edit recipe" value="false" class="cg-subfoldout">
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:IntegerField name="band-width"     label="Width"   class="cg-field--short" />
+                        <ui:IntegerField name="band-height"    label="Height"  class="cg-field--short" />
+                        <ui:IntegerField name="band-colors"    label="Colours" class="cg-field--short" />
+                        <ui:IntegerField name="band-min-cells" label="Min cells / colour" class="cg-field--short" />
+                    </ui:VisualElement>
+                    <ui:Slider name="band-fill" label="Fill ratio" low-value="0.1" high-value="1" show-input-field="true" />
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:IntegerField name="band-ice"   label="Ice"   class="cg-field--short" />
+                        <ui:IntegerField name="band-stone" label="Stone" class="cg-field--short" />
+                        <ui:IntegerField name="band-joker" label="Joker" class="cg-field--short" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:Toggle name="band-shape-square"   label="Square" />
+                        <ui:Toggle name="band-shape-l"        label="L" />
+                        <ui:Toggle name="band-shape-line"     label="Line" />
+                        <ui:Toggle name="band-shape-column"   label="Column" />
+                        <ui:Toggle name="band-shape-plus"     label="Plus" />
+                        <ui:Toggle name="band-shape-diagonal" label="Diagonal" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="cg-row cg-wrap">
+                        <ui:SliderInt name="band-maxpower" label="Max power" low-value="1" high-value="3" show-input-field="true" />
+                        <ui:IntegerField name="band-slack"   label="Slack balls"    class="cg-field--short" />
+                        <ui:IntegerField name="band-shuffle" label="Shuffle window" class="cg-field--short" />
+                    </ui:VisualElement>
+                    <ui:Label text="Band = difficulty curve (LevelDifficultySchedule.For). Slack balls = ball budget. Two axes, tune them separately." class="cg-note cg-dim" />
+                </ui:Foldout>
+            </ui:VisualElement>
+
+            <ui:VisualElement class="cg-card">
+                <ui:Label name="produce-report-header" text="Report" class="cg-card__header" />
+                <ui:VisualElement name="produce-report" />
+            </ui:VisualElement>
+        </ui:ScrollView>
+
+        <!-- ═══════════════════════ SOLVING ══════════════════════════════ -->
+        <ui:ScrollView name="tab-panel-solving" class="cg-panel cg-hidden">
+            <ui:VisualElement class="cg-card">
+                <ui:Label text="Sweep" class="cg-card__header" />
+                <ui:VisualElement class="cg-row cg-wrap">
+                    <ui:DropdownField name="solve-scope" label="Scope" />
+                    <ui:IntegerField name="solve-from" label="From" value="1" class="cg-field--short" />
+                    <ui:IntegerField name="solve-to"   label="To"   value="5" class="cg-field--short" />
+                    <ui:IntegerField name="solve-runs" label="Runs / bot" value="30" class="cg-field--short" />
+                    <ui:IntegerField name="solve-seed" label="Seed" value="7" class="cg-field--short" />
+                </ui:VisualElement>
+                <ui:VisualElement class="cg-row">
+                    <ui:Button name="solve-run" text="Run sweep" class="cg-btn--accent" />
+                    <ui:Label name="solve-cost" text="" class="cg-note" />
+                </ui:VisualElement>
+                <ui:Label text="The sweep always runs the whole roster; the bot filter below changes what is drawn, never what is measured." class="cg-note cg-dim" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="cg-card">
+                <ui:VisualElement class="cg-row">
+                    <ui:Label name="solve-summary" text="No sweep yet." class="cg-card__header cg-grow" />
+                    <ui:DropdownField name="solve-sort" label="Sort" />
+                </ui:VisualElement>
+                <ui:VisualElement name="solve-bots" class="cg-row cg-wrap" />
+                <ui:VisualElement name="solve-levels" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="solve-detail-card" class="cg-card cg-hidden">
+                <ui:Label name="solve-detail-header" text="Bot playouts" class="cg-card__header" />
+                <ui:VisualElement name="solve-detail" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="cg-card">
+                <ui:Label text="Roster" class="cg-card__header" />
+                <ui:VisualElement name="solve-roster" />
+                <ui:Label name="solve-notsim" text="" class="cg-note cg-dim" />
+            </ui:VisualElement>
+        </ui:ScrollView>
+
+    </ui:VisualElement>
+</ui:UXML>
