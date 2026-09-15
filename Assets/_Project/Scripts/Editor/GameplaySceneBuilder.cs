@@ -65,9 +65,9 @@ namespace CatapultGames.Editor
                 Quaternion.Euler(55f, 0f, 0f));
             var camCtrl = camGo.AddComponent<GridCameraController>();
             camCtrl.fieldOfView   = 60f;
-            camCtrl.tiltAngle     = 50f;    // 50° = good balance: grid readable + catapult visible
-            camCtrl.padding       = 1.08f;
-            camCtrl.gridScreenPos = 0.5f;   // grid centred on screen (per-level override via LevelData.camera)
+            camCtrl.tiltAngle     = 66f;    // steep: the board reads flat, like a block puzzle
+            camCtrl.padding       = 1.12f;
+            camCtrl.gridScreenPos = 0.60f;  // board in the upper two thirds, tray band below (per-level override via LevelData.camera)
 
             // ── Grid + board ──────────────────────────────────────────────
             var gridGo = new GameObject("GridRoot");
@@ -79,102 +79,58 @@ namespace CatapultGames.Editor
             var queue   = queueGo.AddComponent<BallQueue>();
 
             // ── Launch area root ──────────────────────────────────────────
-            // The catapult AND the queue waypoints live under one root so
-            // LaunchAreaAnchor can pin the whole group to a fixed band at the bottom
-            // of the screen — it never slides when a level's grid camera changes.
+            // The ball TRAY (three slots on a plate) and a small decorative
+            // catapult live under one root so LaunchAreaAnchor can pin the whole
+            // group to a fixed band at the bottom of the screen — it never slides
+            // when a level's grid camera changes.
             const float catX = 5.5f;
             const float catZ = -8f;
             var launchAreaGo = new GameObject("LaunchArea");
             launchAreaGo.transform.position = new Vector3(catX, 0f, catZ);
 
-            // Waypoints: spread left on X from the catapult, same plane (Z=catZ).
-            // WP_0: catapult rest pos (slide target; the ball is parented to ballPivot).
-            // WP_1..5: queue balls to the left of the catapult, Y=0.4 (sit on ground).
-            var wpParent = new GameObject("Waypoints").transform;
-            wpParent.SetParent(launchAreaGo.transform);
-            var waypoints = new Transform[6];   // 1 catapult slot + 5 queue slots
-            for (int i = 0; i < waypoints.Length; i++)
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (!litShader) litShader = Shader.Find("Standard");
+
+            // Tray plate — the light slab the three balls sit on.
+            AddDeco(launchAreaGo.transform, "TrayPlate", PrimitiveType.Cube,
+                    new Vector3(0f, 0.12f, 0f), new Vector3(5.4f, 0.24f, 1.9f),
+                    litShader, new Color(0.94f, 0.92f, 0.89f));
+
+            // Slots: left → right. The selected ball is lifted above its slot by
+            // BallQueueView, and the arc starts from wherever that ball is.
+            var slotsParent = new GameObject("TraySlots").transform;
+            slotsParent.SetParent(launchAreaGo.transform, false);
+            var slots = new Transform[3];
+            for (int i = 0; i < slots.Length; i++)
             {
-                var wp = new GameObject($"WP_{i}").transform;
-                wp.SetParent(wpParent);
-                wp.position = i == 0
-                    ? new Vector3(catX, 1.5f, catZ)            // catapult
-                    : new Vector3(catX - i * 1.15f, 0.4f, catZ); // queue spreads left
-                waypoints[i] = wp;
+                var s = new GameObject($"Slot_{i}").transform;
+                s.SetParent(slotsParent, false);
+                s.localPosition = new Vector3((i - 1) * 1.65f, 0.62f, 0f);
+                slots[i] = s;
             }
 
             var queueView = queueGo.AddComponent<BallQueueView>();
             SetRef(queueView, "_queue", queue);
-            SetFloat(queueView, "_currentBallScale", 1.10f);  // big — catapult ball must be obvious
-            SetFloat(queueView, "_queueBallScale",   0.65f);  // clearly visible queue balls
-            // _catapultPivot wired after ballPivot is created (below)
-            SetRefArray(queueView, "_waypoints", waypoints);
+            SetRefArray(queueView, "_slots", slots);
+            // _remainingLabel is wired once the UI canvas exists (below).
 
-            // ── Launch origin — placed well in front of grid so camera shows it ──
-            // Grid occupies Z=0..height. The catapult at Z=-8 sits low in the bottom
-            // area below the centred grid (camera frames both via gridScreenPos).
-            // LaunchSolver re-solves the launch speed per shot, so the further origin
-            // doesn't affect which cells are reachable.
+            // Launch origin FALLBACK at the centre slot. TapLaunchController,
+            // BallLauncher and AimPreview normally take the selected tray ball's
+            // position (BallQueueView.CurrentLaunchOrigin) instead.
             var originGo = new GameObject("LaunchOrigin").transform;
-            originGo.position = new Vector3(5.5f, 1.5f, -8f);
+            originGo.SetParent(launchAreaGo.transform, false);
+            originGo.localPosition = new Vector3(0f, 0.92f, 0f);
 
-            // ── Catapult / launch base ────────────────────────────────────
-            // The ball sits on the catapult and flies from here; TapLaunchController
-            // fires it at the tapped cell.
+            // Decorative catapult behind the tray — the theme, not the mechanism.
             var catapultGo = new GameObject("Catapult");
-            catapultGo.transform.position = new Vector3(catX, 0f, catZ);
-            catapultGo.transform.SetParent(launchAreaGo.transform, worldPositionStays: true);
-
-            // Catapult body — simple visible base so the user sees the catapult
-            var baseObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            baseObj.name = "CatapultBase";
-            Object.DestroyImmediate(baseObj.GetComponent<BoxCollider>());
-            baseObj.transform.SetParent(catapultGo.transform);
-            baseObj.transform.localPosition = new Vector3(0f, 0.2f, 0f);
-            baseObj.transform.localScale    = new Vector3(1.2f, 0.4f, 0.6f);
-            var baseMr = baseObj.GetComponent<MeshRenderer>();
-            var baseShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (!baseShader) baseShader = Shader.Find("Standard");
-            baseMr.sharedMaterial = new Material(baseShader) { color = new Color(0.25f, 0.18f, 0.12f) };
-
-            // Arm
-            var armObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            armObj.name = "CatapultArm";
-            Object.DestroyImmediate(armObj.GetComponent<BoxCollider>());
-            armObj.transform.SetParent(catapultGo.transform);
-            armObj.transform.localPosition = new Vector3(0f, 0.6f, 0f);
-            armObj.transform.localScale    = new Vector3(0.15f, 0.9f, 0.15f);
-            armObj.GetComponent<MeshRenderer>().sharedMaterial =
-                new Material(baseShader) { color = new Color(0.35f, 0.25f, 0.15f) };
-
-            // Fork tips (Y-shaped cradle the ball rests in)
-            var forkL = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            forkL.name = "ForkL";
-            Object.DestroyImmediate(forkL.GetComponent<SphereCollider>());
-            forkL.transform.SetParent(catapultGo.transform);
-            forkL.transform.localPosition = new Vector3(-0.3f, 1.1f, 0f);
-            forkL.transform.localScale    = Vector3.one * 0.18f;
-            forkL.GetComponent<MeshRenderer>().sharedMaterial =
-                new Material(baseShader) { color = new Color(0.35f, 0.25f, 0.15f) };
-
-            var forkR = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            forkR.name = "ForkR";
-            Object.DestroyImmediate(forkR.GetComponent<SphereCollider>());
-            forkR.transform.SetParent(catapultGo.transform);
-            forkR.transform.localPosition = new Vector3(0.3f, 1.1f, 0f);
-            forkR.transform.localScale    = Vector3.one * 0.18f;
-            forkR.GetComponent<MeshRenderer>().sharedMaterial =
-                new Material(baseShader) { color = new Color(0.35f, 0.25f, 0.15f) };
-
-            // BallPivot: height 1.5 = same as originGo so ball sits at arc start point
-            var ballPivot = new GameObject("BallPivot").transform;
-            ballPivot.SetParent(catapultGo.transform);
-            ballPivot.localPosition = new Vector3(0f, 1.5f, 0f);  // matches originGo Y
-
-            originGo.SetParent(catapultGo.transform);
-
-            // Now that ballPivot exists, wire it as the catapult position for the queue view
-            SetRef(queueView, "_catapultPivot", ballPivot);
+            catapultGo.transform.SetParent(launchAreaGo.transform, false);
+            catapultGo.transform.localPosition = new Vector3(0f, 0f, -1.35f);
+            catapultGo.transform.localScale    = Vector3.one * 0.7f;
+            var wood = new Color(0.60f, 0.46f, 0.34f);
+            AddDeco(catapultGo.transform, "CatapultBase", PrimitiveType.Cube,   new Vector3(0f, 0.2f, 0f),  new Vector3(1.2f, 0.4f, 0.6f),  litShader, new Color(0.52f, 0.40f, 0.30f));
+            AddDeco(catapultGo.transform, "CatapultArm",  PrimitiveType.Cube,   new Vector3(0f, 0.6f, 0f),  new Vector3(0.15f, 0.9f, 0.15f), litShader, wood);
+            AddDeco(catapultGo.transform, "ForkL",        PrimitiveType.Sphere, new Vector3(-0.3f, 1.1f, 0f), Vector3.one * 0.18f,           litShader, wood);
+            AddDeco(catapultGo.transform, "ForkR",        PrimitiveType.Sphere, new Vector3( 0.3f, 1.1f, 0f), Vector3.one * 0.18f,           litShader, wood);
 
             // ── Aim preview — bright dotted arc, thick enough to read on phone ─
             var aimGo  = new GameObject("AimPreview");
@@ -225,6 +181,16 @@ namespace CatapultGames.Editor
             scaler.matchWidthOrHeight  = 0.5f;
 
             canvasGo.AddComponent<GraphicRaycaster>();
+
+            // Tray counter — "+N" balls still waiting beyond the three slots. Sits
+            // at the right end of the tray band; never a raycast target.
+            var remainGo  = MakeText(canvasGo.transform, "TrayRemaining", "", 46,
+                                     new Vector2(0.78f, 0.03f), new Vector2(0.98f, 0.10f));
+            var remainTMP = remainGo.GetComponent<TextMeshProUGUI>();
+            remainTMP.alignment     = TextAlignmentOptions.MidlineRight;
+            remainTMP.fontStyle     = FontStyles.Bold;
+            remainTMP.raycastTarget = false;
+            SetRef(queueView, "_remainingLabel", remainTMP);
 
             var panel = new GameObject("ResultPanel");
             panel.transform.SetParent(canvasGo.transform, false);
@@ -341,7 +307,7 @@ namespace CatapultGames.Editor
             // camera (tilt / zoom / offset), so they never slide around the screen.
             var launchAnchor = launchAreaGo.AddComponent<LaunchAreaAnchor>();
             SetRef(launchAnchor,   "_camera",  cam);
-            SetFloat(launchAnchor, "_screenY", 0.08f);   // sits in the bottom fifth
+            SetFloat(launchAnchor, "_screenY", 0.10f);   // tray band at the bottom tenth
 
             // ── Level loader ──────────────────────────────────────────────
             var loaderGo = new GameObject("LevelLoader");
@@ -358,7 +324,7 @@ namespace CatapultGames.Editor
             SetRef(picker,  "_loader",           loader);
 
             // ── Tap-to-target input ───────────────────────────────────────
-            // Tap a grid cell → the catapult ball auto-launches there. Drives the
+            // Tap a tray ball to select it, tap a grid cell to throw it. Drives the
             // BallLauncher (flight/paint/queue) and AimPreview (arc) built above.
             var tapGo = new GameObject("TapLaunchController");
             var tap   = tapGo.AddComponent<TapLaunchController>();
@@ -366,14 +332,11 @@ namespace CatapultGames.Editor
             SetRef(tap, "_grid",         grid);
             SetRef(tap, "_launcher",     launcher);
             SetRef(tap, "_aimPreview",   aimPreview);
-            SetRef(tap, "_launchOrigin", originGo);
+            SetRef(tap, "_launchOrigin", originGo);    // fallback only — the tray supplies the origin
             SetRef(tap, "_gameManager",  gm);
-            SetRef(tap, "_queue",        queue);       // tapping a queued ball picks it
+            SetRef(tap, "_queue",        queue);       // tapping a tray ball picks it
             SetRef(tap, "_queueView",    queueView);
-            SetFloat(tap, "_launchAngle",     50f);
-            SetFloat(tap, "_aimLiftCells",    2f);       // max lift when held (grid rows)
-            SetFloat(tap, "_tapMaxTime",      0.12f);    // quick tap = direct (no lift)
-            SetFloat(tap, "_aimLiftRampTime", 0.18f);    // lift ramps in while holding
+            SetFloat(tap, "_launchAngle", 50f);
 
             // ── Save scene ────────────────────────────────────────────────
             EditorSceneManager.SaveScene(scene, scenePath);
@@ -388,12 +351,25 @@ namespace CatapultGames.Editor
                 "1. Level Editor → Save (writes straight to Resources/Levels)\n" +
                 $"2. Open {Path.GetFileName(scenePath)} scene\n" +
                 "3. Press Play\n\n" +
-                "Controls: TAP a grid cell — the ball auto-launches there.\n" +
-                "(Hold to preview the arc, release on the cell to fire.)",
+                "Controls: TAP a tray ball to select it, TAP a grid cell to throw it.\n" +
+                "(Press and slide to preview the stamp; slide back onto the tray to cancel.)",
                 "OK");
         }
 
         // ── Helpers ───────────────────────────────────────────────────────
+
+        // A collider-less lit primitive — scenery only (the game has no physics).
+        private static void AddDeco(Transform parent, string name, PrimitiveType type,
+                                    Vector3 localPos, Vector3 localScale, Shader shader, Color color)
+        {
+            var go = GameObject.CreatePrimitive(type);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localScale    = localScale;
+            go.GetComponent<MeshRenderer>().sharedMaterial = new Material(shader) { color = color };
+        }
 
         // Adds a named layer to the project if it doesn't already exist.
         // Returns the layer index, or 0 (Default) if no free slot was found.

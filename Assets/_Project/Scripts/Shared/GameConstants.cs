@@ -31,28 +31,25 @@ namespace CatapultGames
         public const int   TrajectorySteps    = 96;
         public const float TrajectoryTimeStep = 0.04f;
 
-        // Centered placement rule:
-        //   Power 1 (2x2): landing cell = top-left    → offset (0, 0), size 2
-        //   Power 2 (3x3): landing cell = center       → offset (-1,-1), size 3
-        //   Power 3 (4x4): landing cell = (1,1) inside → offset (-1,-1), size 4
+        // Square stamps are ODD-sized and CENTRED on the aimed cell:
+        //   Power 1 → 1x1, Power 2 → 3x3, Power 3 → 5x5.
+        // Even sizes (the old 2x2 / 4x4) had no centre, so the aimed cell sat in a
+        // different corner of the stamp per power level — the single most common
+        // "it landed off target" complaint. Now every shape (square, run, cross)
+        // shares one rule: what you tap is the middle of what you paint.
         public static Vector2Int GetPaintOffset(int powerLevel)
         {
-            return powerLevel switch
-            {
-                1 => new Vector2Int(0, 0),
-                2 => new Vector2Int(-1, -1),
-                3 => new Vector2Int(-1, -1),
-                _ => Vector2Int.zero
-            };
+            int half = (GetPaintSize(powerLevel) - 1) / 2;
+            return new Vector2Int(-half, -half);
         }
 
         public static int GetPaintSize(int powerLevel)
         {
             return powerLevel switch
             {
-                1 => 2,
+                1 => 1,
                 2 => 3,
-                3 => 4,
+                3 => 5,
                 _ => 1
             };
         }
@@ -272,17 +269,20 @@ namespace CatapultGames
         public static int GetComboMultiplier(int streak) =>
             Mathf.Clamp(streak, 1, MaxComboMultiplier);
 
+        // Candy / pastel palette (2026-09-15). The enum NAMES are legacy identifiers
+        // that stay for JSON compatibility; the hues are what a casual block puzzle
+        // reads well on a light board: saturated but soft, no pure black or white.
+        // Index == (int)CellColor — never reorder.
         public static readonly Color32[] CellColorPalette = new Color32[]
         {
             new Color32(  0,   0,   0,   0),  // None    (transparent)
-            new Color32(220,  50,  50, 255),  // Red
-            new Color32( 60, 180,  60, 255),  // Green
-            new Color32( 50, 100, 220, 255),  // Blue
-            new Color32(100, 103, 118, 255),  // Black (slate — the darkest hue that still
-                                              // separates from the board when unfilled)
-            new Color32(240, 240, 240, 255),  // White
-            new Color32(230,  80, 160, 255),  // Pink
-            new Color32(130,  50, 210, 255),  // Purple
+            new Color32(255, 107,  97, 255),  // Red     → coral
+            new Color32( 86, 214, 156, 255),  // Green   → mint
+            new Color32( 86, 168, 255, 255),  // Blue    → sky
+            new Color32( 78,  92, 140, 255),  // Black   → navy (still the darkest hue)
+            new Color32(255, 216,  92, 255),  // White   → lemon
+            new Color32(255, 140, 190, 255),  // Pink    → bubblegum
+            new Color32(172, 132, 255, 255),  // Purple  → lavender
         };
 
         public static Color32 GetColor(CellColor c) => CellColorPalette[(int)c];

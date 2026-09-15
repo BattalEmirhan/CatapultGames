@@ -68,12 +68,15 @@ namespace CatapultGames
 
         // ── Launch entry point ────────────────────────────────────────────
         // Called by TapLaunchController with a velocity already solved to the
-        // aimed cell centre (LaunchSolver.SolveToCell).
-        public void Launch(Vector3 velocity)
+        // aimed cell centre (LaunchSolver.SolveToCell). The origin is wherever
+        // the selected ball sits (its tray slot), so the flying copy takes off
+        // from the ball the player just saw.
+        public void Launch(Vector3 velocity) =>
+            Launch(_launchOrigin ? _launchOrigin.position : transform.position, velocity);
+
+        public void Launch(Vector3 origin, Vector3 velocity)
         {
             if (_queue == null || _queue.IsEmpty || velocity == Vector3.zero || _grid == null) return;
-
-            Vector3 origin = _launchOrigin ? _launchOrigin.position : transform.position;
 
             // Same simulation resolution as AimPreview → preview == reality.
             List<Vector3> arc = TrajectorySimulator.Simulate(

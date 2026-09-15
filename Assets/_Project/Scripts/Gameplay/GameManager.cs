@@ -294,13 +294,13 @@ namespace CatapultGames
             Haptics.Medium();
         }
 
-        // Shapes the rescue may hand out. L is left out on purpose: its arms run to
-        // the grid edges, so it is a different power class — handing one out would
-        // not rescue the level, it would erase it.
+        // Shapes the rescue may hand out — the casual set only. L is left out on
+        // purpose (its arms run to the grid edges, so it is a different power
+        // class — handing one out would not rescue the level, it would erase it)
+        // and Diagonal is a legacy shape the game no longer teaches.
         private static readonly BallShape[] RescueShapes =
         {
-            BallShape.Square, BallShape.Line, BallShape.Column,
-            BallShape.Plus,   BallShape.Diagonal
+            BallShape.Square, BallShape.Line, BallShape.Column, BallShape.Plus
         };
 
         // Pick balls that actually fit what is left on the board.

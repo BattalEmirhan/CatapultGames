@@ -194,15 +194,18 @@ namespace CatapultGames
         // ── Public preview API ────────────────────────────────────────────
         // Draw the arc + landing highlight for a launch velocity, as called by
         // TapLaunchController while the player holds a target cell.
-        public void ShowArc(Vector3 velocity)
+        public void ShowArc(Vector3 velocity) =>
+            ShowArc(_launchOrigin ? _launchOrigin.position : transform.position, velocity);
+
+        // Origin is the selected tray ball's position (BallQueueView.CurrentLaunchOrigin);
+        // it must be the same point BallLauncher.Launch is given or the arc lies.
+        public void ShowArc(Vector3 origin, Vector3 velocity)
         {
             if (velocity == Vector3.zero)
             {
                 ClearPreview();
                 return;
             }
-
-            Vector3 origin = _launchOrigin ? _launchOrigin.position : transform.position;
 
             // The incoming velocity already targets an exact cell centre
             // (LaunchSolver.SolveToCell), so the arc is simulated as-is — same
@@ -364,9 +367,8 @@ namespace CatapultGames
 
             // ...and outline the REST of the stamp — the cells it covers but won't
             // paint. Showing only the paying cells hides where the stamp actually
-            // sits, and the aimed cell is at a different spot inside it per power
-            // level (GameConstants.GetPaintOffset: 2x2 corner, 3x3 centre, 4x4 at
-            // (1,1)). That mismatch is what reads as "the ball landed off target".
+            // sits; with the whole footprint drawn, the aimed cell always reads as
+            // the centre of it (GameConstants.GetPaintOffset).
             foreach (var c in GameConstants.GetPaintedCells(gx, gy, current, _grid.Width, _grid.Height))
             {
                 if (c.x == gx && c.y == gy) continue;       // the landing cell owns the highlight

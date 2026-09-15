@@ -113,6 +113,8 @@ LevelData
   otomatik uyumlar. `Line`/`Column` bilerek eksene sabit — kendi yönünü seçen bir
   damga önceden tahmin edilemez ve oyuncu topu harcamadan öğrenemez.
 - **`CameraConfig`** level başına kamera çerçevelemesi; eski level'ler varsayılanlarla yüklenir.
+  Varsayılanlar "düz tahta" çerçevesi (2026-09-15): tilt 66°, padding 1.12, gridScreenPos 0.60
+  (tahta üst 2/3'te, altta tepsi bandı).
 
 ### JSON kuralları
 - `JsonUtility` kullanıldığı için: `Dictionary` yok, `null` dizi yok, polimorfizm yok.
@@ -130,7 +132,7 @@ Projenin **kural merkezi**. Hem runtime hem editör (validator, auto-solver) bur
 | `Gravity = -9.81f` | **Oyundaki tek yerçekimi değeri** (işaretli, dünya Y'si). İki tüketicisi var: `TrajectorySimulator` ve `LaunchSolver`. Top fizik gövdesi olmadığı için Unity'nin `Physics.gravity`'si devrede değil. Büyüklüğü artırmak yayı düzleştirip hızlandırır |
 | `GravityMagnitude` | `-Gravity` — menzil çözümü pozitif g ile çalıştığı için. Derleme zamanı sabiti, ayrı ayarlanamaz |
 | `TrajectorySteps = 96`, `TrajectoryTimeStep = 0.04f` | Yörünge çözünürlüğü. `AimPreview` ve `BallLauncher` **aynı değerleri kullanmak zorunda**, yoksa önizleme gerçekten farklı yere düşer |
-| `GetPaintOffset(power)` / `GetPaintSize(power)` | power 1→2×2 (offset 0,0), 2→3×3 (−1,−1), 3→4×4 (−1,−1) |
+| `GetPaintOffset(power)` / `GetPaintSize(power)` | **Kare damgalar tek sayılı ve iniş hücresinde ortalı** (2026-09-15): power 1→1×1, 2→3×3, 3→5×5; offset = −(size−1)/2. Çift boyut (2×2/4×4) kaldırıldı — merkezi olmayan damga "hedeften saptı" hissinin tek kaynağıydı. Artık her şekil için kural aynı: dokunduğun hücre boyadığının ortasıdır |
 | `GetPaintedCells(x, y, power)` | Kare topun kapladığı koordinatlar |
 | `GetPaintedCells(x, y, ball, gridW, gridH)` | **Şekil kararının tek yeri.** `L`→`GetLCells`, `Line`/`Column`→`GetRunCells` (iniş hücresinde ortalı, uzunluk 3/5/7), `Plus`/`Diagonal`→`GetCrossCells` (kol 1/2/3 → 5/9/13 hücre), diğer→kare kuralı. Izgara dışına taşan koordinat dönebilir; her tüketici sınır kontrolü yapar |
 | `GetLCells(...)` | L topu: iniş hücresinden ızgara **iç yönüne** iki kol uzatır, her kol kenara kadar gider. En yakın köşeye göre otomatik döner. 10×10'da 10+10'luk bir L |
@@ -139,7 +141,7 @@ Projenin **kural merkezi**. Hem runtime hem editör (validator, auto-solver) bur
 | `GetRequiredHits(cellType)` | Hücrenin dolmak için yediği vuruş sayısı — `Ice` 2, diğerleri 1 |
 | `GetStampPath(landX, landY, cellX, cellY, into)` | **Erişim kararının tek yeri.** İniş hücresi ile hedef hücre **arasındaki** düz yol; üstünde `Stone` varsa hedef hücre boyasız kalır. Yalnızca dik ve 45° ışınlar yürünür (her damga şekli bu çizgilerden kurulu); 4×4 karenin ışın dışı köşeleri asla gölgelenmez. `into` temizlenip doldurulur — nişan her karede çağırıyor, tahsis olmamalı. **İniş hücresinin kendisi bu yola dahil değildir**; her tüketici onu ayrı sorar (taşa nişan alan damga tamamen yutulur) |
 | `PointsPerCell = 10` · `GetShotMultiplier(cells)` · `GetComboMultiplier(streak)` · `MaxComboMultiplier = 5` | Skor kuralı. Yoğunluk çarpanı 1/2/3/4 (eşikler 1, 2, 4, 8 hücre), kombo çarpanı = üst üste boyayan atış sayısı (5'te tavan). Toplamı `GameManager` tutar |
-| `CellColorPalette` (`Color32[8]`) | **İndeksleri `CellColor` enum'ıyla birebir aynı olmalı.** Değerler serbest: `Black` 2026-08-11'de `(65,65,75)` → `(100,103,118)` yükseltildi, çünkü boş hâldeki soluk hâli tahta zemininden ayırt edilemiyordu |
+| `CellColorPalette` (`Color32[8]`) | **İndeksleri `CellColor` enum'ıyla birebir aynı olmalı.** 2026-09-15'ten beri **candy/pastel** palet: Red→mercan, Green→nane, Blue→gök, Black→lacivert, White→limon, Pink→sakız pembesi, Purple→lavanta. Enum adları JSON uyumluluğu için eski kimliklerdir; saf siyah/beyaz hücre yok |
 | `GetColor` / `GetColorF` | Palet erişimi |
 
 > Boyama kuralını değiştirecek her iş **sadece burada** yapılmalı; `PaintingSystem`,
@@ -178,17 +180,21 @@ topları eski waypoint konumlarında kalır.
 ### 6.2 Girdi → Atış → Boyama → Sonuç
 
 ```
-TapLaunchController (basış kuyruktaki seçilebilir topun üstündeyse)
-  └─ BallQueueView.TryPickSlot → BallQueue.SelectSlot(offset)   ← topu öne alır
-     └─ OnChanged → BallQueueView yeniden dizilir
-                  → AimPreview.RefreshActiveColor (tahtadaki renk vurgusu değişir)
+TapLaunchController (basış tepsideki bir topun üstündeyse)
+  └─ BallQueueView.TryPickSlot → BallQueueView.Select(slot)
+       └─ BallQueue.SelectSlot(offset)  ← topu öne alır; view yuva→offset eşlemesini
+          düzeltir, diğer iki top yerinde kalır (halka seçili yuvaya geçer)
+       → OnChanged → AimPreview.RefreshActiveColor (tahtadaki renk vurgusu değişir)
      (bu hareket atış saymaz)
 
 TapLaunchController (hücreye dokun / basılı tut-kaydır, bırak)
-  └─ LaunchSolver.SolveToCell → tam o hücrenin merkezine düşen hız
-     · basılıyken AimPreview.ShowArc(hız) ile yay + boyanacak hücreler önizlenir
+  · kaydırma yok, kaldırma yok: hedef = parmağın altındaki hücre
+  · origin = BallQueueView.CurrentLaunchOrigin (seçili tepsi topunun yeri)
+  └─ LaunchSolver.SolveToCell(origin) → tam o hücrenin merkezine düşen hız
+     · basılıyken AimPreview.ShowArc(origin, hız) ile yay + damganın tamamı önizlenir
+     · parmak tepsi bandına geri çekilip bırakılırsa iptal (IsOverTray)
                                                 ▼
-                                      BallLauncher.Launch(velocity)
+                                      BallLauncher.Launch(origin, velocity)
                                         1. TrajectorySimulator.Simulate → arc + landPos
                                         2. BallQueue.Consume()        (hemen tüketilir)
                                         3. coroutine DoLaunch:
@@ -281,10 +287,10 @@ dikkatli ol.
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
 | `BallQueue.cs` | Mono | Saf mantık, görsel yok. `Load`, `Consume`, `Peek(offset)`, `RemoveColor(color)`, `IsEmpty/Remaining/Current`. Ayrıca `CopyRemaining(list)` (tahsissiz okuma), `Capture()`/`Restore(Snapshot)` (undo — tek top geri koymak yerine **tüm kuyruk** anlık görüntüsü, çünkü atış bir purge tetiklemiş olabilir), `Append(extra)` (+N top teklifi), `SelectSlot(offset)` (seçilen topu **öne taşır** — takas değil, böylece diğerlerinin sırası korunur; seçim kuyruğu yeniden sıralamak olarak modellendiği için atış zincirinin geri kalanı bundan habersiz kalır). Event'ler: `OnBallConsumed`, `OnChanged`, `OnEmpty`, `OnColorCleared(color, count)` |
-| `BallLauncher.cs` | Mono | Atış → uçuş → boyama dalgası. `Launch(velocity)` — `TapLaunchController` çağırır. Topu simüle edilmiş yay boyunca `_flightDuration` sürede tween'ler (mesafeden bağımsız sabit süre). `OnBallLanded`, **`OnShotPainted(hücreSayısı, landPos)`** (skor için, `OnBallLanded`'den **hemen önce** — yoksa kazandıran atış toplamda görünmez), `IsBusy`. Ayrıca `LastShot` (`ShotRecord`: atış öncesi kuyruk anlık görüntüsü + bu atışın **vuruş yaptığı** hücreler) ve `ClearLastShot()` — undo'nun ham maddesi, iniş anında yazılır |
-| `BallVisual.cs` | Mono | Top görseli (fabrika: `Create(parent, color, power, shape, scale)`). Gövde damgayı taklit eder: kare = tek blok, L = 3 blokluk L, `Line`/`Column` = 3 blokluk sıra, `Plus`/`Diagonal` = 5 blokluk haç (uzun damgalar **sembolik** temsil edilir; gerçek uzunluğu üstteki rakam söyler). Etiket şeklin kendi biriminde: kare→kenar, sıra→uzunluk, haç→toplam hücre; L'de etiket yok (ızgaraya göre ölçekleniyor). `EnableTrail`, `PlayFireworkAndDestroy(delay)` |
-| `BallQueueView.cs` | Mono | Kuyruğun sahnedeki S-dizilimi. `_waypoints[0]` mancınık yuvası, `[1..N]` kuyruk. `LateUpdate`'te `_dirty` ile mutabakat yapar (kesintiye uğrayan animasyonlara karşı kendini onarır). Seçilebilir ilk `_selectableSlots` (varsayılan 3) top biraz daha büyük çizilir; `TryPickSlot(screenPos, cam, out offset)` **ekran-uzayı mesafesiyle** seçim yapar — oyunda collider yok ve dokunma hedefi silüetten daha iyi. Kamera sarsıntısı düzeltmesi gerekmez: `WorldToScreenPoint` zaten sarsılan kamerayı kullanır |
-| `TapLaunchController.cs` | Mono | **Tek girdi kaynağı.** Hücreye dokun/kaydır → bırak → ateş. Hızlı dokunuşta lift yok; basılı tutunca hedef parmağın üstüne `_aimLiftCells` kadar kayar. UI üstünde başlayan hareket ateş etmez. Basış **kuyruktaki seçilebilir bir topun üstünde başladıysa** o topu öne alır ve o hareket atış saymaz (`_startedOnQueue`, basış anında bir kez karara bağlanır) |
+| `BallLauncher.cs` | Mono | Atış → uçuş → boyama dalgası. `Launch(origin, velocity)` — `TapLaunchController` çağırır (origin = seçili tepsi topunun yeri; `Launch(velocity)` `_launchOrigin` yedeğini kullanır). Topu simüle edilmiş yay boyunca `_flightDuration` sürede tween'ler (mesafeden bağımsız sabit süre). `OnBallLanded`, **`OnShotPainted(hücreSayısı, landPos)`** (skor için, `OnBallLanded`'den **hemen önce** — yoksa kazandıran atış toplamda görünmez), `IsBusy`. Ayrıca `LastShot` (`ShotRecord`: atış öncesi kuyruk anlık görüntüsü + bu atışın **vuruş yaptığı** hücreler) ve `ClearLastShot()` — undo'nun ham maddesi, iniş anında yazılır |
+| `BallVisual.cs` | Mono | Top görseli (fabrika: `Create(parent, color, power, shape, scale)`). **Gövde damganın kendisidir** (2026-09-15): 3×3 top dokuz mini küp, 5'lik Line beş küp, Plus gerçek kol uzunluğu; sayı etiketi yok. Tek ölçek kuralı: her gövde aynı toplam boyda, 5×5 daha ince bir ızgara olur. `L`/`Diagonal` legacy: sembolik 3/5 blok. `EnableTrail`, `PlayFireworkAndDestroy(delay)` |
+| `BallQueueView.cs` | Mono | **Üçlü tepsi** (block puzzle tepsisi gibi). `_slots[3]` yuva transform'ları, `_remainingLabel` "+N" sayacı. Kuyruk modeli değişmedi (`Current` = offset 0, seçim = `SelectSlot` reorder); view **yuva→offset eşlemesini** tutar, böylece seçilmeyen iki top her atışta yerinde kalır. `Select(slot)`, `TryPickSlot(screenPos, cam, out slot)` (ekran-uzayı mesafesi, collider yok), `IsOverTray` (iptal jesti), **`CurrentLaunchOrigin`** (seçili topun yeri; yay buradan başlar). Kendi `SelectSlot`/`Consume` çağrılarını `_expectQueueChange`/`_consumePending` ile ayırt eder; diğer her `OnChanged` (Load/Restore/purge) eşlemeyi sıfırdan kurar. Yeni gelen top overshoot'lu pop-in ile gelir; seçili topun altında beyaz halka |
+| `TapLaunchController.cs` | Mono | **Tek girdi kaynağı, tek jest.** Tepsi topuna dokun → seçer (atış saymaz, basış anında karara bağlanır). Hücreye dokun → seçili top oraya uçar; basılı tut-kaydır → damga hayaleti + yay parmağı izler, bırakınca ateş. Parmak tepsi bandında bırakılırsa iptal. **Kaldırma/rampa yok** — damga ortalı olduğu için parmağın örttüğü hücre tek bilgi değil. UI üstünde başlayan hareket ateş etmez |
 
 ### `Scripts/Gameplay/Aim/`
 
@@ -367,17 +373,18 @@ GridCamera            (MainCamera tag, GridCameraController)
 GridRoot              (GridRenderer + GridBoard)   → Cell_x_y çocukları runtime'da
 BallQueue             (BallQueue + BallQueueView)
 LaunchArea            (LaunchAreaAnchor)           konum ~(5.5, 0, -8)
-├─ Waypoints/WP_0..WP_5
-└─ Catapult
-   ├─ CatapultBase / CatapultArm / ForkL / ForkR
-   ├─ BallPivot
-   └─ LaunchOrigin
+├─ TrayPlate                                      açık renk plaka
+├─ TraySlots/Slot_0..Slot_2                       x = −1.65 / 0 / +1.65, y = 0.62
+├─ LaunchOrigin                                   yedek origin (orta yuva)
+└─ Catapult (dekor, 0.7 ölçek, tepsinin arkasında)
+   └─ CatapultBase / CatapultArm / ForkL / ForkR
 AimPreview            (LineRenderer + AimPreview)
 BallLauncher
 EventSystem
 UICanvas              (ResultScreenUI + UndoButtonUI)
 ├─ ResultPanel → TitleText, SubText, RetryBtn, MenuBtn, Keep GoingBtn (kapalı başlar)
 ├─ UndoBtn                                        (kapalı başlar; UndoButtonUI açar)
+├─ TrayRemaining                                  "+N" tepsi sayacı (sağ alt, raycast kapalı)
 └─ ProgressSafeArea (SafeAreaFitter)
    ├─ ProgressHUD → ProgressLabel
    │                └─ ProgressBars → Row_&lt;Renk&gt; (runtime)
@@ -513,6 +520,15 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   oranına" bakacak, skora değil — ikisi ayrı ölçüler.
 - **Özel hücreler yalnız `level5`'te var** (sol sütunda 10 joker, 2026-08-12). Buz ve taş
   hiçbir elle yazılmış level'de kullanılmıyor; `LevelBuilder` Normal+ bandlarda üretiyor.
+- **Casual sadeleştirme, paket 1 (2026-09-15, `feature/casual-simplify`).** Üçlü tepsi,
+  ortalanmış tek sayılı kare damgalar (1/3/5), tek-dokunuş girdi (lift/rampa kaldırıldı),
+  gerçek şekilli top gövdeleri, pastel palet, 66° kamera. `L` ve `Diagonal` şekilleri kodda
+  **duruyor** (JSON uyumluluğu, enum append-only) ama üretici ve kurtarma topları artık
+  onları vermiyor; editör listesinde hâlâ seçilebilirler. `level1–5` yeni kurallarla
+  `LevelBuilder` ile **yeniden üretildi** (eski elle yazılmış level'ler git geçmişinde,
+  `bed37d0`). Sırada: paket 2 (yuvarlatılmış küp, gradient arka plan, bloom, "Great!" yazısı,
+  konfeti), paket 3 (booster çubuğu, taş gölgesi/joker hücresinin kaldırılması, dead-end'in
+  uyarıya dönmesi), paket 4 (ses).
 - **Level editörü UI Toolkit'e taşındı (2026-09-15).** Eski tek panelli IMGUI penceresi,
   dört sekmeli shell'e dönüştü (bkz. § 7 Editor tablosu, § 9). Bilinen sınırlar:
   · Solving simülatörü Keep Going / undo / skor / fiziksel yayı modellemiyor (kasıtlı).

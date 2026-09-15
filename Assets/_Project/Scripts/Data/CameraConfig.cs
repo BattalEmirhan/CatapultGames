@@ -11,13 +11,16 @@ namespace CatapultGames
     [Serializable]
     public class CameraConfig
     {
+        // Defaults are the "flat board" framing of a casual block puzzle: steep tilt
+        // so the grid reads like a 2D board, sitting in the upper two thirds with
+        // the ball tray in the band below it.
         [Range(30f, 90f)] public float fieldOfView  = 60f;   // vertical FOV
-        [Range(30f, 85f)] public float tiltAngle    = 50f;   // 90 = top-down, 45 = diagonal
-        [Range(1f, 1.5f)] public float padding      = 1.08f; // extra breathing room
+        [Range(30f, 85f)] public float tiltAngle    = 66f;   // 90 = top-down, 45 = diagonal
+        [Range(1f, 1.5f)] public float padding      = 1.12f; // extra breathing room
 
         // Where the GRID CENTRE sits on screen vertically:
-        // 0 = bottom, 0.5 = centred, 1 = top. Default centres the board.
-        [Range(0f, 1f)]   public float gridScreenPos = 0.5f;
+        // 0 = bottom, 0.5 = centred, 1 = top.
+        [Range(0f, 1f)]   public float gridScreenPos = 0.60f;
 
         // Manual nudge applied AFTER auto-fit (world units). Lets a designer slide
         // the framing around without touching the fit math.

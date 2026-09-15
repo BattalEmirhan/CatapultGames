@@ -1,24 +1,23 @@
 using System.Collections;
-using TMPro;
 using UnityEngine;
 
 namespace CatapultGames
 {
-    // Unified ball visual for queue, catapult slot, and flight.
+    // Unified ball visual for the tray and for flight.
     //
-    // Visual language (readable from BOTH cameras):
-    //   • Sphere  — URP Lit, full 3-D shading, color = ball color
-    //   • Rings   — equatorial halos around the sphere (1/2/3 for power level)
-    //               Flat cylinders at sphere equator → visible from any angle above.
-    //   • Number  — TMP world-space label on top face of sphere (primary indicator)
+    // The body IS the stamp: a 3x3 ball is nine little cubes, a 5-long line is
+    // five cubes in a row, a plus is a plus. No numbers to decode — the player
+    // reads the shape the way they read a piece in a block puzzle. The one
+    // scaling rule keeps every body about the same overall size, so a 5x5 is a
+    // finer grid rather than a bigger blob.
     public class BallVisual : MonoBehaviour
     {
-        private Material   _bodyMat;
-        private Material   _trailMat;
-        private Color      _color;
+        private Material _bodyMat;
+        private Material _trailMat;
+        private Color    _color;
 
-        // The ball's logical color — lets owners (e.g. the queue view) match a
-        // visual to a CellColor without re-querying the queue.
+        // The ball's logical color — lets owners (e.g. the tray) match a visual
+        // to a CellColor without re-querying the queue.
         public CellColor BallColor { get; private set; }
 
         // ── Factory ───────────────────────────────────────────────────────
@@ -37,47 +36,33 @@ namespace CatapultGames
         // ── Build ─────────────────────────────────────────────────────────
         private void Build(CellColor color, int powerLevel, BallShape shape, float baseScale)
         {
-            Color32 c32 = GameConstants.GetColor(color);
-            Color   col = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
-            _color      = col;
-            BallColor   = color;
+            _color    = GameConstants.GetColorF(color);
+            BallColor = color;
 
             var litShader = Shader.Find("Universal Render Pipeline/Lit")
                          ?? Shader.Find("Standard");
-            _bodyMat = new Material(litShader) { color = col };
+            _bodyMat = new Material(litShader) { color = _color };
             if (_bodyMat.HasProperty("_Smoothness"))
-                _bodyMat.SetFloat("_Smoothness", 0.30f);
+                _bodyMat.SetFloat("_Smoothness", 0.55f);   // candy gloss
 
-            // Body mirrors what the ball PAINTS, so the stamp is recognisable in the
-            // queue before it is ever fired. Reads from both the top-down grid camera
-            // and the angled world camera.
-            float unit = baseScale * (0.80f + powerLevel * 0.10f);
+            // Overall footprint of the body, whatever the shape. Runs and crosses
+            // get a little more room because they are long and thin.
+            float span = baseScale * 0.95f;
+            int   power = Mathf.Clamp(powerLevel, 1, 3);
 
             switch (shape)
             {
-                case BallShape.L:        BuildLBody(unit);                   break;
-                case BallShape.Line:     BuildRunBody(unit, horizontal: true);  break;
-                case BallShape.Column:   BuildRunBody(unit, horizontal: false); break;
-                case BallShape.Plus:     BuildCrossBody(unit, diagonal: false); break;
-                case BallShape.Diagonal: BuildCrossBody(unit, diagonal: true);  break;
-                default:                 AddBlock(Vector3.zero, unit);       break;
+                case BallShape.L:        BuildLBody(span);                                 break;
+                case BallShape.Line:     BuildRun(span * 1.5f, RunLength(power), horizontal: true);  break;
+                case BallShape.Column:   BuildRun(span * 1.5f, RunLength(power), horizontal: false); break;
+                case BallShape.Plus:     BuildCross(span * 1.5f, power, diagonal: false);   break;
+                case BallShape.Diagonal: BuildCross(span * 1.5f, power, diagonal: true);    break;
+                default:                 BuildSquare(span, GameConstants.GetPaintSize(power)); break;
             }
-
-            // Each label answers "how big is this stamp" in the shape's own unit:
-            // a square shows its SIDE (2x2→"2"), a run shows its LENGTH, a cross
-            // shows its total cells. The L scales to the grid, so no number can
-            // describe it — and its body already reads as an L.
-            if (shape != BallShape.L)
-                AddTopLabel(LabelFor(shape, powerLevel), unit);
         }
 
-        private static string LabelFor(BallShape shape, int powerLevel)
-        {
-            var probe = new BallData(CellColor.None, powerLevel, shape);
-            return shape == BallShape.Square
-                ? GameConstants.GetPaintSize(powerLevel).ToString()
-                : GameConstants.GetPaintCellCount(probe, 0, 0).ToString();
-        }
+        private static int RunLength(int power) =>
+            GameConstants.GetPaintCellCount(new BallData(CellColor.None, power, BallShape.Line), 0, 0);
 
         // One lit cube block at a local position, edge length `size`.
         private void AddBlock(Vector3 localPos, float size)
@@ -95,74 +80,74 @@ namespace CatapultGames
             mr.sharedMaterial    = _bodyMat;
         }
 
-        // Three blocks forming an L (matches the L ball's corner paint), centred on
-        // the transform so it sits where a single block would.
-        private void BuildLBody(float size)
+        // N×N mini cubes filling `span` — the real stamp at tray scale. Cell edge
+        // leaves a hair of gap so the grid inside the body stays readable.
+        private void BuildSquare(float span, int n)
         {
-            float u = size * 0.62f;   // per-block edge; blocks touch to read as one L
-            // L-tromino footprint in a 2x2 box: (0,0),(0,1),(1,0) — then centre it.
-            AddBlock(new Vector3(-0.5f * u, 0f, -0.5f * u), u);   // corner (bend)
-            AddBlock(new Vector3(-0.5f * u, 0f,  0.5f * u), u);   // up
-            AddBlock(new Vector3( 0.5f * u, 0f, -0.5f * u), u);   // right
+            n = Mathf.Max(1, n);
+            float cell = span / n;
+            float edge = cell * (n == 1 ? 1f : 0.86f);
+            float start = -(n - 1) * 0.5f * cell;
+            for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+                AddBlock(new Vector3(start + x * cell, 0f, start + y * cell), edge);
         }
 
-        // Three blocks in a row — a symbol of the run, not its true length (a
-        // power-3 Line paints 7 cells and would be an unwieldy ball). The number
-        // on top carries the actual length.
-        private void BuildRunBody(float size, bool horizontal)
+        // A straight run of `len` cubes, real length.
+        private void BuildRun(float span, int len, bool horizontal)
         {
-            float u = size * 0.58f;
-            for (int i = -1; i <= 1; i++)
+            len = Mathf.Max(1, len);
+            float cell  = span / len;
+            float edge  = Mathf.Min(cell * 0.86f, span * 0.28f);
+            float start = -(len - 1) * 0.5f * cell;
+            for (int i = 0; i < len; i++)
             {
-                Vector3 p = horizontal ? new Vector3(i * u, 0f, 0f) : new Vector3(0f, 0f, i * u);
-                AddBlock(p, u);
+                float d = start + i * cell;
+                AddBlock(horizontal ? new Vector3(d, 0f, 0f) : new Vector3(0f, 0f, d), edge);
             }
         }
 
-        // Centre block plus four arms — orthogonal for Plus, corner-to-corner for
-        // Diagonal. Same symbolic single-step arms as the run body.
-        private void BuildCrossBody(float size, bool diagonal)
+        // Centre plus four arms of real length (1/2/3 by power).
+        private void BuildCross(float span, int power, bool diagonal)
         {
-            float u = size * 0.52f;
-            AddBlock(Vector3.zero, u);
-
-            if (diagonal)
+            int arm   = Mathf.Clamp(power, 1, 3);
+            int len   = 2 * arm + 1;
+            float cell = span / len;
+            float edge = Mathf.Min(cell * 0.86f, span * 0.28f);
+            AddBlock(Vector3.zero, edge);
+            for (int i = 1; i <= arm; i++)
             {
-                AddBlock(new Vector3( u, 0f,  u), u);
-                AddBlock(new Vector3(-u, 0f, -u), u);
-                AddBlock(new Vector3( u, 0f, -u), u);
-                AddBlock(new Vector3(-u, 0f,  u), u);
-            }
-            else
-            {
-                AddBlock(new Vector3( u, 0f, 0f), u);
-                AddBlock(new Vector3(-u, 0f, 0f), u);
-                AddBlock(new Vector3(0f, 0f,  u), u);
-                AddBlock(new Vector3(0f, 0f, -u), u);
+                float d = i * cell;
+                if (diagonal)
+                {
+                    AddBlock(new Vector3( d, 0f,  d), edge);
+                    AddBlock(new Vector3(-d, 0f, -d), edge);
+                    AddBlock(new Vector3( d, 0f, -d), edge);
+                    AddBlock(new Vector3(-d, 0f,  d), edge);
+                }
+                else
+                {
+                    AddBlock(new Vector3( d, 0f, 0f), edge);
+                    AddBlock(new Vector3(-d, 0f, 0f), edge);
+                    AddBlock(new Vector3(0f, 0f,  d), edge);
+                    AddBlock(new Vector3(0f, 0f, -d), edge);
+                }
             }
         }
 
-        // White number laid flat-ish on top of the body, readable from both cameras.
-        private void AddTopLabel(string text, float size)
+        // Legacy L: its arms run to the grid edges, so no tray-sized body can be
+        // literal. Three blocks in an L is the symbol.
+        private void BuildLBody(float span)
         {
-            var labelGo = new GameObject("Label");
-            labelGo.transform.SetParent(transform, false);
-            labelGo.transform.localPosition = new Vector3(0f, size * 0.62f, 0f);
-            labelGo.transform.localRotation = Quaternion.Euler(70f, 0f, 0f);
-            labelGo.transform.localScale    = Vector3.one * (size * 0.90f);
-
-            var tmp = labelGo.AddComponent<TextMeshPro>();
-            tmp.text          = text;
-            tmp.fontSize      = text.Length >= 2 ? 3.6f : 5f;
-            tmp.fontStyle     = FontStyles.Bold;
-            tmp.alignment     = TextAlignmentOptions.Center;
-            tmp.color         = Color.white;
-            tmp.overflowMode  = TextOverflowModes.Overflow;
+            float u = span * 0.5f;
+            AddBlock(new Vector3(-0.5f * u, 0f, -0.5f * u), u);
+            AddBlock(new Vector3(-0.5f * u, 0f,  0.5f * u), u);
+            AddBlock(new Vector3( 0.5f * u, 0f, -0.5f * u), u);
         }
 
         // ── Flight trail ──────────────────────────────────────────────────
         // Adds a fading colored streak behind the ball. Call right after Create()
-        // on the flying ball (not on queue/catapult balls).
+        // on the flying ball (not on tray balls).
         public void EnableTrail(float width)
         {
             var go = new GameObject("Trail");
@@ -193,7 +178,7 @@ namespace CatapultGames
         // ── Firework (color-cleared celebration) ─────────────────────────
         // Detaches the ball, rockets it up toward the top of the screen, then pops
         // it with a colored firework burst. Used when a colour is fully painted and
-        // its leftover queue balls are no longer needed. `delay` staggers a volley.
+        // its leftover balls are no longer needed. `delay` staggers a volley.
         public void PlayFireworkAndDestroy(float delay = 0f)
         {
             transform.SetParent(null, worldPositionStays: true);
@@ -211,8 +196,7 @@ namespace CatapultGames
             Vector3 target;
             if (cam != null)
             {
-                // Converge toward the centre as they rise (instead of shooting
-                // straight up from the far-left queue), fanning into a central
+                // Converge toward the centre as they rise, fanning into a central
                 // burst. Same camera depth so size stays consistent on screen.
                 Vector3 sp      = cam.WorldToScreenPoint(start);
                 float   centerX = Screen.width * 0.5f;

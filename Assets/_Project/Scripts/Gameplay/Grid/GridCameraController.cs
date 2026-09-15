@@ -12,14 +12,14 @@ namespace CatapultGames
         [Range(30f, 90f)] public float fieldOfView = 60f;
 
         [Tooltip("Camera tilt (X-rotation). 90 = top-down, 45 = classic diagonal.")]
-        [Range(30f, 85f)] public float tiltAngle = 55f;
+        [Range(30f, 85f)] public float tiltAngle = 66f;
 
         [Tooltip("Extra breathing room around the scene.")]
-        [Range(1f, 1.5f)] public float padding = 1.10f;
+        [Range(1f, 1.5f)] public float padding = 1.12f;
 
         [Tooltip("Where the GRID CENTRE sits on screen vertically: " +
                  "0 = bottom, 0.5 = centred, 1 = top.")]
-        [Range(0f, 1f)] public float gridScreenPos = 0.5f;
+        [Range(0f, 1f)] public float gridScreenPos = 0.60f;
 
         private Camera  _cam;
         private Vector3 _offset;   // per-level manual nudge, applied after fit
