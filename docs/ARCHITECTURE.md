@@ -270,17 +270,18 @@ dikkatli ol.
 |---|---|---|
 | `GameManager.cs` | Mono | Kazanma/kaybetme kararı, biten renklerin kuyruktan temizlenmesi, sonuç ekranı, `RestartLevel()`, `GoToMainMenu()`. `IsOver` diğer sistemlerce okunur. **Skor:** `Score` / `ComboStreak`, `OnShotScored(ShotScore)` + `OnScoreChanged(int)` event'leri, `ResetScore()` (`LevelLoader` çağırır). Puan `BallLauncher.OnShotPainted`'ten gelen hücre sayısıyla `GameConstants` kurallarından hesaplanır; son ödül saklanır ki **undo skoru da geri alsın**. `PurgeCompletedColors` boş **joker** hücresi varken hiç purge yapmaz. Ayrıca: `IsDeadEnd()` (kalan toplar yetmiyorsa kuyruk bitmeden bitirir, `CoverageAnalyzer`), `UndoLastShot()` / `CanUndo`, `GrantExtraBalls()` (level başına **bir kez**, `_extraBallCount`). Kurtarma topları `BuildRescueBalls` ile **tahtaya bakılarak** seçilir: her (renk, şekil, power) adayı `CoverageAnalyzer.BestPlacement` ile ölçülür, en iyisi alınır ve `ApplyPlacement` ile tahtadan düşülerek sonraki top ona göre seçilir — üç bağımsız tahmin değil, bir **plan**. Beraberlikte küçük damga kazanır (bitirmeye yeter, fazlası değil). `L` aday havuzunda yok: kolları ızgara kenarına gittiği için kurtarmaz, level'i siler |
 | `LevelLoader.cs` | Mono | JSON → sahne. `LoadByName(name)`, `Apply(LevelData)`, statik `SelectLevel/ClearSelection` (PlayerPrefs `"SelectedLevel"`). `Apply` sonunda `GameManager.ResetScore()` — level seçici sahneyi yeniden yüklemiyor |
-| `LaunchAreaAnchor.cs` | Mono | Mancınık + kuyruk kökünü ekranın alt bandına sabitler (`_screenY=0.08`). Sadece çözünürlük değişince yeniden hesaplar (shake ile titremesin diye) |
+| `LaunchAreaAnchor.cs` | Mono | Tepsi kökünü ekranın alt bandına sabitler (`_screenY=0.10`). Sadece çözünürlük değişince yeniden hesaplar (shake ile titremesin diye) |
+| `BackgroundGradient.cs` | Mono | Kameraya bağlı, frustum'u dolduran tek unlit quad + çalışma zamanında üretilen 1×64 gradient dokusu (gök mavisi → lavanta krem). Aspect değişince yeniden boyutlanır; materyal/doku `OnDestroy`'da yok edilir |
 
 ### `Scripts/Gameplay/Grid/`
 
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
 | `GridRenderer.cs` | Mono | Izgaranın sahibi. `BuildGrid/ClearGrid`, `TryGetCell/GetCell`, `SetFilled(Batch)`, **`ApplyHit(x,y)`** (bir damga vuruşu; dolduysa `true` — boyama dalgası bunu kullanır) ve **`UndoHit(x,y)`**, `SetHighlight/SetPreview/SetFootprint/ClearHighlights` (üçü birlikte temizlenir), `SetActiveColor(color)` (mancınıktaki rengin boş hücrelerini vurgular — joker hücreleri **her** renkte parlar), `GridToWorld/WorldToGrid/RaycastToGrid/RaycastToGridClamped`, `CountByColor()` (tahsissiz, enum sırasında), `AllColoredCellsFilled()`, **`HasUnfilledWildCells()`** (purge kapısı), **`IsBlocking(x,y)`** (taş mı — `PaintingSystem` gölge yürüyüşü için), `WorldCenter`, `PulseColor`. `OnGridChanged` event'i. Tüm sayımlar `CellView.IsPaintTarget` üzerinden geçer → **taş hiçbir yerde hedef sayılmaz** |
-| `CellView.cs` | Mono | Tek hücre = küp. Dolu `FullH=0.80`, boş `ThinH=0.11`, `CubeGap=0.92`, taş `StoneH=0.50`, çatlak buz `CrackedH=0.35`. `Type` (`CellType`), `HitsTaken`/`HitsRequired`, **`IsFilled` türetilmiştir** (`HitsTaken >= HitsRequired` — "çatlak" ayrı bir durum değil), `IsPaintTarget` (taş ve boş tahta hariç). `SetFilled` (tümden dolu/boş), **`AddHit()`** (dolarsa RisePunch, dolmazsa CrackPunch), **`RemoveHit()`** (undo), `SetHighlight`, `SetPreview` (nefes alan hayalet — yalnız çatlatacak atışta **çatlak yüksekliğine** kadar kalkar, önizleme yalan söylemez), `SetFootprint`, `SetAwaiting`, `Pulse(delay)`. **`Refresh()` tek toplayıcıdır:** tip, hit sayısı, `_awaiting` ve `_footprint` orada okunur. **Her hücrenin kendi `Material` örneği ama tek ortak shader var → SRP Batcher tek batch'te toplar; MaterialPropertyBlock KULLANMA** |
+| `CellView.cs` | Mono | Tek hücre = **yuvarlatılmış** küp (`RoundedCubeMesh`, r 0.14). Dolu `FullH=0.80`, boş `ThinH=0.11`, `CubeGap=0.86`, taş `StoneH=0.50`, çatlak buz `CrackedH=0.35`. Açık tahta teması (2026-09-15): boş hedef = hedef renginin soluk yıkaması (`WashTint`), boş tahta = açık gri soket, dolu = tam renk + `_EmissionColor` 0.22× (bloom ile şeker parlaklığı; `_EMISSION` keyword'ü paylaşılan baz materyalde açık, batch bozulmaz). `Type` (`CellType`), `HitsTaken`/`HitsRequired`, **`IsFilled` türetilmiştir** (`HitsTaken >= HitsRequired` — "çatlak" ayrı bir durum değil), `IsPaintTarget` (taş ve boş tahta hariç). `SetFilled` (tümden dolu/boş), **`AddHit()`** (dolarsa RisePunch, dolmazsa CrackPunch), **`RemoveHit()`** (undo), `SetHighlight`, `SetPreview` (nefes alan hayalet — yalnız çatlatacak atışta **çatlak yüksekliğine** kadar kalkar, önizleme yalan söylemez), `SetFootprint`, `SetAwaiting`, `Pulse(delay)`. **`Refresh()` tek toplayıcıdır:** tip, hit sayısı, `_awaiting` ve `_footprint` orada okunur. **Her hücrenin kendi `Material` örneği ama tek ortak shader var → SRP Batcher tek batch'te toplar; MaterialPropertyBlock KULLANMA** |
 | `PaintingSystem.cs` | static | Boyama kuralı uygulayıcı (canlı ızgara üstünde): `Paint` (mutasyon), `Preview` (salt okuma), `PaintTargetsOrdered` (iniş noktasına yakınlık sırasıyla), `CountPaintable`. Üç kuralı da `GameConstants`'tan okur (şekil / eşleşme / erişim); taş gölgesi için tahsissiz tek bir yol tamponu kullanır |
 | `GridCameraController.cs` | Mono | Tek perspektif kamera. `FitToGrid(grid, camCfg)` FOV + tilt + padding + `gridScreenPos`'tan konumu otomatik çözer. Sahne `FrontZ = -9f` sabitiyle mancınığı da kadraja alır |
-| `GridBoard.cs` | Mono | Izgaranın altındaki koyu zemin quad'ı. `Rebuild(GridConfig)` |
+| `GridBoard.cs` | Mono | Izgaranın altındaki **açık, yuvarlak köşeli plaka** (`RoundedCubeMesh`, üst yüzü Y=0, gölge alır). `Rebuild(GridConfig)` |
 
 ### `Scripts/Gameplay/Ball/`
 
@@ -304,7 +305,7 @@ dikkatli ol.
 |---|---|
 | `ProgressHUD.cs` | Renk başına **çubuk** (renk kutusu + dolu/boş çubuk + `dolu/toplam` sayısı) ve üstte toplam etiketi. Satırlar koddan üretilir, yalnızca renk **kümesi** değişince yeniden kurulur. `OnGridChanged`'i `_dirty` ile kare başına **tek** yeniden çizime indirger. Koyu renkleri okunur hâle getirir. `[RequireComponent(typeof(RectTransform))]` — sahne üreteci düz bir GameObject'e eklediği için eskiden RectTransform yoktu ve çocuklar dejenere bir ebeveyne göre hizalanıyordu; `Awake` artık safe area'ya yayıyor. Görselleri `raycastTarget = false` — HUD nişan hareketini yutmamalı |
 | `ResultScreenUI.cs` | Sonuç paneli, `EaseOutBack` giriş animasyonu, Retry/Menu/Keep Going butonları. `Show(Reason, offerExtraBalls, score)` — `Reason`: `Won` / `OutOfBalls` / `DeadEnd`; `score` alt metne eklenir (negatif geçilirse yazılmaz). Metinlerin tamamı burada durur (GameManager string değil, sebep gönderir) |
-| `ScoreHUD.cs` | Skor sayacı (sağ üst) + atış başına kombo patlaması ("x6   +720", 0 hücrelik atış bir seriyi bozduysa "COMBO LOST"). `GameManager.OnScoreChanged` / `OnShotScored` dinler, kendi kuralı yoktur. Undo skoru düşürdüğünde pop animasyonu **çalmaz**. `ProgressHUD` ile aynı `RequireComponent(RectTransform)` tuzağına tabi: sahne üreteci düz GameObject ekliyor, çocuk anchor'ları yoksa dejenere ebeveyne hizalanır |
+| `ScoreHUD.cs` | Skor sayacı (sağ üst) + atış başına kombo patlaması ("x6   +720", 0 hücrelik atış bir seriyi bozduysa "COMBO LOST") + **ekran ortasında praise** (`_praiseLabel`: 3+ hücre GOOD, 5+ GREAT!, 8+ AMAZING!; overshoot'lu pop, yukarı kayarak söner). `GameManager.OnScoreChanged` / `OnShotScored` dinler, kendi kuralı yoktur. Undo skoru düşürdüğünde pop animasyonu **çalmaz**. `ProgressHUD` ile aynı `RequireComponent(RectTransform)` tuzağına tabi: sahne üreteci düz GameObject ekliyor, çocuk anchor'ları yoksa dejenere ebeveyne hizalanır |
 | `UndoButtonUI.cs` | Oyun içi "geri al" butonu. `GameManager.CanUndo`'yu her kare okur ve buton yoksa **gizler** (soluk bırakmaz). **Butonun kendi GameObject'inde duramaz** — butonu `SetActive(false)` ile gizlediği için kendi `Update`'i de dururdu; sahne üreteci onu Canvas'a koyar |
 | `LevelPickerHUD.cs` | Geliştirici aracı: sağ üstte level seçme dropdown'ı. Kendi Canvas'ını ve gerekirse EventSystem'ini **koddan** kurar |
 | `SafeAreaFitter.cs` | `Screen.safeArea`'ya göre RectTransform'u daraltır (çentik/home bar) |
@@ -320,7 +321,8 @@ dikkatli ol.
 | `LaunchSolver.cs` | static | `SolveToCell(grid, origin, gx, gy, angle)` / `SolveToPoint` — sabit atış açısında, verilen hücrenin merkezine düşen hızı çözer. `GameConstants.GravityMagnitude` kullanır |
 | `CoverageAnalyzer.cs` | static | **"Kalan toplar kalan hücreleri kapatabilir mi?"** `TargetBoard` (düz diziler: `colors` / `hits` / `wild` / `stone`; `hits == 0` ⇒ hedef değil) + `BuildTargets(LevelData)` / `BuildTargets(GridRenderer)`; `BestPlacement(board, ball, out landX, out landY)` bir topun **en iyi iniş noktası** ve orada indireceği vuruş sayısı (`BestCoverage` sayı-döndüren sarmalayıcı); `CountPlacement(board, ball, lx, ly)` **tek bir** yerleşimin vuruş sayısı, uygulamadan (Solving botları belirli bir hücreyi tartmak için kullanır); `ApplyPlacement(board, ball, lx, ly, hitInto, filledInto)` bir yerleşimi taslak tahtadan düşer (opsiyonel listeler vuruş alan / dolan hücreleri verir); `Analyze(...)` renk başına `required` (**vuruş** sayısı — buz iki sayar) vs `ceiling` + `Impossible` / `Tight` (< 1.4×) / `Headroom`, artı gerekiyorsa bir **wild (joker) satırı**. Ölçme ve uygulama **aynı yürüyüşü** paylaşır (`Walk`), böylece plan bir kuralla ölçülüp başka bir kuralla uygulanamaz. Özel hücreler bilerek üst sınırı **gevşetecek** yönde modellenir (yanlış "imkânsız" kararı kazanılabilir bir koşuyu bitirirdi): joker hiçbir rengin `required`'ında yoktur ama **her** rengin `ceiling`'inde sayılır. Üç tüketicisi olduğu için `Shared/`'da: `LevelValidator`, `LevelAutoSolver` (editör) ve `GameManager` (çalışma zamanı erken kayıp tespiti) |
 | `LevelSerializer.cs` | static | `ToJson/FromJson`, `Save/Load` (dosya IO sadece editörde anlamlı) |
-| `GameFX.cs` | Mono singleton | `GameFX.Instance` ilk erişimde kendini yaratır. `Impact`, `ImpactRing`, `Bloom`, `CellPop`, `LaunchPuff`, `Win`, `Firework`, `Shake`, `ZoomPunch`, `Flash`. **`GameFX.CurrentShakeOffset`** — kamera sarsıntısı sadece öteleme yapar; ekrandan-dünyaya ışın atarken bu offset çıkarılmalıdır (`TapLaunchController.PickRay`) |
+| `GameFX.cs` | Mono singleton | `GameFX.Instance` ilk erişimde kendini yaratır. `Impact`, `ImpactRing`, `Bloom`, `CellPop`, `LaunchPuff`, `Win`, `Firework`, **`Confetti(center, color)`** (renk bitince, Win'den küçük), **`HitStop(sec)`** (`Time.timeScale=0`, unscaled bekleme, üst üste binmez; 8+ hücrelik atışta 50 ms), `Shake`, `ZoomPunch`, `Flash`.
+| `RoundedCubeMesh.cs` | static | Yuvarlatılmış birim küp mesh'i, `(radius, subdiv)` başına bir kez üretilip önbelleklenir. Hücre, top blokları ve tahta plakası paylaşır. **Yalnız runtime**: sahne dosyasına kaydedilen nesneler prosedürel mesh referansını kaybeder, o yüzden `GameplaySceneBuilder` dekor için primitive kullanır | **`GameFX.CurrentShakeOffset`** — kamera sarsıntısı sadece öteleme yapar; ekrandan-dünyaya ışın atarken bu offset çıkarılmalıdır (`TapLaunchController.PickRay`) |
 | `Haptics.cs` | static | `Light/Medium/Heavy`. Android'de `AndroidJavaObject` ile Vibrator (API 26+ amplitüdlü), editörde no-op |
 | `Telemetry.cs` | static | `RecordLaunch()` — atışlar arası süreyi loglar, `OnTimeBetweenLaunchesRecorded` |
 
@@ -368,8 +370,9 @@ dikkatli ol.
 ### Sahne hiyerarşisi (`GameplaySceneBuilder`'ın ürettiği)
 
 ```
-DirectionalLight
-GridCamera            (MainCamera tag, GridCameraController)
+DirectionalLight      (yumuşak gölge, açık ambient)
+GridCamera            (MainCamera tag, GridCameraController, BackgroundGradient, post-processing açık)
+PostFX                (global Volume → Assets/Settings/GameplayPostFX.asset: Bloom 0.55, Vignette 0.18)
 GridRoot              (GridRenderer + GridBoard)   → Cell_x_y çocukları runtime'da
 BallQueue             (BallQueue + BallQueueView)
 LaunchArea            (LaunchAreaAnchor)           konum ~(5.5, 0, -8)
@@ -385,6 +388,7 @@ UICanvas              (ResultScreenUI + UndoButtonUI)
 ├─ ResultPanel → TitleText, SubText, RetryBtn, MenuBtn, Keep GoingBtn (kapalı başlar)
 ├─ UndoBtn                                        (kapalı başlar; UndoButtonUI açar)
 ├─ TrayRemaining                                  "+N" tepsi sayacı (sağ alt, raycast kapalı)
+├─ PraiseLabel                                    "GREAT!" (ekran ortası, raycast kapalı)
 └─ ProgressSafeArea (SafeAreaFitter)
    ├─ ProgressHUD → ProgressLabel
    │                └─ ProgressBars → Row_&lt;Renk&gt; (runtime)
@@ -526,9 +530,15 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   **duruyor** (JSON uyumluluğu, enum append-only) ama üretici ve kurtarma topları artık
   onları vermiyor; editör listesinde hâlâ seçilebilirler. `level1–5` yeni kurallarla
   `LevelBuilder` ile **yeniden üretildi** (eski elle yazılmış level'ler git geçmişinde,
-  `bed37d0`). Sırada: paket 2 (yuvarlatılmış küp, gradient arka plan, bloom, "Great!" yazısı,
-  konfeti), paket 3 (booster çubuğu, taş gölgesi/joker hücresinin kaldırılması, dead-end'in
-  uyarıya dönmesi), paket 4 (ses).
+  `bed37d0`).
+- **Casual sadeleştirme, paket 2 (görsel).** Yuvarlatılmış küpler, açık tahta/soket teması,
+  gradient arka plan, bloom + vignette volume, dolu hücre emisyonu, yumuşak gölge, "GREAT!"
+  praise yazısı, renk bitince konfeti + zoom punch, 8+ hücrede hit-stop. **Sahne dosyası
+  `Gameplay2.unity` yeniden üretilmeden bunların çoğu görünmez** — `CatapultGames/Build
+  Gameplay Scene` çalıştırılmalı (ışık, volume, tepsi, etiketler sahneye üreteçle girer).
+  Editor asmdef artık URP runtime assembly'lerine referanslı (Volume/Bloom kurulumu için);
+  runtime kodu URP tipine dokunmaz. Sırada: paket 3 (booster çubuğu, taş gölgesi/joker
+  hücresinin kaldırılması, dead-end'in uyarıya dönmesi), paket 4 (ses).
 - **Level editörü UI Toolkit'e taşındı (2026-09-15).** Eski tek panelli IMGUI penceresi,
   dört sekmeli shell'e dönüştü (bkz. § 7 Editor tablosu, § 9). Bilinen sınırlar:
   · Solving simülatörü Keep Going / undo / skor / fiziksel yayı modellemiyor (kasıtlı).

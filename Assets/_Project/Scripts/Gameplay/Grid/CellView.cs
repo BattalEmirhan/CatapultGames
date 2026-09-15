@@ -36,23 +36,27 @@ namespace CatapultGames
 
         private const float ThinH     = 0.11f;  // height when unfilled
         private const float FullH     = 0.80f;  // height when filled
-        private const float CubeGap   = 0.92f;  // fraction of cellSize (leaves gap between cubes)
+        private const float CubeGap   = 0.86f;  // fraction of cellSize (leaves gap between cubes)
 
-        // How far an unfilled cell's colour is dragged toward the dark board.
-        // Resting cells stay quiet; the colour currently in the catapult reads much
-        // closer to its true hue, which is what makes "what can I paint right now"
-        // answerable by looking at the board instead of at the queue.
-        private const float RestingMute  = 0.54f;
-        private const float AwaitingMute = 0.28f;
+        // How far an unfilled cell's colour is washed toward the pale board — a
+        // "socket" in a light tint of its target colour. Resting cells stay quiet;
+        // the colour currently selected in the tray reads much closer to its true
+        // hue, which is what makes "what can I paint right now" answerable by
+        // looking at the board instead of at the tray.
+        private const float RestingMute  = 0.62f;
+        private const float AwaitingMute = 0.30f;
 
-        private static readonly Color DarkTint      = new Color(0.08f, 0.09f, 0.14f);
-        private static readonly Color EmptyBase     = new Color(0.16f, 0.16f, 0.20f);
-        private static readonly Color FootprintTint = new Color(0.55f, 0.78f, 1f);
+        private static readonly Color WashTint      = new Color(0.97f, 0.96f, 0.95f);   // the board's own tone
+        private static readonly Color EmptyBase     = new Color(0.90f, 0.89f, 0.90f);   // bare socket
+        private static readonly Color FootprintTint = new Color(0.35f, 0.62f, 1f);
 
         // Special-type tints. Each one has to be recognisable at a glance in
         // perspective on a phone, so they differ in HEIGHT as well as colour.
-        private static readonly Color IceTint   = new Color(0.72f, 0.92f, 1f);
-        private static readonly Color StoneTint = new Color(0.40f, 0.40f, 0.45f);
+        private static readonly Color IceTint   = new Color(0.78f, 0.94f, 1f);
+        private static readonly Color StoneTint = new Color(0.62f, 0.62f, 0.68f);
+
+        // Rounded "toy block" mesh shared by every cell (see RoundedCubeMesh).
+        private const float CornerRadius = 0.14f;
         private const float StoneH   = FullH * 0.62f;   // a block, clearly not a filled cell
         private const float CrackedH = ThinH * 3.2f;    // ice, one hit in: visibly half-risen
 
@@ -91,17 +95,17 @@ namespace CatapultGames
             _mat = new Material(_sharedBase);   // own instance; same shader → SRP-batched
 
             // ── Cube ──────────────────────────────────────────────────────
-            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cube.name  = "CellCube";
-            cube.layer = gridLayer;
-            Destroy(cube.GetComponent<BoxCollider>());
+            // A rounded block rather than a hard-edged primitive: the bevel is
+            // what makes the board read as toy pieces instead of a spreadsheet.
+            var cube = new GameObject("CellCube") { layer = gridLayer };
             cube.transform.SetParent(transform, false);
+            cube.AddComponent<MeshFilter>().sharedMesh = RoundedCubeMesh.Get(CornerRadius, 4);
 
             float side = cellSize * CubeGap;
             _baseSide  = side;
             cube.transform.localScale = new Vector3(side, ThinH, side);
 
-            _mr = cube.GetComponent<MeshRenderer>();
+            _mr = cube.AddComponent<MeshRenderer>();
             _mr.sharedMaterial    = _mat;
             _mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
             _mr.receiveShadows    = true;
@@ -115,8 +119,11 @@ namespace CatapultGames
             var shader = Shader.Find("Universal Render Pipeline/Lit")
                       ?? Shader.Find("Standard");
             _sharedBase = new Material(shader);
-            if (_sharedBase.HasProperty("_Smoothness")) _sharedBase.SetFloat("_Smoothness", 0.20f);
+            if (_sharedBase.HasProperty("_Smoothness")) _sharedBase.SetFloat("_Smoothness", 0.42f);   // candy gloss
             if (_sharedBase.HasProperty("_Metallic"))   _sharedBase.SetFloat("_Metallic",   0f);
+            // Emission keyword on for every instance (same variant → still one SRP
+            // batch); the colour itself is black until a cell fills, see SetEmission.
+            if (_sharedBase.HasProperty("_EmissionColor")) _sharedBase.EnableKeyword("_EMISSION");
         }
 
         // Single funnel for every colour change (refresh / highlight / preview / anim),
@@ -124,6 +131,13 @@ namespace CatapultGames
         private void SetColor(Color c)
         {
             if (_mat != null) _mat.color = c;
+        }
+
+        // A filled cell glows a little in its own colour — with the scene's bloom
+        // volume that is the soft candy shine; without it, a slightly brighter cube.
+        private void SetEmission(Color c)
+        {
+            if (_mat != null && _mat.HasProperty("_EmissionColor")) _mat.SetColor("_EmissionColor", c);
         }
 
         // ─── Public API ───────────────────────────────────────────────────
@@ -209,7 +223,7 @@ namespace CatapultGames
             }
             else if (isNone)
             {
-                colour = EmptyBase;              // dark slate base
+                colour = EmptyBase;              // bare socket, a shade under the plate
                 height = ThinH * 0.7f;
             }
             else if (IsFilled)
@@ -219,9 +233,9 @@ namespace CatapultGames
             }
             else
             {
-                // Muted version of the outline colour (shows "this cell needs this
-                // colour"), lifted a step while that colour is the one loaded.
-                colour = Color.Lerp(col, DarkTint, _awaiting ? AwaitingMute : RestingMute);
+                // Pale wash of the outline colour (shows "this cell needs this
+                // colour"), lifted a step while that colour is the one selected.
+                colour = Color.Lerp(col, WashTint, _awaiting ? AwaitingMute : RestingMute);
                 height = _awaiting ? ThinH * 1.5f : ThinH;
 
                 if (Type == CellType.Ice)
@@ -250,6 +264,7 @@ namespace CatapultGames
             }
 
             SetColor(colour);
+            SetEmission(IsFilled && !isNone && Type != CellType.Stone ? col * 0.22f : Color.black);
             ApplyHeight(height);
         }
 
@@ -283,10 +298,8 @@ namespace CatapultGames
 
         // ─── Stamp footprint (aim) ────────────────────────────────────────
         // Set on the cells the stamp covers but does NOT paint. Together with the
-        // paint ghosts below, the player sees the whole stamp — which matters
-        // because the aimed cell sits at a different spot inside it per power
-        // level (GameConstants.GetPaintOffset), so "where did my ball go" is
-        // otherwise something you learn only by wasting balls.
+        // paint ghosts below, the player sees the whole stamp centred on the
+        // aimed cell — the shape of the throw, before the throw.
         private bool _footprint;
 
         public void SetFootprint(bool on)

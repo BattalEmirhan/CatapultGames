@@ -240,6 +240,10 @@ namespace CatapultGames
         {
             yield return new WaitForSeconds(0.35f);  // let the firework volley start popping
             if (_grid != null) _grid.PulseColor(color);
+            // Confetti over the board + a tiny zoom punch: "a whole colour is done"
+            // is the mid-level payoff, and it should look like one.
+            if (_grid != null) GameFX.Instance.Confetti(_grid.WorldCenter, GameConstants.GetColorF(color));
+            GameFX.Instance.ZoomPunch(1.5f);
             GameFX.Instance.Shake(0.22f, 0.30f);
         }
 

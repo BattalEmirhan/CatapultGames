@@ -202,6 +202,47 @@ namespace CatapultGames
             Shake(0.07f, 0.10f);
         }
 
+        // A short confetti shower over the board — "one colour is completely done".
+        // Smaller than Win so the two never read the same; tinted toward the
+        // finished colour so the shower says WHICH colour.
+        public void Confetti(Vector3 center, Color color)
+        {
+            var ps   = NewSystem("FX_Confetti", center + Vector3.up * 5f, 1.8f);
+            var main = ps.main;
+            main.startLifetime   = new ParticleSystem.MinMaxCurve(0.9f, 1.6f);
+            main.startSpeed      = new ParticleSystem.MinMaxCurve(0.8f, 3.0f);
+            main.startSize       = new ParticleSystem.MinMaxCurve(0.12f, 0.28f);
+            main.startColor      = new ParticleSystem.MinMaxGradient(Color.Lerp(color, Color.white, 0.25f), Color.white);
+            main.startRotation   = new ParticleSystem.MinMaxCurve(0f, 2f * Mathf.PI);
+            main.gravityModifier = 0.9f;
+            Burst(ps, 60);
+            Shape(ps, ParticleSystemShapeType.Box, 0f, new Vector3(6f, 0.2f, 6f));
+            FadeOut(ps);
+            ps.Play();
+        }
+
+        // ── Hit-stop ──────────────────────────────────────────────────────
+        // Freezes the game clock for a blink so a big hit lands with weight.
+        // Unscaled time, so the freeze itself is not frozen; never stacks — a
+        // second call while paused just re-arms the release.
+        private Coroutine _hitStop;
+        private float     _timeScaleBefore = 1f;
+
+        public void HitStop(float seconds)
+        {
+            if (_hitStop != null) StopCoroutine(_hitStop);
+            else _timeScaleBefore = Time.timeScale;
+            _hitStop = StartCoroutine(HitStopRoutine(Mathf.Clamp(seconds, 0.01f, 0.25f)));
+        }
+
+        private IEnumerator HitStopRoutine(float seconds)
+        {
+            Time.timeScale = 0f;
+            yield return new WaitForSecondsRealtime(seconds);
+            Time.timeScale = _timeScaleBefore;
+            _hitStop = null;
+        }
+
         // Celebration confetti rain on win.
         public void Win(Vector3 center)
         {

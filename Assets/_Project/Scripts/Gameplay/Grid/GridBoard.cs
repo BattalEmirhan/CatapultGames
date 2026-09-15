@@ -2,48 +2,49 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // Dark background quad placed slightly below the grid cells.
-    // Gives the grid a "board" look and helps cells contrast against the sky.
+    // The light, rounded plate the cells sit on — a "board" in the casual sense:
+    // pale, soft-edged, receiving the cubes' shadows so they read as objects
+    // standing on it rather than floating over a void.
     // Call Rebuild() from LevelLoader.Apply() after BuildGrid().
     public class GridBoard : MonoBehaviour
     {
-        private Transform    _quad;
-        private Material     _mat;
+        private static readonly Color PlateColor = new Color(0.96f, 0.95f, 0.93f);
+        private const float PlateH = 0.22f;
+
+        private Transform _plate;
+        private Material  _mat;
 
         // ── Public ────────────────────────────────────────────────────────
         public void Rebuild(GridConfig grid)
         {
-            if (!_quad)
+            if (!_plate)
             {
                 int gridLayer = LayerMask.NameToLayer("CG_Grid");
                 if (gridLayer < 0) gridLayer = 0;
 
-                var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                go.name  = "BoardQuad";
-                go.layer = gridLayer;
-                Destroy(go.GetComponent<MeshCollider>());
+                var go = new GameObject("BoardPlate") { layer = gridLayer };
                 go.transform.SetParent(transform, false);
-                go.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                go.AddComponent<MeshFilter>().sharedMesh = RoundedCubeMesh.Get(0.10f, 4);
 
-                var mr = go.GetComponent<MeshRenderer>();
+                var mr = go.AddComponent<MeshRenderer>();
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                mr.receiveShadows    = false;
+                mr.receiveShadows    = true;
 
-                var shader = Shader.Find("Universal Render Pipeline/Unlit")
-                          ?? Shader.Find("Unlit/Color");
-                _mat = new Material(shader) { color = new Color(0.06f, 0.07f, 0.12f) };
+                var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+                _mat = new Material(shader) { color = PlateColor };
+                if (_mat.HasProperty("_Smoothness")) _mat.SetFloat("_Smoothness", 0.15f);
                 mr.sharedMaterial = _mat;
-                _quad = go.transform;
+                _plate = go.transform;
             }
 
             float cs   = grid.cellSize;
-            float pad  = cs * 0.45f;
+            float pad  = cs * 0.55f;
             float midX = (grid.width  - 1) * cs * 0.5f;
             float midZ = (grid.height - 1) * cs * 0.5f;
 
-            _quad.localPosition = new Vector3(midX, -0.06f, midZ);  // base under cube cells
-            _quad.localScale    = new Vector3(grid.width * cs + pad,
-                                              grid.height * cs + pad, 1f);
+            // Top face at Y = 0 (the cells' floor), body hanging below it.
+            _plate.localPosition = new Vector3(midX, -PlateH * 0.5f, midZ);
+            _plate.localScale    = new Vector3(grid.width * cs + pad, PlateH, grid.height * cs + pad);
         }
 
         private void OnDestroy()

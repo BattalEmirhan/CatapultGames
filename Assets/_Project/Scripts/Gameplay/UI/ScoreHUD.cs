@@ -29,9 +29,20 @@ namespace CatapultGames
         [SerializeField] private GameManager     _gameManager;
         [SerializeField] private TextMeshProUGUI _scoreLabel;
         [SerializeField] private TextMeshProUGUI _comboLabel;
+        [SerializeField] private TextMeshProUGUI _praiseLabel;   // optional: "Great!" in the middle of the screen
 
         [Tooltip("How long a shot's burst stays on screen before it has faded out.")]
         [SerializeField] private float _burstDuration = 0.95f;
+
+        // Praise words by cells painted — the block-puzzle "Good / Great / Amazing"
+        // that tells the player a dense throw was noticed. Thresholds line up with
+        // GameConstants.GetShotMultiplier's steps.
+        private static readonly (int cells, string word, Color tint)[] Praise =
+        {
+            (8, "AMAZING!", new Color(1f, 0.80f, 0.25f)),
+            (5, "GREAT!",   new Color(0.55f, 0.85f, 1f)),
+            (3, "GOOD",     new Color(0.85f, 0.95f, 1f)),
+        };
 
         // Gold at the top of the multiplier range, plain white at the bottom — the
         // colour is the fastest read of "that shot was worth something".
@@ -65,6 +76,11 @@ namespace CatapultGames
                 _comboLabel.enableWordWrapping = false;
 #pragma warning restore CS0618
                 SetComboAlpha(0f);
+            }
+            if (_praiseLabel)
+            {
+                _praiseLabel.raycastTarget = false;
+                _praiseLabel.color = new Color(1f, 1f, 1f, 0f);
             }
         }
 
@@ -101,7 +117,9 @@ namespace CatapultGames
 
         private void HandleShotScored(GameManager.ShotScore shot)
         {
-            if (_comboLabel == null || !isActiveAndEnabled) return;
+            if (!isActiveAndEnabled) return;
+            ShowPraise(shot.cells);
+            if (_comboLabel == null) return;
 
             bool lostCombo = shot.cells == 0 && _shownStreak > 1;
             _shownStreak   = shot.streak;
@@ -171,6 +189,50 @@ namespace CatapultGames
             if (_comboLabel == null) return;
             Color c = _comboLabel.color;
             _comboLabel.color = new Color(c.r, c.g, c.b, Mathf.Clamp01(a));
+        }
+
+        // ── Praise ("GREAT!") ─────────────────────────────────────────────
+        private Coroutine _praise;
+
+        private void ShowPraise(int cells)
+        {
+            if (_praiseLabel == null) return;
+            foreach (var (min, word, tint) in Praise)
+            {
+                if (cells < min) continue;
+                _praiseLabel.text  = word;
+                _praiseLabel.color = new Color(tint.r, tint.g, tint.b, 0f);
+                if (_praise != null) StopCoroutine(_praise);
+                _praise = StartCoroutine(PraisePop());
+                return;
+            }
+        }
+
+        // Big pop-in with overshoot, a beat held, then it drifts up and fades.
+        private IEnumerator PraisePop()
+        {
+            var rt = _praiseLabel.rectTransform;
+            Vector2 rest = rt.anchoredPosition;
+            const float dur = 0.9f;
+            float t = 0f;
+            while (t < dur)
+            {
+                float p = t / dur;
+                float scale = p < 0.18f ? Mathf.Lerp(0.4f, 1.18f, p / 0.18f)
+                            : p < 0.30f ? Mathf.Lerp(1.18f, 1f, (p - 0.18f) / 0.12f) : 1f;
+                float alpha = p < 0.10f ? p / 0.10f : p < 0.55f ? 1f : 1f - (p - 0.55f) / 0.45f;
+                rt.localScale       = Vector3.one * scale;
+                rt.anchoredPosition = rest + new Vector2(0f, p > 0.55f ? 40f * (p - 0.55f) / 0.45f : 0f);
+                Color c = _praiseLabel.color;
+                _praiseLabel.color = new Color(c.r, c.g, c.b, Mathf.Clamp01(alpha));
+                t += Time.deltaTime;
+                yield return null;
+            }
+            rt.anchoredPosition = rest;
+            rt.localScale = Vector3.one;
+            Color end = _praiseLabel.color;
+            _praiseLabel.color = new Color(end.r, end.g, end.b, 0f);
+            _praise = null;
         }
     }
 }

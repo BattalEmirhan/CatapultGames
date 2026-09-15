@@ -3,6 +3,8 @@ using TMPro;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
 namespace CatapultGames.Editor
@@ -36,14 +38,18 @@ namespace CatapultGames.Editor
             EnsureLayer("CG_Grid");
 
             // ── Lighting ──────────────────────────────────────────────────
+            // Bright, warm key light with soft shadows on a light ambient — the toy
+            // blocks need a visible but gentle shadow to sit on the pale board.
             var lightGo = new GameObject("DirectionalLight");
             var light   = lightGo.AddComponent<Light>();
             light.type      = LightType.Directional;
-            light.color     = new Color(1f, 0.97f, 0.90f);
-            light.intensity = 1.15f;
-            light.transform.rotation = Quaternion.Euler(52f, -30f, 0f);
+            light.color     = new Color(1f, 0.96f, 0.90f);
+            light.intensity = 1.05f;
+            light.shadows   = LightShadows.Soft;
+            light.shadowStrength = 0.55f;
+            light.transform.rotation = Quaternion.Euler(58f, -28f, 0f);
             RenderSettings.ambientMode  = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.26f, 0.28f, 0.40f);
+            RenderSettings.ambientLight = new Color(0.58f, 0.60f, 0.70f);
 
             // ── Single Perspective Camera — full screen, all layers ───────
             // Renders grid cubes, catapult, trajectory, and queue together.
@@ -56,9 +62,21 @@ namespace CatapultGames.Editor
             cam.orthographic = false;
             cam.fieldOfView  = 60f;
             cam.clearFlags   = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.07f, 0.09f, 0.15f);
+            cam.backgroundColor = new Color(0.78f, 0.86f, 0.98f);   // fallback behind the gradient quad
             cam.cullingMask  = -1;  // render everything
             cam.depth        = 0;
+            camGo.AddComponent<BackgroundGradient>();   // sky → cream gradient behind everything
+
+            // Post-processing: a touch of bloom so filled cells shine (CellView adds
+            // emission), and a soft vignette. The profile is a real asset so the
+            // saved scene keeps its reference; rebuilding reuses it.
+            var camData = cam.GetUniversalAdditionalCameraData();
+            camData.renderPostProcessing = true;
+            var postGo = new GameObject("PostFX");
+            var volume = postGo.AddComponent<Volume>();
+            volume.isGlobal = true;
+            volume.priority = 0f;
+            volume.sharedProfile = EnsurePostProfile();
             // Placeholder position — FitToGrid() overwrites this at runtime
             cam.transform.SetPositionAndRotation(
                 new Vector3(5.5f, 14f, -5f),
@@ -293,9 +311,17 @@ namespace CatapultGames.Editor
             comboTMP.margin    = new Vector4(0f, 0f, 24f, 0f);
             comboTMP.raycastTarget = false;
 
+            // "GREAT!" praise — big, centred over the board, never a raycast target.
+            var praiseGo  = MakeText(canvasGo.transform, "PraiseLabel", "", 96,
+                                     new Vector2(0.10f, 0.50f), new Vector2(0.90f, 0.62f));
+            var praiseTMP = praiseGo.GetComponent<TextMeshProUGUI>();
+            praiseTMP.fontStyle     = FontStyles.Bold;
+            praiseTMP.raycastTarget = false;
+
             SetRef(scoreHUD, "_gameManager", gm);
             SetRef(scoreHUD, "_scoreLabel",  scoreTMP);
             SetRef(scoreHUD, "_comboLabel",  comboTMP);
+            SetRef(scoreHUD, "_praiseLabel", praiseTMP);
             SetFloat(scoreHUD, "_burstDuration", 0.95f);
 
             // ── Level picker HUD (dev tool — top-right dropdown) ──────────
@@ -357,6 +383,33 @@ namespace CatapultGames.Editor
         }
 
         // ── Helpers ───────────────────────────────────────────────────────
+
+        // The gameplay post-processing profile, created once under Assets/Settings
+        // and reused on every rebuild (a Volume must reference an asset, or the
+        // saved scene loses it).
+        private const string PostProfilePath = "Assets/Settings/GameplayPostFX.asset";
+
+        private static VolumeProfile EnsurePostProfile()
+        {
+            var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(PostProfilePath);
+            if (profile != null) return profile;
+
+            profile = ScriptableObject.CreateInstance<VolumeProfile>();
+            AssetDatabase.CreateAsset(profile, PostProfilePath);
+
+            var bloom = profile.Add<Bloom>(true);
+            bloom.intensity.Override(0.55f);
+            bloom.threshold.Override(0.95f);
+            bloom.scatter.Override(0.65f);
+
+            var vignette = profile.Add<Vignette>(true);
+            vignette.intensity.Override(0.18f);
+            vignette.smoothness.Override(0.45f);
+
+            EditorUtility.SetDirty(profile);
+            AssetDatabase.SaveAssets();
+            return profile;
+        }
 
         // A collider-less lit primitive — scenery only (the game has no physics).
         private static void AddDeco(Transform parent, string name, PrimitiveType type,

@@ -172,8 +172,10 @@ namespace CatapultGames
                 if (wait != null) yield return wait;
             }
 
-            // Stronger pulse once every cube of this shot has risen.
+            // Stronger pulse once every cube of this shot has risen — and a blink of
+            // hit-stop on a big one, so a dense throw lands with weight.
             Haptics.Heavy();
+            if (targets.Count >= 8) GameFX.Instance.HitStop(0.05f);
 
             // Bloom grows with how many cells this hit lit up — bigger paint, bigger pop.
             float scale = Mathf.Lerp(0.8f, 2.0f, Mathf.InverseLerp(1f, 12f, targets.Count));
