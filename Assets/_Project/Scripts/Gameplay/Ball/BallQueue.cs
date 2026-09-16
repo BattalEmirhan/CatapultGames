@@ -64,6 +64,11 @@ namespace CatapultGames
             return true;
         }
 
+        // A booster changed the current ball IN PLACE (colour / shape); the data
+        // reference is the same, so listeners that compare references (the tray)
+        // need an explicit nudge to look again.
+        public void NotifyCurrentChanged() => OnChanged?.Invoke();
+
         // ── Undo support ──────────────────────────────────────────────────
         // A whole-queue snapshot rather than a "put the ball back" call, because
         // undoing one shot can also have to undo a RemoveColor purge that the shot

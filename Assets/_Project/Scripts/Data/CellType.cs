@@ -6,14 +6,13 @@ namespace CatapultGames
     //   Normal — one hit fills it, if the colours match.
     //   Ice    — needs two hits: the first cracks it, the second fills it. Costs
     //            paint, not aim, so it deepens a level without adding cells.
-    //   Stone  — never fills, and absorbs the stamp: cells behind it on the
-    //            straight path out from the landing cell stay unpainted
-    //            (GameConstants.GetStampPath). A Line cut in half by one Stone
-    //            paints only the near side, which is what makes it a puzzle
-    //            piece rather than a hole in the board.
+    //   Stone  — never fills: a hole in the board the stamp simply paints around.
+    //            (The older "shadows the cells behind it" rule was removed on
+    //            2026-09-15 — it could not be predicted from the board.)
     //   Joker  — any colour fills it. It still fills to its authored colour, so
-    //            the picture comes out as drawn; the wildcard is only about
-    //            which ball is allowed to spend itself on it.
+    //            the picture comes out as drawn. Legacy: levels are no longer
+    //            generated with jokers — the Rainbow BOOSTER ball plays that
+    //            role now — but authored ones keep working.
     //
     // Serialized as an int by JsonUtility. APPEND ONLY — the numbers are written
     // into every level file, exactly like CellColor and BallShape. A level

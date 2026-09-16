@@ -822,6 +822,7 @@ namespace CatapultGames.Editor
             _swatches.Clear();
             foreach (CellColor c in Enum.GetValues(typeof(CellColor)))
             {
+                if (c == CellColor.Any) continue;   // a ball-only colour (Rainbow booster), never authored
                 var col = c;
                 var sw = new VisualElement { tooltip = col.ToString() };
                 sw.AddToClassList("cg-swatch");

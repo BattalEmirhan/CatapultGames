@@ -95,7 +95,7 @@ namespace CatapultGames.Editor
                     break;
                 case LevelDifficulty.VeryHard:
                     s.width = 12; s.height = 12; s.colorCount = 4; s.fillRatio = 0.70f;
-                    s.iceCount = 8; s.stoneCount = 4; s.jokerCount = 1;
+                    s.iceCount = 8; s.stoneCount = 4; s.jokerCount = 0;   // jokers are legacy: the Rainbow booster took their role
                     s.allowPlus = true;
                     s.maxPower = 3; s.slackBalls = 0; s.shuffleWindow = 3;
                     break;

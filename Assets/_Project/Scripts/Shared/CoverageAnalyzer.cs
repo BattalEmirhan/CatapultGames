@@ -171,24 +171,17 @@ namespace CatapultGames
         }
 
         // ── Stamp walk ────────────────────────────────────────────────────
-        // Reused so the per-landing scan below doesn't allocate. Single-threaded
-        // by construction (Unity main thread / editor GUI), same as PaintingSystem.
-        private static readonly List<Vector2Int> _pathBuffer = new();
-
         // One walk of one stamp at one placement: counts the cells that would take
         // a hit, and optionally applies them. Measuring and applying share this
         // walk, so a plan can never be measured by one rule and executed by another.
+        // Stone cells have hits == 0, so a stamp simply paints around them.
         private static int Walk(TargetBoard b, BallData ball, int landX, int landY,
                                 bool wildOnly, bool apply,
                                 List<Vector2Int> hitInto, List<Vector2Int> filledInto)
         {
             if (b == null || ball == null || ball.color == CellColor.None) return 0;
 
-            // Aimed straight at a Stone: the stamp is absorbed whole, same as in
-            // PaintingSystem. The shadow walk below only covers cells BEYOND the
-            // landing cell, so this one has to be asked separately.
-            if (b.InBounds(landX, landY) && b.stone[b.Index(landX, landY)]) return 0;
-
+            bool rainbow = ball.color == CellColor.Any;   // booster ball: matches every colour
             int count = 0;
             foreach (var p in GameConstants.GetPaintedCells(landX, landY, ball, b.width, b.height))
             {
@@ -197,8 +190,7 @@ namespace CatapultGames
                 int i = b.Index(p.x, p.y);
                 if (b.hits[i] == 0) continue;                               // nothing to do here
                 if (wildOnly && !b.wild[i]) continue;
-                if (!b.wild[i] && b.colors[i] != ball.color) continue;
-                if (IsShadowed(b, landX, landY, p.x, p.y)) continue;
+                if (!b.wild[i] && !rainbow && b.colors[i] != ball.color) continue;
 
                 count++;
                 hitInto?.Add(p);
@@ -214,16 +206,6 @@ namespace CatapultGames
             }
 
             return count;
-        }
-
-        // Same reach rule the live grid paints with (GameConstants.GetStampPath):
-        // a Stone on the straight path out from the landing cell eats the stamp.
-        private static bool IsShadowed(TargetBoard b, int landX, int landY, int cellX, int cellY)
-        {
-            GameConstants.GetStampPath(landX, landY, cellX, cellY, _pathBuffer);
-            foreach (var p in _pathBuffer)
-                if (b.InBounds(p.x, p.y) && b.stone[b.Index(p.x, p.y)]) return true;
-            return false;
         }
 
         // ── Per-ball best case ────────────────────────────────────────────
@@ -321,15 +303,28 @@ namespace CatapultGames
                         bestByKind[key] = best;
                     }
 
-                    ceiling.TryGetValue(ball.color, out int cn);
-                    ceiling[ball.color] = cn + best.all;   // includes wild cells: inflated on purpose
+                    if (ball.color == CellColor.Any)
+                    {
+                        // A rainbow (booster) ball can finish ANY colour, so it lifts
+                        // every colour's ceiling — loose, in the safe direction.
+                        foreach (var c in required.Keys)
+                        {
+                            ceiling.TryGetValue(c, out int rc);
+                            ceiling[c] = rc + best.all;
+                        }
+                    }
+                    else
+                    {
+                        ceiling.TryGetValue(ball.color, out int cn);
+                        ceiling[ball.color] = cn + best.all;   // includes wild cells: inflated on purpose
+                    }
                     wildCeiling += best.wild;
                 }
             }
 
             var colors = new HashSet<CellColor>();
             foreach (var k in required.Keys)  colors.Add(k);
-            foreach (var k in ballCount.Keys) colors.Add(k);
+            foreach (var k in ballCount.Keys) if (k != CellColor.Any) colors.Add(k);   // rainbow balls belong to no row
 
             var rows = new List<ColorCoverage>(colors.Count + 1);
             foreach (var c in colors)

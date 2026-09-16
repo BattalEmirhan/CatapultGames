@@ -263,7 +263,10 @@ namespace CatapultGames
                 var data = _slotOffset[i] >= 0 ? _queue.Peek(_slotOffset[i]) : null;
                 if (data != null) shown++;
 
-                if (data != _slotData[i] || (data != null && _slotBalls[i] == null))
+                // Recreate when the ball behind the slot changed, when the visual is
+                // missing, or when a booster mutated the ball in place (same reference,
+                // different look).
+                if (data != _slotData[i] || (data != null && (_slotBalls[i] == null || !_slotBalls[i].Matches(data))))
                 {
                     if (_slotBalls[i]) Destroy(_slotBalls[i].gameObject);
                     _slotBalls[i] = null;

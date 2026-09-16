@@ -101,8 +101,8 @@
                         <ui:Label text="Type" class="cg-label--key" />
                         <ui:Button name="type-normal" text="Normal" class="cg-type" tooltip="One hit fills it." />
                         <ui:Button name="type-ice"    text="Ice"    class="cg-type" tooltip="Two hits: the first only cracks it." />
-                        <ui:Button name="type-stone"  text="Stone"  class="cg-type" tooltip="Never paints, and blocks the stamp behind it. Takes no colour." />
-                        <ui:Button name="type-joker"  text="Joker"  class="cg-type" tooltip="Any colour fills it." />
+                        <ui:Button name="type-stone"  text="Stone"  class="cg-type" tooltip="A hole: never paints, the stamp paints around it. Takes no colour." />
+                        <ui:Button name="type-joker"  text="Joker"  class="cg-type" tooltip="Legacy: any colour fills it. New levels use the Rainbow booster instead." />
                     </ui:VisualElement>
                     <ui:Label name="type-counts" text="" class="cg-note" />
                     <ui:VisualElement name="selection-row" class="cg-row">

@@ -20,6 +20,7 @@ namespace CatapultGames
         [SerializeField] private LevelPickerHUD       _levelPicker;  // optional
         [SerializeField] private LaunchAreaAnchor     _launchAnchor; // optional — pins balls to screen bottom
         [SerializeField] private GameManager          _gameManager;  // optional — score reset on load
+        [SerializeField] private BoosterSystem        _boosters;     // optional — booster counts per level
 
         [Header("Fallback")]
         [SerializeField] private string _defaultLevelName = "Level_01";
@@ -81,6 +82,7 @@ namespace CatapultGames
             // A level switch is a new run: the picker HUD loads in place rather than
             // reloading the scene, so the score would otherwise carry over.
             _gameManager?.ResetScore();
+            _boosters?.ResetForLevel();
         }
 
         // Strip null entries and clamp powerLevel to 1-3 so bad JSON never crashes gameplay.

@@ -194,18 +194,20 @@ namespace CatapultGames
             };
         }
 
-        // ── Cell types: match, cost and reach ─────────────────────────────
-        // The three questions a special cell answers, all in one place so that
-        // painting (PaintingSystem, live grid), analysis (CoverageAnalyzer, arrays)
-        // and the auto-solver can never drift apart on what a cell does.
+        // ── Cell types: match and cost ────────────────────────────────────
+        // The questions a special cell answers, all in one place so that painting
+        // (PaintingSystem, live grid), analysis (CoverageAnalyzer, arrays) and the
+        // auto-solver can never drift apart on what a cell does.
 
         // Does this ball's colour fill that cell? Joker takes any colour, Stone
-        // takes none, and a bare board cell is not a target at all.
+        // takes none, a bare board cell is not a target at all, and a Rainbow
+        // ball (CellColor.Any — the booster) matches every real target.
         public static bool ColorMatches(CellColor cellColor, CellType cellType, CellColor ballColor)
         {
             if (cellType == CellType.Stone)     return false;
             if (cellColor == CellColor.None)    return false;
             if (ballColor == CellColor.None)    return false;
+            if (ballColor == CellColor.Any)     return true;
             return cellType == CellType.Joker || cellColor == ballColor;
         }
 
@@ -214,40 +216,9 @@ namespace CatapultGames
         public static int GetRequiredHits(CellType cellType) =>
             cellType == CellType.Ice ? 2 : 1;
 
-        // Cells strictly BETWEEN the landing cell and (cellX, cellY): the straight
-        // path the stamp travels to reach that cell. A Stone anywhere along it
-        // absorbs the stamp and the far cell stays unpainted.
-        //
-        // "Strictly between" leaves the landing cell out, so each consumer checks
-        // that one separately: a stamp aimed AT a Stone is absorbed whole and paints
-        // nothing at all. (Without that check, aiming at a Stone would be a way to
-        // paint straight through it — the shadow only starts one cell out.)
-        //
-        // Only orthogonal and 45° rays are walked, because those are the lines every
-        // stamp is built from — runs, plus/diagonal arms, L arms, and a square's own
-        // rows, columns and diagonals. A 4x4 square's off-ray corners have no
-        // unambiguous "behind", so they are never shadowed; that keeps the rule
-        // statable in one sentence, which matters because the player has to predict
-        // it before spending a ball (AimPreview draws the result either way).
-        //
-        // Fills `into` (cleared first) rather than allocating: BestPlacement calls
-        // this for every candidate landing cell on the board.
-        public static void GetStampPath(int landX, int landY, int cellX, int cellY,
-                                        List<Vector2Int> into)
-        {
-            into.Clear();
-
-            int dx = cellX - landX;
-            int dy = cellY - landY;
-            if (!(dx == 0 || dy == 0 || Mathf.Abs(dx) == Mathf.Abs(dy))) return;
-
-            int steps = Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dy));
-            int sx    = dx == 0 ? 0 : (dx > 0 ? 1 : -1);
-            int sy    = dy == 0 ? 0 : (dy > 0 ? 1 : -1);
-
-            for (int i = 1; i < steps; i++)
-                into.Add(new Vector2Int(landX + sx * i, landY + sy * i));
-        }
+        // (2026-09-15) The "stone shadows the cells behind it" reach rule was
+        // removed with it: a Stone is now just a hole the stamp paints around.
+        // Two questions remain — shape (GetPaintedCells) and match (ColorMatches).
 
         // ── Scoring ───────────────────────────────────────────────────────
         // One shot's payout, kept here with the painting rules because it is a rule
@@ -283,6 +254,7 @@ namespace CatapultGames
             new Color32(255, 216,  92, 255),  // White   → lemon
             new Color32(255, 140, 190, 255),  // Pink    → bubblegum
             new Color32(172, 132, 255, 255),  // Purple  → lavender
+            new Color32(250, 250, 252, 255),  // Any     → rainbow ball base (BallVisual tints its blocks)
         };
 
         public static Color32 GetColor(CellColor c) => CellColorPalette[(int)c];

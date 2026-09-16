@@ -15,10 +15,23 @@ namespace CatapultGames
         private Material _bodyMat;
         private Material _trailMat;
         private Color    _color;
+        private int      _power;
+        private BallShape _shape;
 
         // The ball's logical color — lets owners (e.g. the tray) match a visual
         // to a CellColor without re-querying the queue.
         public CellColor BallColor { get; private set; }
+
+        // Does this visual still show that ball? A booster can recolour or reshape
+        // a ball in place; the tray uses this to know it must rebuild the body.
+        public bool Matches(BallData d) =>
+            d != null && d.color == BallColor && Mathf.Clamp(d.powerLevel, 1, 3) == _power && d.shape == _shape;
+
+        // Rainbow (CellColor.Any) balls tint each block with a different palette
+        // hue. Seven shared materials, built once and kept for the app's life —
+        // small, and never per-ball.
+        private static Material[] _rainbowMats;
+        private int _rainbowIndex;
 
         // ── Factory ───────────────────────────────────────────────────────
         public static BallVisual Create(Transform parent, CellColor color,
@@ -38,12 +51,15 @@ namespace CatapultGames
         {
             _color    = GameConstants.GetColorF(color);
             BallColor = color;
+            _power    = Mathf.Clamp(powerLevel, 1, 3);
+            _shape    = shape;
 
             var litShader = Shader.Find("Universal Render Pipeline/Lit")
                          ?? Shader.Find("Standard");
             _bodyMat = new Material(litShader) { color = _color };
             if (_bodyMat.HasProperty("_Smoothness"))
                 _bodyMat.SetFloat("_Smoothness", 0.55f);   // candy gloss
+            if (color == CellColor.Any) EnsureRainbowMaterials(litShader);
 
             // Overall footprint of the body, whatever the shape. Runs and crosses
             // get a little more room because they are long and thin.
@@ -64,20 +80,32 @@ namespace CatapultGames
         private static int RunLength(int power) =>
             GameConstants.GetPaintCellCount(new BallData(CellColor.None, power, BallShape.Line), 0, 0);
 
-        // One lit cube block at a local position, edge length `size`.
+        private static void EnsureRainbowMaterials(Shader shader)
+        {
+            if (_rainbowMats != null && _rainbowMats.Length > 0 && _rainbowMats[0] != null) return;
+            _rainbowMats = new Material[7];
+            for (int i = 0; i < 7; i++)
+            {
+                _rainbowMats[i] = new Material(shader) { color = GameConstants.GetColorF((CellColor)(i + 1)) };
+                if (_rainbowMats[i].HasProperty("_Smoothness")) _rainbowMats[i].SetFloat("_Smoothness", 0.6f);
+            }
+        }
+
+        // One lit rounded block at a local position, edge length `size`.
         private void AddBlock(Vector3 localPos, float size)
         {
-            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cube.name = "Block";
-            Destroy(cube.GetComponent<BoxCollider>());
+            var cube = new GameObject("Block");
             cube.transform.SetParent(transform, false);
             cube.transform.localPosition = localPos;
             cube.transform.localScale    = Vector3.one * size;
+            cube.AddComponent<MeshFilter>().sharedMesh = RoundedCubeMesh.Get(0.16f, 3);
 
-            var mr = cube.GetComponent<MeshRenderer>();
+            var mr = cube.AddComponent<MeshRenderer>();
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
             mr.receiveShadows    = true;
-            mr.sharedMaterial    = _bodyMat;
+            mr.sharedMaterial    = BallColor == CellColor.Any && _rainbowMats != null
+                ? _rainbowMats[_rainbowIndex++ % _rainbowMats.Length]
+                : _bodyMat;
         }
 
         // N×N mini cubes filling `span` — the real stamp at tray scale. Cell edge
