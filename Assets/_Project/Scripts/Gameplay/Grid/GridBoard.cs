@@ -2,54 +2,40 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // The light, rounded plate the cells sit on — a "board" in the casual sense:
-    // pale, soft-edged, receiving the cubes' shadows so they read as objects
-    // standing on it rather than floating over a void.
+    // The deep purple panel the cells sit on — one 9-sliced sprite (TileArt.Panel)
+    // lying under the grid, a little larger than it, drawn before every socket.
     // Call Rebuild() from LevelLoader.Apply() after BuildGrid().
     public class GridBoard : MonoBehaviour
     {
-        private static readonly Color PlateColor = new Color(0.96f, 0.95f, 0.93f);
-        private const float PlateH = 0.22f;
+        private const float Padding = 0.30f;   // panel margin around the grid, in cells
 
-        private Transform _plate;
-        private Material  _mat;
+        private SpriteRenderer _panel;
 
         // ── Public ────────────────────────────────────────────────────────
         public void Rebuild(GridConfig grid)
         {
-            if (!_plate)
+            if (!_panel)
             {
                 int gridLayer = LayerMask.NameToLayer("CG_Grid");
                 if (gridLayer < 0) gridLayer = 0;
 
-                var go = new GameObject("BoardPlate") { layer = gridLayer };
+                var go = new GameObject("BoardPanel") { layer = gridLayer };
                 go.transform.SetParent(transform, false);
-                go.AddComponent<MeshFilter>().sharedMesh = RoundedCubeMesh.Get(0.10f, 4);
-
-                var mr = go.AddComponent<MeshRenderer>();
-                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                mr.receiveShadows    = true;
-
-                var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-                _mat = new Material(shader) { color = PlateColor };
-                if (_mat.HasProperty("_Smoothness")) _mat.SetFloat("_Smoothness", 0.15f);
-                mr.sharedMaterial = _mat;
-                _plate = go.transform;
+                go.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);   // flat, top edge up the screen
+                _panel = go.AddComponent<SpriteRenderer>();
+                _panel.sprite       = TileArt.Panel();
+                _panel.drawMode     = SpriteDrawMode.Sliced;
+                _panel.sortingOrder = CellView.BoardOrder;
+                _panel.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             }
 
             float cs   = grid.cellSize;
-            float pad  = cs * 0.55f;
             float midX = (grid.width  - 1) * cs * 0.5f;
             float midZ = (grid.height - 1) * cs * 0.5f;
 
-            // Top face at Y = 0 (the cells' floor), body hanging below it.
-            _plate.localPosition = new Vector3(midX, -PlateH * 0.5f, midZ);
-            _plate.localScale    = new Vector3(grid.width * cs + pad, PlateH, grid.height * cs + pad);
-        }
-
-        private void OnDestroy()
-        {
-            if (_mat) Destroy(_mat);
+            // A hair under the cells' plane, so nothing z-fights with the sockets.
+            _panel.transform.localPosition = new Vector3(midX, -0.01f, midZ);
+            _panel.size = new Vector2(grid.width * cs + 2f * Padding * cs, grid.height * cs + 2f * Padding * cs);
         }
     }
 }

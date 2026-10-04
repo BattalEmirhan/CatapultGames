@@ -2,8 +2,9 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // Soft vertical gradient behind everything — the "calm sky" every casual
-    // block puzzle sits on. A single unlit quad parented to the camera, far
+    // Soft vertical gradient behind everything — the deep violet room the purple
+    // board sits in (block-match look, 2026-10-04). Darker than the board so the
+    // board reads as the lit centre of the screen. A single unlit quad parented to the camera, far
     // down the frustum and sized to fill it, with a 1×64 gradient texture
     // generated at runtime (no asset to keep in sync with the palette).
     //
@@ -11,8 +12,8 @@ namespace CatapultGames
     [RequireComponent(typeof(Camera))]
     public class BackgroundGradient : MonoBehaviour
     {
-        [SerializeField] private Color _top    = new Color(0.60f, 0.78f, 0.98f);   // sky blue
-        [SerializeField] private Color _bottom = new Color(0.95f, 0.91f, 0.97f);   // lavender cream
+        [SerializeField] private Color _top    = new Color(0.27f, 0.13f, 0.40f);   // violet
+        [SerializeField] private Color _bottom = new Color(0.11f, 0.05f, 0.18f);   // near-black plum
         [SerializeField] private float _distance = 60f;
 
         private Camera    _cam;

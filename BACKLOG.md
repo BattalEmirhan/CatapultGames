@@ -17,7 +17,7 @@
 | **Faz 4** — İlerleme ve meta | ✅ Kodda bitti (2026-10-04) — F4-1 yıldızlar **iptal**, F4-2/3/4 yapıldı; sahneler Unity'de üretilmeli |
 | **Faz 5** — Öğretici | ✅ Kodda bitti (2026-10-04) — F5-1 parmak işareti, F5-2 `metadata.hint`; Unity'de görülmedi |
 | **Faz 6** — Derinlik | ✅ Bitti (F6-1, F6-2, F6-3, F6-4) |
-| **Faz 7** — Büyüme | ⬜ Başlanmadı |
+| **Faz 7** — Büyüme | ✖️ İptal (2026-10-04) — plandan çıkarıldı |
 
 Yazılan kodun tamamı derleniyor (0 hata). F6-3'ün kapsama matematiği ayrıca `dotnet`
 altında sayısal olarak doğrulandı (38 kontrol, hepsi geçti — buz vuruşları, taş gölgesi,
@@ -140,16 +140,10 @@ göre veriliyor ve şu anki bolluk oranları anlamsız sayı üretir. **Faz 4'te
 > `level1–5` yalnızca `Normal` hücre içeriyor — buz/taş/joker'in tasarımdaki yeri Faz 1
 > ve Faz 5'te yazılacak level'lerde belirlenecek.
 
-### Faz 7 — Büyüme ⬜ (menü)
+### Faz 7 — Büyüme ✖️ (iptal, 2026-10-04)
 
-| ID | İş | Not | Süre |
-|---|---|---|---|
-| F7-1 | **Kendi fotoğrafını boya.** `ImageImportUtility` işi zaten yapıyor ama Editor assembly'sinde kilitli → `Shared/`'a taşı. Kuyruğu `LevelAutoSolver`'ı tersten çalıştırarak üret (hedef bolluk bandını tutturana kadar top ekle) | `LevelAutoSolver` da `Shared/`'a taşınmalı. Üretilen level `Resources/`'a **yazılamaz** (build-time) → `Application.persistentDataPath` | 8–12 sa |
-| F7-2 | Günlük bulmaca: tarihten türeyen tohum, herkese aynı level, seri sayacı | F4-2 (kayıt) ve F0-1 (doğrulama) gerekli | 4–6 sa |
-| F7-3 | Telemetri: level başına deneme sayısı, kazanınca artan top oranı, ilk kaybettiren atış sırası, tamamlanma oranı | `Shared/Telemetry.cs` şu an sadece atışlar arası süreyi logluyor. **Yayına çıkacaksan opsiyonel değil** | 2–3 sa |
-
-**Hedef bantlar (F7-3 için):** ilk 20 level 1–3 deneme · ilk sivri uç L20–30, 3–6 deneme ·
-artan top %10–30 · ilk 10 level tamamlanma ≥%85 · D1 ≥%30 (puzzle ortalaması ~%32).
+Fotoğraftan level, günlük bulmaca ve telemetri plandan çıkarıldı; bunların yerine görsel
+okunabilirlik çalışması yapıldı (bkz. `docs/ARCHITECTURE.md` § 12, "Görsel dil").
 
 ---
 

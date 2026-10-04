@@ -833,7 +833,8 @@ namespace CatapultGames.Editor
             {
                 if (c == CellColor.Any) continue;   // a ball-only colour (Rainbow booster), never authored
                 var col = c;
-                var sw = new VisualElement { tooltip = col.ToString() };
+                // Display name first: the enum ids are legacy (Black is orange).
+                var sw = new VisualElement { tooltip = $"{GameConstants.GetColorDisplayName(col)} (id {col})" };
                 sw.AddToClassList("cg-swatch");
                 sw.style.backgroundColor = LevelCellPalette.Swatch(col);   // colour is data → inline
                 sw.RegisterCallback<ClickEvent>(_ => SetColor(col));
@@ -1241,7 +1242,7 @@ namespace CatapultGames.Editor
                 icon.AddToClassList("cg-status__icon");
                 icon.AddToClassList(row.severity == LevelValidator.Severity.OK ? "cg-ok" : row.severity == LevelValidator.Severity.Warning ? "cg-warning" : "cg-danger");
                 r.Add(icon);
-                var name = new Label(row.isWild ? "Joker" : row.color.ToString());
+                var name = new Label(row.isWild ? "Joker" : GameConstants.GetColorDisplayName(row.color));
                 name.AddToClassList("cg-status__name");
                 r.Add(name);
                 var note = new Label(row.note);

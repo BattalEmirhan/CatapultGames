@@ -7,12 +7,13 @@ namespace CatapultGames
 {
     // Level select screen. Scene "LevelSelect", built by MenuSceneBuilder.
     //
-    // One numbered tile per shipped level, in play order (LevelOrder). Tiles are
-    // made in code, like every other UI in the project, so there is no prefab to
-    // keep in sync: the container's GridLayoutGroup does the layout.
-    //   won      → mint
-    //   unlocked → sky blue, the one to play next
-    //   locked   → grey, not tappable (the level before it is not won yet)
+    // One numbered tile per shipped level, in play order (LevelOrder) — the same
+    // glossy tiles as the board (TileArt). Made in code, like every other UI in
+    // the project, so there is no prefab to keep in sync: the container's
+    // GridLayoutGroup does the layout.
+    //   won      → green tile
+    //   unlocked → blue tile, the one to play next
+    //   locked   → grey tile, not tappable (the level before it is not won yet)
     //
     // Inspector:
     //   _buttonContainer — ScrollRect content with a GridLayoutGroup
@@ -25,10 +26,6 @@ namespace CatapultGames
         [Header("Scene names")]
         [SerializeField] private string _gameplayScene = "Gameplay2";
         [SerializeField] private string _mainMenuScene = "MainMenu";
-
-        private static readonly Color WonColor    = new Color(0.34f, 0.80f, 0.60f);
-        private static readonly Color OpenColor   = new Color(0.34f, 0.62f, 0.95f);
-        private static readonly Color LockedColor = new Color(0.62f, 0.64f, 0.70f);
 
         // ── Lifecycle ─────────────────────────────────────────────────────
         private void Start()
@@ -54,8 +51,9 @@ namespace CatapultGames
             var go = new GameObject(levelName, typeof(RectTransform));
             go.transform.SetParent(_buttonContainer, false);
 
-            var img   = go.AddComponent<Image>();
-            img.color = won ? WonColor : unlocked ? OpenColor : LockedColor;
+            var img    = go.AddComponent<Image>();
+            img.sprite = won ? TileArt.Tile(CellColor.Green) : unlocked ? TileArt.Tile(CellColor.Blue) : TileArt.Grey();
+            img.color  = Color.white;
 
             var button = go.AddComponent<Button>();
             button.interactable = unlocked;

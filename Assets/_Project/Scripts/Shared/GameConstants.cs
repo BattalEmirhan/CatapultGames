@@ -240,37 +240,43 @@ namespace CatapultGames
         public static int GetComboMultiplier(int streak) =>
             Mathf.Clamp(streak, 1, MaxComboMultiplier);
 
-        // Candy / pastel palette (2026-09-15). The enum NAMES are legacy identifiers
-        // that stay for JSON compatibility; the hues are what a casual block puzzle
-        // reads well on a light board: saturated but soft, no pure black or white.
-        // Index == (int)CellColor — never reorder.
+        // Block-match palette (2026-10-04): seven saturated, maximally distinct hues
+        // on a deep purple board (TileArt) — red, green, blue, orange, yellow, cyan,
+        // pink, no two neighbours on the colour wheel. The pastel set before it
+        // washed out against the light board, and navy/lavender/blue read alike.
+        // The enum NAMES are legacy identifiers kept for JSON compatibility; what
+        // the player sees is GetColorDisplayName. Purple is not in the set because
+        // the board itself is purple. Index == (int)CellColor — never reorder.
         public static readonly Color32[] CellColorPalette = new Color32[]
         {
             new Color32(  0,   0,   0,   0),  // None    (transparent)
-            new Color32(255, 107,  97, 255),  // Red     → coral
-            new Color32( 86, 214, 156, 255),  // Green   → mint
-            new Color32( 86, 168, 255, 255),  // Blue    → sky
-            new Color32( 78,  92, 140, 255),  // Black   → navy (still the darkest hue)
-            new Color32(255, 216,  92, 255),  // White   → lemon
-            new Color32(255, 140, 190, 255),  // Pink    → bubblegum
-            new Color32(172, 132, 255, 255),  // Purple  → lavender
-            new Color32(250, 250, 252, 255),  // Any     → rainbow ball base (BallVisual tints its blocks)
+            new Color32(238,  52,  48, 255),  // Red     → red
+            new Color32( 52, 196,  62, 255),  // Green   → green
+            new Color32( 30, 112, 250, 255),  // Blue    → blue
+            new Color32(253, 146,  28, 255),  // Black   → orange
+            new Color32(252, 206,  30, 255),  // White   → yellow
+            new Color32( 18, 196, 240, 255),  // Pink    → cyan
+            new Color32(240,  76, 182, 255),  // Purple  → pink
+            new Color32(250, 250, 252, 255),  // Any     → rainbow ball base (BallVisual cycles real tiles)
         };
 
         public static Color32 GetColor(CellColor c) => CellColorPalette[(int)c];
 
-        // What the player calls each colour. The enum names are legacy ids (Black
-        // is navy, White is lemon), so any text that names a colour reads it here.
+        // What the player (and the level editor) calls each colour. The enum names
+        // are legacy ids — Black is orange, Pink is cyan — so every text that names
+        // a colour reads it here. Also the file name of an art override
+        // (Resources/Art/Tiles/<name>, see TileArt).
         public static string GetColorDisplayName(CellColor c) => c switch
         {
             CellColor.Red    => "Red",
             CellColor.Green  => "Green",
             CellColor.Blue   => "Blue",
-            CellColor.Black  => "Navy",
+            CellColor.Black  => "Orange",
             CellColor.White  => "Yellow",
-            CellColor.Pink   => "Pink",
-            CellColor.Purple => "Purple",
+            CellColor.Pink   => "Cyan",
+            CellColor.Purple => "Pink",
             CellColor.Any    => "Rainbow",
+            CellColor.None   => "Empty",
             _                => "",
         };
 

@@ -76,6 +76,17 @@ yerden okuyordu; art arda gelen praise yazısı her seferinde biraz daha yukarı
 - `BallQueueView`: `SelectedSlot`, `TryGetSlotBall`, `OnSlotSelected`. `Shared/UiSprites.cs`:
   runtime disk/halka sprite'ı.
 
+## 2d. Görsel dil — block-match (2026-10-04, dördüncü commit)
+
+- Pastel 3D küpler → tahta düzleminde **katmanlı sprite'lar** (`CellView`): damalı soket,
+  boş hedefte **gerçek renkli küçük marker**, dolunca parlak taş, buz örtüsü. Koyu mor 9-slice
+  panel (`GridBoard`), menekşe arka plan, mor tepsi, menüler aynı aile.
+- Yeni palet: kırmızı, yeşil, mavi, **turuncu** (Black), sarı (White), **camgöbeği** (Pink),
+  **pembe** (Purple). Editör swatch'ları ve satırlar artık görünen adı yazıyor.
+- Bütün sprite'lar `Shared/TileArt.cs`'te **kodla çiziliyor**; Block-Match yalnızca yapı/renk
+  referansı. Gerçek art eklemek için `Resources/Art/...` (bkz. ARCHITECTURE § 7 `TileArt`).
+- Top gövdeleri aynı taşlardan (`BallVisual`). `RoundedCubeMesh` silindi.
+
 ## 3. Sıradaki adım: Unity'de doğrulama (zorunlu)
 
 **Hiçbir paket Play modunda izlenmedi.** Bu oturum da Unity olmadan, yalnızca derleme
@@ -98,6 +109,11 @@ kontrolüyle (bkz. § 4) yapıldı.
      açık, kazanınca sonraki açılıyor mu; Next Level son level'de gizli mi; LevelSelect
      kaydırması. Testte ilerlemeyi sıfırlamak için `PlayerPrefs` temizlenir
      (Edit → Clear All PlayerPrefs) — oyunda bir sıfırlama butonu yok.
+   - **Görsel:** tahta okunuyor mu — boş hücrede hangi rengin istendiği marker'dan anlaşılıyor
+     mu, dolu taş ile karışıyor mu; 66° kamerada sprite'lar fazla kısalıyorsa level
+     `camera.tiltAngle`'ı artır. Marker boyu (`CellView.MarkerResting/Awaiting`), soket tonları
+     (`TileArt.SocketA/B`), bloom (`GameplayPostFX.asset`, ilk build'de 0.30 ile üretilir —
+     önceden üretildiyse elle düşür) ilk ayarlanacaklar.
    - **Öğretici:** level1'i ilk kez aç (PlayerPrefs temiz): parmak ucu bir hücrenin tam üstünde
      mi, atınca tepsideki başka renk topa geçiyor mu, ikinci açılışta çıkmıyor mu. level2'de
      ipucu bandı görünüp ilk atışta sönüyor mu. Level editöründe Hint alanı görünüyor mu.
@@ -132,7 +148,7 @@ dotnet build tools/compile-check/Editor.Check.csproj    # GameplaySceneBuilder +
 
 - ~~Faz 4~~ kodda bitti (bkz. § 2b); yıldızlar iptal. Sahneler Unity'de üretilmeli.
 - ~~Faz 5~~ kodda bitti (bkz. § 2c).
-- **Faz 7 — büyüme:** fotoğraftan level, günlük bulmaca, telemetri.
+- ~~Faz 7~~ iptal edildi (fotoğraftan level, günlük bulmaca, telemetri).
 - **Faz 1** (eski level verisi) 2026-09-15'teki yeniden üretimle büyük ölçüde geçersiz;
   yeni level1–5 Unity'de oynanarak doğrulanmalı.
 - Ses için bir **ayar/sessize alma butonu** yok (`GameAudio.Muted` hazır).
