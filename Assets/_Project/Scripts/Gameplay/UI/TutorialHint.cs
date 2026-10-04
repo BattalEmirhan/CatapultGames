@@ -14,7 +14,7 @@ namespace CatapultGames
     //   2. PickBall — once the board is at rest, a tray ball of another colour,
     //                 "Tap a ball to pick it". Skipped when the tray has no choice.
     // Either step also ends on whatever the player does instead (throwing during
-    // step 2 means they don't need it). Stored as done (PlayerPrefs "TutorialDone")
+    // step 2 means they don't need it). Stored as done (save key "TutorialDone")
     // when it runs to its end or the level ends — not when the app is closed
     // half-way, so an interrupted first session sees it again.
     //
@@ -25,7 +25,7 @@ namespace CatapultGames
     // builder does): references below, plus the pointer / caption / banner UI.
     public sealed class TutorialHint : MonoBehaviour
     {
-        public static bool IsDone => PlayerPrefs.GetInt(DoneKey, 0) == 1;
+        public static bool IsDone => SaveStore.Current.GetInt(DoneKey, 0) == 1;
 
         [SerializeField] private Camera        camera;
         [SerializeField] private GridRenderer  grid;
@@ -137,7 +137,7 @@ namespace CatapultGames
         }
 
         // Dev / settings use: show the tutorial again on the next first-level start.
-        public static void ResetDone() => PlayerPrefs.DeleteKey(DoneKey);
+        public static void ResetDone() => SaveStore.Current.Delete(DoneKey);
 
         public void BeginLevel(string levelName, string hint)
         {
@@ -216,8 +216,8 @@ namespace CatapultGames
         {
             _step = TutorialStep.None;
             HidePointer();
-            PlayerPrefs.SetInt(DoneKey, 1);
-            PlayerPrefs.Save();
+            SaveStore.Current.SetInt(DoneKey, 1);
+            SaveStore.Current.Flush();
         }
 
         private void OnBallConsumed(BallData _)
@@ -259,7 +259,7 @@ namespace CatapultGames
             Vector3 sp = camera.WorldToScreenPoint(world);
             var parent = pointer.parent as RectTransform;
             if (sp.z <= 0f || parent == null ||
-                !RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, sp, null, out var target))
+                !RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, sp, camera, out var target))
             {
                 HidePointer();
                 return;
@@ -272,7 +272,7 @@ namespace CatapultGames
                                      : Mathf.Lerp(0.78f, 1f, Mathf.InverseLerp(0.45f, 0.60f, p));
             float alpha  = p < 0.10f ? p / 0.10f : p > 0.85f ? 1f - (p - 0.85f) / 0.15f : 1f;
 
-            pointer.anchoredPosition = target + Vector2.Lerp(new Vector2(90f, -120f), Vector2.zero, glide);
+            pointer.anchoredPosition = target + Vector2.Lerp(new Vector2(122f, -162f), Vector2.zero, glide);
             pointer.localScale       = Vector3.one * press;
             if (_pointerImage)
                 _pointerImage.color = new Color(1f, 1f, 1f, 0.9f * alpha);

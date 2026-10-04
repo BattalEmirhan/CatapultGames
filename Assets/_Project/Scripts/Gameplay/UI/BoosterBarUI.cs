@@ -26,19 +26,13 @@ namespace CatapultGames
         // "×N" string each time would be garbage for nothing.
         private readonly int[] _shownCounts = { -1, -1, -1 };
 
-        private void Awake()
-        {
-            rainbowButton?.onClick.AddListener(() => boosters?.Use(BoosterType.Rainbow));
-            recolorButton?.onClick.AddListener(() => boosters?.Use(BoosterType.Recolor));
-            bombButton?.onClick.AddListener(() => boosters?.Use(BoosterType.Bomb));
-        }
-
         private void OnEnable()
         {
-            if (boosters != null)
-                boosters.OnChanged += Refresh;
-            if (queue    != null)
-                queue.OnChanged    += Refresh;
+            rainbowButton.onClick.AddListener(UseRainbow);
+            recolorButton.onClick.AddListener(UseRecolor);
+            bombButton.onClick.AddListener(UseBomb);
+            boosters.OnChanged += Refresh;
+            queue.OnChanged    += Refresh;
             Refresh();
         }
 
@@ -46,11 +40,18 @@ namespace CatapultGames
 
         private void OnDisable()
         {
-            if (boosters != null)
-                boosters.OnChanged -= Refresh;
-            if (queue    != null)
-                queue.OnChanged    -= Refresh;
+            rainbowButton.onClick.RemoveListener(UseRainbow);
+            recolorButton.onClick.RemoveListener(UseRecolor);
+            bombButton.onClick.RemoveListener(UseBomb);
+            boosters.OnChanged -= Refresh;
+            queue.OnChanged    -= Refresh;
         }
+
+        private void UseRainbow() => boosters.Use(BoosterType.Rainbow);
+
+        private void UseRecolor() => boosters.Use(BoosterType.Recolor);
+
+        private void UseBomb() => boosters.Use(BoosterType.Bomb);
 
         private void Refresh()
         {

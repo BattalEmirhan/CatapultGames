@@ -6,7 +6,7 @@ namespace CatapultGames
     // Procedural sound hub, the audio twin of GameFX.
     //
     // Auto-instantiates on first use (GameAudio.Play), so there is no scene wiring
-    // and no GameplaySceneBuilder reference to lose. The project ships no audio
+    // and no scene-builder reference to lose. The project ships no audio
     // assets, so every clip is synthesised once, when the hub wakes, from a few
     // lines of maths: plucks, bells and filtered noise, tuned to the toy-block look.
     //
@@ -26,13 +26,13 @@ namespace CatapultGames
             get
             {
                 if (_muted < 0)
-                    _muted = PlayerPrefs.GetInt(MutedKey, 0);
+                    _muted = SaveStore.Current.GetInt(MutedKey, 0);
                 return _muted == 1;
             }
             set
             {
                 _muted = value ? 1 : 0;
-                PlayerPrefs.SetInt(MutedKey, _muted);
+                SaveStore.Current.SetInt(MutedKey, _muted);
             }
         }
 
@@ -67,7 +67,7 @@ namespace CatapultGames
         // what lets a wave of 3 or 25 cubes climb without ever hitting a sour note.
         private static readonly int[] Pentatonic = { 0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24 };
         private static GameAudio _instance;
-        private static int       _muted = -1;   // lazy: PlayerPrefs is not allowed in static initialisers
+        private static int       _muted = -1;   // lazy: the save store must not be read from a static initialiser
         private readonly Dictionary<Sfx, AudioClip> _clips     = new();
         private readonly List<AudioClip>            _generated = new();   // ours to destroy
         private AudioSource[] _pool;

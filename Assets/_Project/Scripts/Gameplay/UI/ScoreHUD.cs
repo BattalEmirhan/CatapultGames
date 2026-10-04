@@ -182,7 +182,7 @@ namespace CatapultGames
             while (t < dur)
             {
                 float p = t / dur;
-                rt.anchoredPosition = rest + new Vector2(0f, 26f * p);
+                rt.anchoredPosition = rest + new Vector2(0f, 35f * p);
                 SetComboAlpha(p < 0.34f ? 1f : 1f - (p - 0.34f) / 0.66f);
                 t += Time.deltaTime;
                 yield return null;
@@ -234,7 +234,7 @@ namespace CatapultGames
                             : p < 0.30f ? Mathf.Lerp(1.18f, 1f, (p - 0.18f) / 0.12f) : 1f;
                 float alpha = p < 0.10f ? p / 0.10f : p < 0.55f ? 1f : 1f - (p - 0.55f) / 0.45f;
                 rt.localScale       = Vector3.one * scale;
-                rt.anchoredPosition = rest + new Vector2(0f, p > 0.55f ? 40f * (p - 0.55f) / 0.45f : 0f);
+                rt.anchoredPosition = rest + new Vector2(0f, p > 0.55f ? 54f * (p - 0.55f) / 0.45f : 0f);
                 Color c = praiseLabel.color;
                 praiseLabel.color = new Color(c.r, c.g, c.b, Mathf.Clamp01(alpha));
                 t += Time.deltaTime;

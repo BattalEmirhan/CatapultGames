@@ -37,6 +37,7 @@ namespace CatapultGames
         [SerializeField] private BallQueue    queue;
         [SerializeField] private GridRenderer grid;
         [SerializeField] private Transform    launchOrigin;
+        [SerializeField] private MaterialSet  materials;
 
         [Header("Flight")]
         [SerializeField] private float flightDuration  = 0.45f;   // snappier travel (was 0.65)
@@ -90,7 +91,7 @@ namespace CatapultGames
                                      BallData ballData, BallQueueSnapshot queueBefore)
         {
             // Spawn flying ball — BallVisual.Create handles material cleanup on Destroy
-            var bv  = BallVisual.Create(null, ballData.color, ballData.powerLevel, ballData.shape, ballVisualScale);
+            var bv  = BallVisual.Create(null, ballData.color, ballData.powerLevel, ballData.shape, ballVisualScale, materials);
             bv.transform.position = origin;
             bv.EnableTrail(ballVisualScale * 0.6f);
 

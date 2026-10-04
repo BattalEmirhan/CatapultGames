@@ -9,6 +9,8 @@ namespace CatapultGames
     // Call Rebuild() from LevelLoader.Apply() after BuildGrid().
     public sealed class GridBoard : MonoBehaviour
     {
+        [SerializeField] private MaterialSet materials;
+
         private static readonly Color PlateColor = new Color(0.06f, 0.07f, 0.12f);
         private const float PlateH = 0.22f;
         private Transform _plate;
@@ -36,8 +38,7 @@ namespace CatapultGames
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 mr.receiveShadows    = true;
 
-                var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-                _mat = new Material(shader) { color = PlateColor };
+                _mat = new Material(materials.Lit) { color = PlateColor };
                 if (_mat.HasProperty("_Smoothness"))
                     _mat.SetFloat("_Smoothness", 0.15f);
                 mr.sharedMaterial = _mat;

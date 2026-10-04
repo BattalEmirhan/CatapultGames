@@ -1,8 +1,6 @@
-using UnityEngine;
-
 namespace CatapultGames
 {
-    // What the player has achieved, kept in PlayerPrefs: which levels have been
+    // What the player has achieved, kept in the SaveStore: which levels have been
     // won, keyed by level NAME (not index) so inserting a level later does not
     // mark a different board as done.
     //
@@ -14,14 +12,14 @@ namespace CatapultGames
         private const string WonKeyPrefix = "Won_";
 
         public static bool IsWon(string levelName) =>
-            !string.IsNullOrEmpty(levelName) && PlayerPrefs.GetInt(WonKeyPrefix + levelName, 0) == 1;
+            !string.IsNullOrEmpty(levelName) && SaveStore.Current.GetInt(WonKeyPrefix + levelName, 0) == 1;
 
         public static void MarkWon(string levelName)
         {
             if (string.IsNullOrEmpty(levelName) || IsWon(levelName))
                 return;
-            PlayerPrefs.SetInt(WonKeyPrefix + levelName, 1);
-            PlayerPrefs.Save();   // a mobile app can be killed at any moment after a win
+            SaveStore.Current.SetInt(WonKeyPrefix + levelName, 1);
+            SaveStore.Current.Flush();   // a mobile app can be killed at any moment after a win
         }
 
         public static bool IsUnlocked(string levelName)
@@ -56,8 +54,8 @@ namespace CatapultGames
         public static void ResetAll()
         {
             foreach (var name in LevelOrder.Names)
-                PlayerPrefs.DeleteKey(WonKeyPrefix + name);
-            PlayerPrefs.Save();
+                SaveStore.Current.Delete(WonKeyPrefix + name);
+            SaveStore.Current.Flush();
         }
     }
 }

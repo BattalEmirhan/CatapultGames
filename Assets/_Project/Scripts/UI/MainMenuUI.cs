@@ -1,59 +1,63 @@
 using TMPro;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace CatapultGames
 {
-    // Main menu screen. Scene "MainMenu", built by MenuSceneBuilder.
-    //
-    //   playButton        → the first level not yet won (PlayerProgress.NextToPlay)
-    //   playLabel         → optional; shows which level Play goes to
-    //   levelSelectButton → LevelSelect scene
-    //   progressLabel     → optional; "3 / 5 levels"
+    // Main menu panel in UIScene, drawn over the board. Shown at boot and on
+    // GameFlow.MenuRequested; Play asks for the first level not yet won. Lives on
+    // the always-active canvas root rather than on the panel it hides, so it keeps
+    // hearing GameFlow while the panel is off.
     public sealed class MainMenuUI : MonoBehaviour
     {
+        [SerializeField] private GameObject      panel;
         [SerializeField] private Button          playButton;
         [SerializeField] private TextMeshProUGUI playLabel;
         [SerializeField] private Button          levelSelectButton;
         [SerializeField] private TextMeshProUGUI progressLabel;
 
-        [Header("Scene names")]
-        [SerializeField] private string gameplayScene    = "Gameplay2";
-        [SerializeField] private string levelSelectScene = "LevelSelect";
-
-        private void Awake()
+        private void OnEnable()
         {
-            if (playButton)
-                playButton.onClick.AddListener(OnPlay);
-            if (levelSelectButton)
-                levelSelectButton.onClick.AddListener(OnLevelSelect);
+            playButton.onClick.AddListener(OnPlay);
+            levelSelectButton.onClick.AddListener(OnLevelSelect);
+            GameFlow.MenuRequested        += Show;
+            GameFlow.LevelSelectRequested += Hide;
+            GameFlow.LevelRequested       += OnLevelRequested;
         }
 
-        private void Start()
-        {
-            string next = PlayerProgress.NextToPlay();
-            int    n    = LevelOrder.NumberOf(next);
-            if (playLabel)
-                playLabel.text = n > 0 ? $"Play  ·  Level {n}" : "Play";
+        private void Start() => Show();
 
-            int total = LevelOrder.Names.Count;
-            if (progressLabel)
-                progressLabel.text = total > 0 ? $"{PlayerProgress.WonCount()} / {total} levels" : "";
-            if (playButton)
-                playButton.interactable = next != null;
+        private void OnDisable()
+        {
+            playButton.onClick.RemoveListener(OnPlay);
+            levelSelectButton.onClick.RemoveListener(OnLevelSelect);
+            GameFlow.MenuRequested        -= Show;
+            GameFlow.LevelSelectRequested -= Hide;
+            GameFlow.LevelRequested       -= OnLevelRequested;
         }
 
-        private void OnPlay()
+        public void Show()
         {
-            string next = PlayerProgress.NextToPlay();
-            if (next == null)
-                return;
-            LevelLoader.SelectLevel(next);
-            SceneManager.LoadScene(gameplayScene);
+            RefreshLabels();
+            panel.SetActive(true);
         }
 
-        private void OnLevelSelect() =>
-            SceneManager.LoadScene(levelSelectScene);
+        public void Hide() => panel.SetActive(false);
+
+        private void RefreshLabels()
+        {
+            string next  = PlayerProgress.NextToPlay();
+            int    n     = LevelOrder.NumberOf(next);
+            int    total = LevelOrder.Names.Count;
+            playLabel.text          = n > 0 ? $"Play  ·  Level {n}" : "Play";
+            progressLabel.text      = total > 0 ? $"{PlayerProgress.WonCount()} / {total} levels" : "";
+            playButton.interactable = next != null;
+        }
+
+        private void OnPlay() => GameFlow.RequestLevel(PlayerProgress.NextToPlay());
+
+        private void OnLevelSelect() => GameFlow.RequestLevelSelect();
+
+        private void OnLevelRequested(string levelName) => Hide();
     }
 }

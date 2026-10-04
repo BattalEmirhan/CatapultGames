@@ -15,6 +15,7 @@ namespace CatapultGames
         [SerializeField] private Color top    = new Color(0.10f, 0.12f, 0.20f);
         [SerializeField] private Color bottom = new Color(0.04f, 0.05f, 0.09f);
         [SerializeField] private float distance = 60f;
+        [SerializeField] private MaterialSet materials;
 
         private Camera    _cam;
         private Transform _quad;
@@ -49,8 +50,7 @@ namespace CatapultGames
                 _tex.SetPixel(0, y, Color.Lerp(bottom, top, y / 63f));
             _tex.Apply();
 
-            var sh = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Texture");
-            _mat = new Material(sh);
+            _mat = new Material(materials.Unlit);
             if (_mat.HasProperty("_BaseMap"))
                 _mat.SetTexture("_BaseMap", _tex);
             else

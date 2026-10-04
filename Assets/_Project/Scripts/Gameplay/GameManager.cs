@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 
 namespace CatapultGames
 {
@@ -31,7 +30,7 @@ namespace CatapultGames
         public int Score       => _score;
         public int ComboStreak => _comboStreak;
 
-        // True once the level has been won or lost — other systems (e.g. Gameplay2's
+        // True once the level has been won or lost — other systems (e.g. GameScene's
         // tap input) check this to stop accepting launches.
         public bool IsOver => _gameOver;
 
@@ -48,10 +47,6 @@ namespace CatapultGames
         [SerializeField] private BallLauncher   launcher;
         [SerializeField] private AimPreview     aimPreview;
         [SerializeField] private ResultScreenUI resultScreen;
-
-        [Header("Scene names")]
-        [SerializeField] private string mainMenuScene    = "MainMenu";
-        [SerializeField] private string levelSelectScene = "LevelSelect";   // after the last level
 
         [Header("Keep going offer")]
         [Tooltip("Balls handed out when the player takes the offer after a loss. " +
@@ -190,30 +185,20 @@ namespace CatapultGames
             GameAudio.Play(Sfx.Booster);   // same sparkle: the rescue is a booster too
         }
 
-        public void RestartLevel()
-        {
-            _gameOver = false;
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
-        }
+        // Levels reload in place (LevelLoader → BeginRun resets the run).
+        public void RestartLevel() => GameFlow.RequestLevel(_levelName);
 
-        // The level after this one, through the same scene reload Retry uses, so
-        // the next board starts from a clean scene rather than a patched one. After
-        // the last level there is nowhere further: back to the level list.
+        // After the last level there is nowhere further: back to the level list.
         public void NextLevel()
         {
             string next = LevelOrder.Next(_levelName);
             if (next == null)
-            {
-                LoadSceneIfBuilt(levelSelectScene);
-                return;
-            }
-
-            LevelLoader.SelectLevel(next);
-            _gameOver = false;
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+                GameFlow.RequestLevelSelect();
+            else
+                GameFlow.RequestLevel(next);
         }
 
-        public void GoToMainMenu() => LoadSceneIfBuilt(mainMenuScene);
+        public void GoToMainMenu() => GameFlow.RequestMenu();
 
         // Evaluated after every ball lands. Because shots can overlap, a loss is
         // only declared once the queue is empty AND no balls are still in flight.
@@ -555,16 +540,6 @@ namespace CatapultGames
                 return true;
 
             return false;
-        }
-
-        // The menu scenes are generated (CatapultGames/Build Menu Scenes); until they
-        // are, a menu button should say why it does nothing instead of throwing.
-        private static void LoadSceneIfBuilt(string scene)
-        {
-            if (Application.CanStreamedLevelBeLoaded(scene))
-                SceneManager.LoadScene(scene);
-            else
-                Debug.LogWarning($"[GameManager] Scene '{scene}' is not in Build Settings — run CatapultGames/Build Menu Scenes.");
         }
     }
 }

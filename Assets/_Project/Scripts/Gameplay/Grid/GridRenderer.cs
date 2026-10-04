@@ -29,6 +29,8 @@ namespace CatapultGames
             }
         }
 
+        [SerializeField] private MaterialSet materials;
+
         private LevelData _level;
         private readonly Dictionary<(int, int), CellView> _cells = new();
 
@@ -65,7 +67,7 @@ namespace CatapultGames
                     bool      filled = data?.isFilled     ?? false;
                     CellType  type   = data?.cellType     ?? CellType.Normal;
 
-                    var view = CellView.Create(transform, x, y, level.grid.cellSize, color, filled, type);
+                    var view = CellView.Create(transform, x, y, level.grid.cellSize, color, filled, type, materials);
                     _cells[(x, y)] = view;
                 }
             }

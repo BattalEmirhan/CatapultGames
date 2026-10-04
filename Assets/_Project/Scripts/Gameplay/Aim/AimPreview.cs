@@ -18,6 +18,7 @@ namespace CatapultGames
         [SerializeField] private BallQueue    queue;
         [SerializeField] private GridRenderer grid;
         [SerializeField] private Transform    launchOrigin;
+        [SerializeField] private MaterialSet  materials;
 
         [Header("Aim line look")]
         [Tooltip("Tint of the flowing aim dots (valid shot).")]
@@ -174,10 +175,7 @@ namespace CatapultGames
         private void StyleLine()
         {
             _lineTex = BuildDotTexture();
-            var sh = Shader.Find("Sprites/Default")
-                  ?? Shader.Find("Universal Render Pipeline/Unlit")
-                  ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
-            _lineMat = new Material(sh) { mainTexture = _lineTex };
+            _lineMat = new Material(materials.Sprite) { mainTexture = _lineTex };
             _lineMat.mainTextureScale = new Vector2(1.3f, 1f);   // dot density along the line
             _lr.sharedMaterial = _lineMat;
 
@@ -334,11 +332,7 @@ namespace CatapultGames
                 _dotRoot.SetParent(transform, false);
             }
             if (_dotMat == null)
-            {
-                var sh = Shader.Find("Universal Render Pipeline/Unlit")
-                      ?? Shader.Find("Unlit/Color");
-                _dotMat = new Material(sh);
-            }
+                _dotMat = new Material(materials.Unlit);
 
             var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             go.name = $"Dot_{_dots.Count}";

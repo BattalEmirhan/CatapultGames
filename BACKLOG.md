@@ -187,7 +187,7 @@ kendiliğinden geçecek.
   bu ayrı bir kontrol; olmasa taşa nişan alarak içinden boyamak mümkün olurdu
   (`PaintingSystem.Preview` ve `CoverageAnalyzer.Walk`, aynı gerekçeyle iki yerde).
 
-**Yeni bileşen eklerken:** yeni `[SerializeField]` → `GameplaySceneBuilder`'a `SetRef` satırı
+**Yeni bileşen eklerken:** yeni `[SerializeField]` → `Editor/Scenes/` üretecine (KURAL 3 tablosu) `SetRef` satırı
 eklenmezse sahne yeniden üretildiğinde referans sessizce kaybolur (KURAL 3).
 
 **İş bitince:** `docs/ARCHITECTURE.md` güncellenir (KURAL 6) — yeni dosya §3/§7, veri modeli

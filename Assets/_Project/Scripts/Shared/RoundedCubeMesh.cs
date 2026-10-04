@@ -14,7 +14,7 @@ namespace CatapultGames
     // direction), so the bevel shades like a real rounded edge under URP Lit.
     //
     // Runtime-only mesh: scene-built decor keeps Unity primitives (a procedural
-    // mesh referenced from a saved scene is not serialised), see GameplaySceneBuilder.
+    // mesh referenced from a saved scene is not serialised), see GameSceneBuilder.
     public static class RoundedCubeMesh
     {
         private static readonly Dictionary<(int, int), Mesh> _cache = new Dictionary<(int, int), Mesh>();

@@ -15,7 +15,7 @@ namespace CatapultGames
     //
     // This component must NOT sit on the button's own GameObject: it hides the
     // button by deactivating it, and a deactivated object stops running Update,
-    // so it could never bring itself back. GameplaySceneBuilder puts it on the
+    // so it could never bring itself back. GameHudBuilder puts it on the
     // canvas, like ResultScreenUI.
     //
     // Wire up in Inspector:
@@ -39,15 +39,17 @@ namespace CatapultGames
                 return;
             }
 
-            if (button)
-                button.onClick.AddListener(OnClick);
             Apply(false);   // nothing to undo before the first shot lands
         }
+
+        private void OnEnable() => button.onClick.AddListener(OnClick);
 
         private void Update()
         {
             Apply(gameManager != null && gameManager.CanUndo);
         }
+
+        private void OnDisable() => button.onClick.RemoveListener(OnClick);
 
         private void OnDestroy()
         {

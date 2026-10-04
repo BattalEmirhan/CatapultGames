@@ -22,13 +22,13 @@ namespace CatapultGames
         [SerializeField] private TextMeshProUGUI label;   // the running total
         [SerializeField] private GridRenderer    grid;
 
-        private const float RowHeight  = 46f;
-        private const float BarsTop    = -170f;  // clears the total label's band above
-        private const float SwatchSize = 26f;
-        private const float BarLeft    = 36f;
-        private const float BarRight   = 96f;    // room for the "12/34" readout
-        private const float BarHeight  = 14f;
-        private const float PanelWidth = 420f;
+        private const float RowHeight  = 62f;
+        private const float BarsTop    = -230f;  // clears the total label's band above
+        private const float SwatchSize = 35f;
+        private const float BarLeft    = 49f;
+        private const float BarRight   = 130f;    // room for the "12/34" readout
+        private const float BarHeight  = 19f;
+        private const float PanelWidth = 567f;
         private readonly List<ProgressHudRow> _rows = new();
         private bool      _configured;
         private int       _prevFilled = -1;     // total filled last refresh (for the pop)
@@ -162,7 +162,7 @@ namespace CatapultGames
             _barsRoot.anchorMin        = new Vector2(0f, 1f);
             _barsRoot.anchorMax        = new Vector2(0f, 1f);
             _barsRoot.pivot            = new Vector2(0f, 1f);
-            _barsRoot.anchoredPosition = new Vector2(24f, BarsTop);
+            _barsRoot.anchoredPosition = new Vector2(32f, BarsTop);
             _barsRoot.sizeDelta        = new Vector2(PanelWidth, RowHeight * progress.Count);
 
             for (int i = 0; i < progress.Count; i++)
@@ -215,7 +215,7 @@ namespace CatapultGames
             countRt.anchoredPosition = Vector2.zero;
 
             var tmp = countGo.AddComponent<TextMeshProUGUI>();
-            tmp.fontSize  = 28;
+            tmp.fontSize  = 38;
             tmp.color     = tint;
             tmp.alignment = TextAlignmentOptions.MidlineRight;
 #pragma warning disable CS0618

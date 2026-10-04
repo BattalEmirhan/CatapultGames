@@ -3,26 +3,21 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // Procedural juice / VFX hub.
+    // Procedural juice / VFX hub. Every effect is a short-lived ParticleSystem
+    // configured in code that destroys itself when done; also owns the camera
+    // shake / zoom driven off Camera.main.
     //
-    // Auto-instantiates on first use (GameFX.Instance) — no scene wiring required,
-    // matching the project's "everything built in code" style. Every effect is a
-    // short-lived ParticleSystem configured in code that destroys itself when done.
-    //
-    // Also owns a lightweight camera shake driven off Camera.main.
+    // Lives in GameScene (the scene builder places it) because its materials come
+    // from the serialized MaterialSet — a hub created on the fly would have none,
+    // and Shader.Find returns null in player builds.
     public sealed class GameFX : MonoBehaviour
     {
         public static GameFX Instance
         {
             get
             {
-                // Unity's overloaded == treats a destroyed object as null, so this
-                // transparently re-creates the hub after a scene reload.
                 if (_instance == null)
-                {
-                    var go = new GameObject("GameFX");
-                    _instance = go.AddComponent<GameFX>();
-                }
+                    _instance = new GameObject("GameFX").AddComponent<GameFX>();
                 return _instance;
             }
         }
@@ -36,6 +31,8 @@ namespace CatapultGames
         // frame; we don't want a stray GameFX created just to read zero).
         public static Vector3 CurrentShakeOffset =>
             _instance != null ? _instance.ShakeOffset : Vector3.zero;
+
+        [SerializeField] private MaterialSet materials;
 
         private static GameFX _instance;
         private Material  _particleMat;
@@ -60,9 +57,14 @@ namespace CatapultGames
                 Destroy(gameObject);
                 return;
             }
-            _instance    = this;
+            _instance = this;
+            if (materials == null)
+            {
+                Debug.LogError("[GameFX] No MaterialSet — place GameFX in the scene (CatapultGames/Build Scenes).");
+                return;
+            }
             _particleTex = BuildSoftCircle();
-            _particleMat = BuildParticleMaterial(_particleTex);
+            _particleMat = new Material(materials.Sprite) { mainTexture = _particleTex };
         }
 
         private void OnDestroy()
@@ -296,13 +298,8 @@ namespace CatapultGames
             lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             lr.sortingOrder      = 60;
 
-            if (_ringMat == null)
-            {
-                var sh = Shader.Find("Sprites/Default")
-                      ?? Shader.Find("Universal Render Pipeline/Unlit")
-                      ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
-                _ringMat = new Material(sh);
-            }
+            if (_ringMat == null && materials != null)
+                _ringMat = new Material(materials.Sprite);
             lr.sharedMaterial = _ringMat;
 
             float dur = 0.30f;   // quicker shockwave (was 0.42)
@@ -381,9 +378,11 @@ namespace CatapultGames
         private IEnumerator FlashRoutine(Color color, float maxAlpha, float duration)
         {
             var go     = new GameObject("FX_Flash");
-            var canvas = go.AddComponent<Canvas>();           // also adds a RectTransform
-            canvas.renderMode   = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 999;
+            var canvas = go.AddComponent<Canvas>();
+            canvas.renderMode    = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera   = Camera.main;
+            canvas.planeDistance = 0.5f;   // in front of Canvas_Game, so it covers the HUD too
+            canvas.sortingOrder  = 999;
 
             var img = go.AddComponent<UnityEngine.UI.Image>();
             img.raycastTarget = false;
@@ -499,16 +498,6 @@ namespace CatapultGames
             {
                 mode = ParticleSystemGradientMode.RandomColor
             };
-        }
-
-        private static Material BuildParticleMaterial(Texture2D tex)
-        {
-            // Sprites/Default is always present, alpha-blended, and respects the
-            // per-particle vertex color the ParticleSystem feeds it.
-            var sh = Shader.Find("Sprites/Default")
-                  ?? Shader.Find("Universal Render Pipeline/Particles/Unlit")
-                  ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
-            return new Material(sh) { mainTexture = tex };
         }
 
         // Soft round particle sprite (radial alpha falloff), generated once.

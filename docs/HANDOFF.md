@@ -87,18 +87,38 @@ yerden okuyordu; art arda gelen praise yazısı her seferinde biraz daha yukarı
   **pembe**=Purple; ölçülmüş: dolu küplerde en yakın çift ΔE 52, boş hücrelerde ΔE 39).
   Editör renkleri görünen adla gösteriyor.
 
+## 2e. Kod kuralları + sahne düzeni (2026-10-04)
+
+Şirketin mobil kod kuralları uygulandı (tam liste: CLAUDE.md KURAL 5, sapmalar dahil).
+- **Mekanik geçiş** (Roslyn ile, tip kontrollü): 93 serialized alan alt çizgisiz, 33 sınıf
+  `sealed`, üye sırası, iç içe tipler kendi dosyalarına, kontrol akışı biçimi, kullanılmayan
+  `using`'ler. Sahne üreteçlerindeki alan adı string'leri birlikte güncellendi.
+- **Sahne düzeni:** `InitScene → BootScene → GameScene → UIScene` (additive,
+  `InitSceneLoader`). Menüler UIScene'de panel; sahneler arası istekler `GameFlow`; Retry /
+  Next / menü / seçici level'i **yerinde** yükler. UIScene Overlay kamerası
+  (`UICameraStacker`) GameScene Base kamerasına stack'lenir; Base kamera UI layer'ını görmez.
+- **UI:** canvas'lar Screen Space - Camera, referans 1320×2868 (değerler ×1.35),
+  listener'lar `OnEnable/OnDisable`.
+- **Malzeme / kayıt:** runtime `Shader.Find` yok (`MaterialSet` asset'i), `PlayerPrefs`
+  yerine `SaveStore` (`ISaveStore`, TODO: gerçek kayıt servisi).
+- Üreteçler `Editor/Scenes/` altında; tek menü `CatapultGames/Build Scenes`. Eski
+  `GameplaySceneBuilder`, `MenuSceneBuilder` ve `Gameplay2.unity` silindi.
+
 ## 3. Sıradaki adım: Unity'de doğrulama (zorunlu)
 
 **Hiçbir paket Play modunda izlenmedi.** Bu oturum da Unity olmadan, yalnızca derleme
 kontrolüyle (bkz. § 4) yapıldı.
 
 1. Unity'yi aç, odaklanınca `GameAudio.cs.meta` ve UXML/USS `.meta`'ları üretilsin/eşleşsin.
-2. `CatapultGames/Build Menu Scenes`, **sonra** `CatapultGames/Build Gameplay Scene` çalıştır.
-   Bu yapılmazsa menüler, Next Level, booster'lar, uyarı etiketi, AudioListener ve paket 2'nin
-   çoğu **görünmez**. Sonra Play'e `MainMenu` sahnesinden bas.
+2. `CatapultGames/Build Scenes` çalıştır (dört sahne + `MaterialSet.asset` + Build Settings).
+   Sonra Play'e **`InitScene`** açıkken bas. Önce bakılacaklar: menü görünüyor mu (görünmüyorsa
+   Overlay kamera stack'e girmemiştir — Console'da `UICameraStacker` hatası), butonlar
+   tıklanıyor mu (tek EventSystem UIScene'de), HUD boyutu eskisiyle aynı mı (×1.35),
+   `GameFX` flash'ı ekranı kaplıyor mu. `ProjectSettings/TagManager` ve
+   `EditorBuildSettings` değişikliklerini commit'le.
 3. Gözle bakılacaklar:
    - **Booster sütunu** sol tepsi topuyla ya da tahtayla çakışıyor mu? Çakışıyorsa
-     `GameplaySceneBuilder.MakeBoosterButton`'daki anchor'ları ayarla. Rainbow → tepsi topu
+     `GameHudBuilder.AddBoosterButton`'daki anchor'ları ayarla. Rainbow → tepsi topu
      gökkuşağı bloklarına dönmeli, nişanda tüm hedefler parlamalı. Recolor → en çok boş
      hücresi kalan renk. Bomb → 3×3 gökkuşağı. Sayaç ×1 → ×0, buton pasifleşir.
    - **Dead-end uyarısı:** bir rengi bitiremeyecek şekilde oyna. Uyarı bir kez belirmeli,
@@ -127,7 +147,7 @@ kontrolüyle (bkz. § 4) yapıldı.
 
 ```bash
 dotnet build tools/compile-check/Runtime.Check.csproj   # runtime assembly'nin tamamı
-dotnet build tools/compile-check/Editor.Check.csproj    # GameplaySceneBuilder + PlayoutBoard
+bash tools/compile-check/check-editor.sh                # Editor assembly'nin tamamı (sahne üreteçleri + level editörü)
 ```
 
 - .NET 8 SDK ve nuget.org erişimi yeterli. UnityEngine `UnityEngine.Modules` 2021.3.33'ten,
@@ -135,8 +155,10 @@ dotnet build tools/compile-check/Editor.Check.csproj    # GameplaySceneBuilder +
 - uGUI / TMP / Input System / URP tipleri `stubs/` altında **yalnızca biçim** olarak duruyor:
   sadece projenin kullandığı üyeler. Yeni bir üye kullanılırsa stub'a eklenmeli. Bu kontrolün
   geçmesi Unity derlemesinin yerini tutmaz, ama imza/tip hatalarını Unity açmadan yakalar.
-- Editor assembly'sinin geri kalanı (UI Toolkit level editörü) 2018.1 editör API'sinde
-  olmadığı için bu kontrole dahil değil.
+- 2018.1 editör API'sinde olmayan UI Toolkit üyeleri için `check-editor.sh` kaynakları
+  `obj/editor-src`'ye kopyalayıp iki adı shim'e çevirir (`stubs/EditorShims.cs`,
+  `UiToolkitFields.cs`). `-p:DefineConstants=UNITY_ANDROID` ile runtime derlemesindeki
+  `Handheld` hatası referans assembly boşluğu, kod hatası değil.
 - Unity açıkken eski yöntem de çalışır: Unity'nin ürettiği csproj'ların glob'lu kopyaları +
   `Library/ScriptAssemblies` DLL'leri (önceki HANDOFF'taki 5 adım; git geçmişinde `c7bb461`).
 
@@ -144,7 +166,7 @@ dotnet build tools/compile-check/Editor.Check.csproj    # GameplaySceneBuilder +
 
 `BACKLOG.md`'deki fazlardan başlanmamış olanlar (paketler bunları kapsamıyordu):
 
-- ~~Faz 4~~ kodda bitti (bkz. § 2b); yıldızlar iptal. Sahneler Unity'de üretilmeli.
+- ~~Faz 4~~ kodda bitti (bkz. § 2b); yıldızlar iptal. Menüler artık UIScene panelleri (§ 2e).
 - ~~Faz 5~~ kodda bitti (bkz. § 2c).
 - ~~Faz 7~~ iptal edildi (fotoğraftan level, günlük bulmaca, telemetri).
 - **Faz 1** (eski level verisi) 2026-09-15'teki yeniden üretimle büyük ölçüde geçersiz;

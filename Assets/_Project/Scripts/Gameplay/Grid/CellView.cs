@@ -91,14 +91,15 @@ namespace CatapultGames
         }
 
         public static CellView Create(Transform parent, int gx, int gy, float cellSize,
-                                      CellColor color, bool filled, CellType type = CellType.Normal)
+                                      CellColor color, bool filled, CellType type, MaterialSet materials)
         {
             var go = new GameObject($"Cell_{gx}_{gy}");
             go.transform.SetParent(parent, false);
             go.transform.localPosition = new Vector3(gx * cellSize, 0f, gy * cellSize);
 
             var view = go.AddComponent<CellView>();
-            view.Init(gx, gy, cellSize, color, filled, type);
+            view.Init(gx, gy, color, filled, type);
+            view.BuildCube(cellSize, materials);
             return view;
         }
 
@@ -197,7 +198,7 @@ namespace CatapultGames
         // whole colour feel alive once it's complete. `delay` staggers a ripple.
         public void Pulse(float delay = 0f) => StartCoroutine(PulseRoutine(delay));
 
-        private void Init(int gx, int gy, float cellSize, CellColor color, bool filled, CellType type)
+        private void Init(int gx, int gy, CellColor color, bool filled, CellType type)
         {
             GridX        = gx;
             GridY        = gy;
@@ -206,38 +207,35 @@ namespace CatapultGames
             HitsTaken    = filled && type != CellType.Stone ? GameConstants.GetRequiredHits(type) : 0;
 
             int gridLayer = LayerMask.NameToLayer("CG_Grid");
-            if (gridLayer < 0)
-                gridLayer = 0;
-            gameObject.layer = gridLayer;
+            gameObject.layer = gridLayer < 0 ? 0 : gridLayer;
+        }
 
-            EnsureBaseShader();
-            _mat = new Material(_sharedBase);   // own instance; same shader → SRP-batched
+        // A rounded block rather than a hard-edged primitive: the bevel is what
+        // makes the board read as toy pieces instead of a spreadsheet. Each cell
+        // owns a material instance of one shared base, so SRP batching still holds.
+        private void BuildCube(float cellSize, MaterialSet materials)
+        {
+            EnsureBaseMaterial(materials);
+            _mat = new Material(_sharedBase);
 
-            // A rounded block rather than a hard-edged primitive: the bevel is
-            // what makes the board read as toy pieces instead of a spreadsheet.
-            var cube = new GameObject("CellCube") { layer = gridLayer };
+            var cube = new GameObject("CellCube") { layer = gameObject.layer };
             cube.transform.SetParent(transform, false);
             cube.AddComponent<MeshFilter>().sharedMesh = RoundedCubeMesh.Get(CornerRadius, 4);
-
-            float side = cellSize * CubeGap;
-            _baseSide  = side;
-            cube.transform.localScale = new Vector3(side, ThinH, side);
+            _baseSide = cellSize * CubeGap;
+            cube.transform.localScale = new Vector3(_baseSide, ThinH, _baseSide);
 
             _mr = cube.AddComponent<MeshRenderer>();
             _mr.sharedMaterial    = _mat;
             _mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
             _mr.receiveShadows    = true;
-
-            Refresh();  // sets colour + correct height/position
+            Refresh();
         }
 
-        private static void EnsureBaseShader()
+        private static void EnsureBaseMaterial(MaterialSet materials)
         {
             if (_sharedBase)
                 return;
-            var shader = Shader.Find("Universal Render Pipeline/Lit")
-                      ?? Shader.Find("Standard");
-            _sharedBase = new Material(shader);
+            _sharedBase = new Material(materials.Lit);
             // Low gloss: a strong specular highlight paints a white patch over the
             // colour, which is exactly what the player has to read.
             if (_sharedBase.HasProperty("_Smoothness"))

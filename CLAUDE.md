@@ -31,7 +31,7 @@ Açmadan önce şunu düşün: *"Bu dosyayı harita zaten yeterince anlattı mı
 **Asla toplu okuma yapma:** `Assets/TextMesh Pro/`, `Library/`, `Temp/`, `Logs/`,
 `*.csproj`, `.unity` sahne dosyaları, `.meta` dosyaları, `ProjectSettings/*.asset`.
 Sahne içeriğini öğrenmek için `.unity` YAML'ını okuma —
-`Assets/_Project/Scripts/Editor/GameplaySceneBuilder.cs` sahneyi zaten kod olarak tarif eder.
+`Assets/_Project/Scripts/Editor/Scenes/` sahneleri zaten kod olarak tarif eder.
 
 ---
 
@@ -54,12 +54,21 @@ Oradan `PaintingSystem`, `AimPreview`, `LevelValidator`, `LevelAutoSolver` otoma
 
 ## KURAL 3 — Yeni bileşen eklerken sahne üretecini güncelle
 
-Sahne bağlantıları elle değil `GameplaySceneBuilder.cs` üzerinden kurulur. Yeni bir
-MonoBehaviour eklediysen veya mevcut birine `[SerializeField]` alan eklediysen,
-`GameplaySceneBuilder`'a da ekle (`SetRef` / `SetRefArray` / `SetFloat` / `SetStr`).
+Sahneler elle değil `Scripts/Editor/Scenes/` altındaki üreteçlerle kurulur
+(`CatapultGames/Build Scenes`). Yeni bir MonoBehaviour eklediysen veya mevcut birine
+`[SerializeField]` alan eklediysen ilgili üretece de ekle (`SceneKit.SetRef` / `SetRefArray` /
+`SetFloat` / `SetStr`):
 
-Aksi hâlde sahne yeniden üretildiğinde referans kaybolur ve hata sessizce çalışma
-zamanında ortaya çıkar.
+| Ne | Nerede |
+|---|---|
+| Dünya + oynanış sistemleri (GameScene) | `GameSceneBuilder.cs` |
+| Oyun içi HUD (`Canvas_Game`) | `GameHudBuilder.cs` |
+| Meta UI (`Canvas_Meta`: menü, level seçimi) | `UiSceneBuilder.cs` (+ `LevelPickerFrame.cs`) |
+| Init / Boot sahneleri, Build Settings | `SceneSetBuilder.cs` |
+
+Alan adı string'le bağlanır: alanı yeniden adlandırırsan üreteçteki string'i de değiştir.
+Aksi hâlde sahne yeniden üretildiğinde referans kaybolur (yalnız `[SceneKit] Field not found`
+uyarısı düşer) ve hata sessizce çalışma zamanında ortaya çıkar.
 
 ---
 
@@ -74,20 +83,61 @@ yoksa Unity dosyayı TextAsset olarak import etmez ve `Resources.Load` göremez.
 
 ---
 
-## KURAL 5 — Kod stili
+## KURAL 5 — Kod stili ve sahne düzeni
 
+Şirketin mobil oyun kod kuralları uygulanır; sapmalar aşağıda açıkça listelidir.
+
+**İsim ve tip**
 - Namespace: runtime `CatapultGames`, editör `CatapultGames.Editor`. Runtime kodu Editor
   assembly'sini göremez; ortak mantık `Scripts/Shared/`'a gider.
-- `[SerializeField] private _camelCase` — public alan açma.
+- `[SerializeField] private camelCase` (alt çizgi **yok**); serileşmeyen private alanlar
+  `_camelCase`; sabitler `PascalCase`. Public alan açma — dışarıya property ile ver.
+- Sınıflar varsayılan `sealed`. Dosya başına tek tip (iç içe tip yok; enum/struct kendi dosyasına).
+
+**Üye sırası:** event'ler → property'ler → serialized alanlar → private/const/static alanlar →
+ctor/Dispose → Unity mesajları (Awake, OnEnable, Start, Update, OnDisable, OnDestroy) →
+public metotlar → private metotlar. Bölücü yorum (`// ── X ──`) yok.
+
+**Kod biçimi**
+- `if`/`for`/`foreach` gövdesi her zaman alt satırda; süslü parantez yalnız çok satırlı gövdede.
+- Metot ≤ 20 satır — **yeni ve dokunulan kodda**. Eski uzun metotlar dokunulunca bölünür.
+- Kullanılmayan `using` bırakma (ama `#if` bloklarının ihtiyacı olanı silme — örn. `Haptics`).
+
+**UI**
+- Listener'lar `OnEnable`'da eklenir, `OnDisable`'da çıkarılır (Awake/Start'ta değil).
+- Canvas'lar **Screen Space - Camera**; `CanvasScaler` referans çözünürlüğü
+  `UiLayout.ReferenceResolution` (1320×2868), match 0.5. Eski 1080×1920 düzeninden gelen
+  piksel/punto değerleri ×1.35 ölçeklenir.
+- Statik UI çerçevesi sahne üretecinde kurulur; runtime yalnız veriye bağlı parçaları
+  (satır, karo) üretir.
+
+**Sahne düzeni:** `InitScene` (index 0) → `BootScene` → `GameScene` → `UIScene`, additive ve
+bu sırayla (`InitSceneLoader`). Sahneler arası istekler `GameFlow` olayları üzerinden;
+level'ler yerinde yüklenir, sahne yeniden yüklenmez. Meta UI `UI` layer'ında (5), Base
+kameraya stack'lenen Overlay kamerada çizilir; `GameScene`'in Base kamerası bu layer'ı görmez.
+
+**Malzeme / kayıt**
+- Runtime'da `Shader.Find` yok: malzemeler `MaterialSet` asset'inden (`materials` alanı)
+  gelir; `Shader.Find` yalnız editör üreteçlerinde (`MaterialSetAsset`).
+- Runtime'da `new Material(...)` yaptıysan `OnDestroy`'da `Destroy` et.
+- `PlayerPrefs`'e doğrudan erişme: `SaveStore.Current` (`ISaveStore`) üzerinden.
+
+**Proje kuralları (değişmedi)**
 - Girdi daima yeni Input System (`Touchscreen.current?.primaryTouch` → `Mouse.current`
   fallback). Eski `Input.GetMouseButton` vb. kullanma.
 - Fizik motoru yok: Rigidbody/Collider ekleme. Uçuş `TrajectorySimulator` ile simüle edilir
   ve top bu yay boyunca sabit sürede tween'lenir. (Gerçek fizik denenip geri alındı —
   gerekçe: ARCHITECTURE.md § 12.)
 - Animasyonlar `IEnumerator` + `Time.deltaTime`. Yeni tween kütüphanesi ekleme.
-- Runtime'da `new Material(...)` yaptıysan `OnDestroy`'da `Destroy` et.
-- `Shader.Find` daima yedekli: `... ?? Shader.Find("Standard")`.
-- Yorumlar İngilizce ve "neden"i anlatır; çevredeki dosyaların yoğunluğuna uy.
+
+**Bilinçli sapmalar** (şirket kurallarından)
+- Yorumlar silinmez: İngilizce "neden" yorumları korunur, yalnız "ne" anlatan yorumlar atılır;
+  çevredeki dosyaların yoğunluğuna uy.
+- DI container / mesaj kütüphanesi / async / tween paketi (VContainer, MessagePipe, UniTask,
+  PrimeTween, Odin) ve şirket buton bileşeni **eklenmedi**: bağlantı sahne üretecinde,
+  sahneler arası iletişim statik `GameFlow` hub'ında, animasyon coroutine'de.
+- Combo/skor isimlendirmesi ve `BallLauncher`'ın mantık/animasyon katmanlaması olduğu gibi kaldı.
+- 20 satır kuralı geriye dönük toplu uygulanmadı (yukarıda).
 
 ---
 
@@ -119,12 +169,14 @@ Booster'lar (Rainbow/Recolor/Bomb)             → Scripts/Gameplay/BoosterSyste
 Ses (sentez + çalma, sahne bağlantısı yok)     → Scripts/Shared/GameAudio.cs
 JSON → sahne yükleme                           → Scripts/Gameplay/LevelLoader.cs
 Level sırası / ilerleme (kazanılan, kilit)     → Scripts/Shared/LevelOrder.cs + PlayerProgress.cs
-Menü ekranları                                 → Scripts/UI/MainMenuUI.cs + LevelSelectUI.cs
+Menü panelleri (UIScene)                       → Scripts/UI/MainMenuUI.cs + LevelSelectUI.cs
 Öğretici + level ipucu bandı                   → Scripts/Gameplay/UI/TutorialHint.cs
 Girdi (hücreye dokun → ateş)                   → Scripts/Gameplay/Ball/TapLaunchController.cs
 Nişan önizleme (yay + boyanacak hücreler)      → Scripts/Gameplay/Aim/AimPreview.cs
-Sahne kurulumu (referans bağlama)              → Scripts/Editor/GameplaySceneBuilder.cs
-Menü sahneleri kurulumu                        → Scripts/Editor/MenuSceneBuilder.cs
+Sahne kurulumu (4 sahne, referans bağlama)     → Scripts/Editor/Scenes/ (SceneSetBuilder → Game/GameHud/UiSceneBuilder)
+Sahneler arası istekler (level, menü)          → Scripts/Shared/GameFlow.cs
+Açılış zinciri                                 → Scripts/App/InitSceneLoader.cs + Bootstrap.cs
+Malzemeler / kayıt                             → Scripts/Shared/MaterialSet.cs + Shared/Save/SaveStore.cs
 Level yazma aracı (shell + Editor sekmesi)     → Scripts/Editor/LevelEditorWindow.cs
 Pencere ağacı / tema (UI Toolkit)              → Scripts/Editor/UI/LevelEditorWindow.uxml + .uss
 Gallery / Produce / Solving sekmeleri          → Scripts/Editor/Gallery|Produce|Solving/
@@ -138,5 +190,4 @@ diğerini de değiştir, yoksa sessiz null); statik UI koddan değil UXML'den; g
 
 Editör menüleri (hepsi tek üst menüde, `CatapultGames`):
 - `CatapultGames/Level Editor`
-- `CatapultGames/Build Gameplay Scene`
-- `CatapultGames/Build Menu Scenes`
+- `CatapultGames/Build Scenes` (Init/Boot/Game/UI + Build Settings; Play'e `InitScene`'den bas)

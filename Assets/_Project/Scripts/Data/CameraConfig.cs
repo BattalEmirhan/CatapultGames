@@ -7,7 +7,7 @@ namespace CatapultGames
     // its own grid angle / zoom / position. Applied by GridCameraController at load.
     //
     // Backward-compatible: levels saved before this field existed simply load with
-    // these defaults (which match the values GameplaySceneBuilder used).
+    // these defaults (which match the values GameSceneBuilder uses).
     [Serializable]
     public sealed class CameraConfig
     {

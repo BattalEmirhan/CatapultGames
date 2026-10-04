@@ -43,6 +43,7 @@ namespace CatapultGames
         [SerializeField] private BallQueue   queue;
         [SerializeField] private Transform[] slots;
         [SerializeField] private TMP_Text    remainingLabel;   // optional
+        [SerializeField] private MaterialSet materials;
 
         [Header("Look")]
         [SerializeField] private float slotScale      = 0.85f;
@@ -291,7 +292,7 @@ namespace CatapultGames
             Vector3 spawnPos = SlotCount > 0 && slots[SlotCount - 1] ? slots[SlotCount - 1].position : transform.position;
             for (int i = popped; i < removed; i++)
             {
-                var bv = BallVisual.Create(transform, color, 1, BallShape.Square, slotScale);
+                var bv = BallVisual.Create(transform, color, 1, BallShape.Square, slotScale, materials);
                 bv.transform.position = spawnPos;
                 bv.PlayFireworkAndDestroy(i * 0.08f);
             }
@@ -329,7 +330,7 @@ namespace CatapultGames
                     _slotData[i]  = data;
                     if (data != null && slots[i])
                     {
-                        _slotBalls[i] = BallVisual.Create(slots[i], data.color, data.powerLevel, data.shape, 1f);
+                        _slotBalls[i] = BallVisual.Create(slots[i], data.color, data.powerLevel, data.shape, 1f, materials);
                         PopIn(i);
                     }
                 }
@@ -392,8 +393,7 @@ namespace CatapultGames
             Destroy(go.GetComponent<Collider>());
             go.transform.SetParent(transform, false);
             go.transform.localScale = new Vector3(1.25f, 0.02f, 1.25f);
-            var sh = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            _ringMat = new Material(sh) { color = new Color(1f, 1f, 1f, 0.9f) };
+            _ringMat = new Material(materials.Lit) { color = new Color(1f, 1f, 1f, 0.9f) };
             var mr = go.GetComponent<MeshRenderer>();
             mr.sharedMaterial    = _ringMat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;

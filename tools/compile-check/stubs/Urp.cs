@@ -12,6 +12,7 @@ namespace UnityEngine.Rendering.Universal
 {
     public class Bloom : VolumeComponent { public ClampedFloatParameter intensity, scatter; public MinFloatParameter threshold; }
     public class Vignette : VolumeComponent { public ClampedFloatParameter intensity, smoothness; }
-    public class UniversalAdditionalCameraData : MonoBehaviour { public bool renderPostProcessing; }
+    public enum CameraRenderType { Base, Overlay }
+    public class UniversalAdditionalCameraData : MonoBehaviour { public bool renderPostProcessing; public CameraRenderType renderType; public System.Collections.Generic.List<Camera> cameraStack { get; } = new System.Collections.Generic.List<Camera>(); }
     public static class CameraExtensions { public static UniversalAdditionalCameraData GetUniversalAdditionalCameraData(this Camera c) => null; }
 }

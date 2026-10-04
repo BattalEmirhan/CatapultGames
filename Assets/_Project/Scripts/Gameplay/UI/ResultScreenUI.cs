@@ -46,18 +46,26 @@ namespace CatapultGames
                 _panelRest = panel.transform.localScale;
                 panel.SetActive(false);
             }
-            if (retryButton)
-                retryButton.onClick.AddListener(() => gameManager?.RestartLevel());
-            if (menuButton)
-                menuButton.onClick.AddListener(() => gameManager?.GoToMainMenu());
-            if (extraBallsButton)
-                extraBallsButton.onClick.AddListener(() => gameManager?.GrantExtraBalls());
-            if (nextButton)
-                nextButton.onClick.AddListener(() => gameManager?.NextLevel());
+        }
+
+        private void OnEnable()
+        {
+            retryButton.onClick.AddListener(gameManager.RestartLevel);
+            menuButton.onClick.AddListener(gameManager.GoToMainMenu);
+            extraBallsButton.onClick.AddListener(gameManager.GrantExtraBalls);
+            nextButton.onClick.AddListener(gameManager.NextLevel);
+        }
+
+        private void OnDisable()
+        {
+            retryButton.onClick.RemoveListener(gameManager.RestartLevel);
+            menuButton.onClick.RemoveListener(gameManager.GoToMainMenu);
+            extraBallsButton.onClick.RemoveListener(gameManager.GrantExtraBalls);
+            nextButton.onClick.RemoveListener(gameManager.NextLevel);
         }
 
         // `score` is appended to the subtitle rather than given its own text object:
-        // the panel is built by GameplaySceneBuilder, and a second label there would
+        // the panel is built by GameHudBuilder, and a second label there would
         // be one more reference to lose on a scene rebuild for no extra information.
         // Pass a negative score to leave it out.
         public void Show(ResultReason reason, bool offerExtraBalls = false, int score = -1, bool hasNextLevel = false)

@@ -10,7 +10,6 @@
   <ItemGroup>
     <Compile Include="obj/editor-src/**/*.cs" />
     <Compile Include="stubs/EditorShims.cs" />
-    <Compile Include="stubs/Urp.cs" />
     <Compile Include="stubs/UiToolkitFields.cs" />
   </ItemGroup>
   <ItemGroup>

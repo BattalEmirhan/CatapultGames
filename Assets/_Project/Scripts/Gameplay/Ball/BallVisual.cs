@@ -18,6 +18,7 @@ namespace CatapultGames
 
         private Material _bodyMat;
         private Material _trailMat;
+        private MaterialSet _materials;
         private Color    _color;
         private int      _power;
         private BallShape _shape;
@@ -41,15 +42,15 @@ namespace CatapultGames
         public bool Matches(BallData d) =>
             d != null && d.color == BallColor && Mathf.Clamp(d.powerLevel, 1, 3) == _power && d.shape == _shape;
 
-        public static BallVisual Create(Transform parent, CellColor color,
-                                        int powerLevel, BallShape shape = BallShape.Square,
-                                        float baseScale = 1f)
+        public static BallVisual Create(Transform parent, CellColor color, int powerLevel,
+                                        BallShape shape, float baseScale, MaterialSet materials)
         {
             var go = new GameObject("BallVisual");
             if (parent != null)
                 go.transform.SetParent(parent, false);
             go.transform.localPosition = Vector3.zero;
             var bv = go.AddComponent<BallVisual>();
+            bv._materials = materials;
             bv.Build(color, powerLevel, shape, baseScale);
             return bv;
         }
@@ -70,10 +71,7 @@ namespace CatapultGames
             tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             tr.receiveShadows    = false;
 
-            var sh = Shader.Find("Sprites/Default")
-                  ?? Shader.Find("Universal Render Pipeline/Unlit")
-                  ?? Shader.Find("Unlit/Color");
-            _trailMat        = new Material(sh);
+            _trailMat         = new Material(_materials.Sprite);
             tr.sharedMaterial = _trailMat;
 
             var grad = new Gradient();
@@ -99,19 +97,23 @@ namespace CatapultGames
             _power    = Mathf.Clamp(powerLevel, 1, 3);
             _shape    = shape;
 
-            var litShader = Shader.Find("Universal Render Pipeline/Lit")
-                         ?? Shader.Find("Standard");
-            _bodyMat = new Material(litShader) { color = _color };
-            if (_bodyMat.HasProperty("_Smoothness"))
-                _bodyMat.SetFloat("_Smoothness", 0.25f);   // low gloss: keep the colour readable
+            _bodyMat = LowGloss(new Material(_materials.Lit) { color = _color });
             if (color == CellColor.Any)
-                EnsureRainbowMaterials(litShader);
+                EnsureRainbowMaterials(_materials.Lit);
+            BuildBody(shape, _power, baseScale * 0.95f);
+        }
 
-            // Overall footprint of the body, whatever the shape. Runs and crosses
-            // get a little more room because they are long and thin.
-            float span = baseScale * 0.95f;
-            int   power = Mathf.Clamp(powerLevel, 1, 3);
+        // Low gloss: a strong highlight paints white over the colour the player reads.
+        private static Material LowGloss(Material m)
+        {
+            if (m.HasProperty("_Smoothness"))
+                m.SetFloat("_Smoothness", 0.25f);
+            return m;
+        }
 
+        // Runs and crosses get a little more room than squares: they are long and thin.
+        private void BuildBody(BallShape shape, int power, float span)
+        {
             switch (shape)
             {
                 case BallShape.L:        BuildLBody(span);                                 break;
@@ -126,17 +128,13 @@ namespace CatapultGames
         private static int RunLength(int power) =>
             GameConstants.GetPaintCellCount(new BallData(CellColor.None, power, BallShape.Line), 0, 0);
 
-        private static void EnsureRainbowMaterials(Shader shader)
+        private static void EnsureRainbowMaterials(Material template)
         {
             if (_rainbowMats != null && _rainbowMats.Length > 0 && _rainbowMats[0] != null)
                 return;
             _rainbowMats = new Material[7];
             for (int i = 0; i < 7; i++)
-            {
-                _rainbowMats[i] = new Material(shader) { color = GameConstants.GetColorF((CellColor)(i + 1)) };
-                if (_rainbowMats[i].HasProperty("_Smoothness"))
-                    _rainbowMats[i].SetFloat("_Smoothness", 0.25f);
-            }
+                _rainbowMats[i] = LowGloss(new Material(template) { color = GameConstants.GetColorF((CellColor)(i + 1)) });
         }
 
         // One lit rounded block at a local position, edge length `size`.

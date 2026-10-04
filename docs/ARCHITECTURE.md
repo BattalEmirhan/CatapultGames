@@ -26,8 +26,9 @@ eşleşen** hücreleri, şekline göre bir alan içinde doldurur (küpler yükse
 - **Booster'lar** (level başına birer tane): **Rainbow** seçili topu her rengi boyayan
   gökkuşağı topuna çevirir, **Recolor** onu tahtada en çok ihtiyaç duyulan renge boyar,
   **Bomb** onu 3×3 gökkuşağı damgasına çevirir. Bkz. § 7 `BoosterSystem`.
-- **Akış ve ilerleme:** `MainMenu` → (Play: ilk kazanılmamış level · Levels: `LevelSelect`)
-  → `Gameplay2`. Kazanılan level kaydedilir (`PlayerProgress`, PlayerPrefs) ve sonrakinin
+- **Akış ve ilerleme:** Ana menü → (Play: ilk kazanılmamış level · Levels: level seçimi)
+  → oyun; menüler `UIScene`'de tahtanın üstünde paneldir, level yerinde yüklenir (§ 6.5).
+  Kazanılan level kaydedilir (`PlayerProgress`, `SaveStore`) ve sonrakinin
   kilidini açar; sonuç ekranında **Next Level** var. Yıldız/derece sistemi **yok** (bilinçli
   karar, 2026-10-04). Bkz. § 6.5.
 - **Öğretici:** ilk level'in ilk oynanışında iki adımlık parmak işareti (en iyi hücreye dokun,
@@ -52,16 +53,16 @@ hücrenin boyanan hücre olması bu sayede yapısal bir garanti.
 | Unity | `6000.3.16f1` (Unity 6) |
 | Render | URP `17.3.0` — `Assets/Settings/` altında Mobile_/PC_ RPAsset + Renderer |
 | Input | **Yeni Input System** `1.19.0` (`UnityEngine.InputSystem`). Eski `Input.*` API'si kullanılmaz |
-| UI | uGUI + TextMeshPro. Canvas'lar **koddan** kurulur (prefab yok) |
-| Hedef | Android (minSdk 25), portrait, referans çözünürlük 1080×1920 |
+| UI | uGUI + TextMeshPro. Canvas'lar **koddan** kurulur (prefab yok), hepsi Screen Space - Camera |
+| Hedef | Android (minSdk 25), portrait, referans çözünürlük **1320×2868** (`UiLayout`, match 0.5) |
 | Ürün adı | `CatapultGames`, bundleVersion `0.1.0` |
 
 ### Assembly'ler
 
 | asmdef | Yol | Namespace | Notlar |
 |---|---|---|---|
-| `CatapultGames.Runtime` | `Assets/_Project/Scripts/` | `CatapultGames` | Refs: `Unity.InputSystem`, `Unity.TextMeshPro` |
-| `CatapultGames.Editor` | `Assets/_Project/Scripts/Editor/` | `CatapultGames.Editor` | Editor-only, `autoReferenced: false`, Runtime'a referanslı |
+| `CatapultGames.Runtime` | `Assets/_Project/Scripts/` | `CatapultGames` | Refs: `Unity.InputSystem`, `Unity.TextMeshPro`, URP Core + Universal Runtime (`UICameraStacker` kamera stack'i için) |
+| `CatapultGames.Editor` | `Assets/_Project/Scripts/Editor/` | `CatapultGames.Editor` | Editor-only, `autoReferenced: false`. Refs: Runtime, TextMeshPro, InputSystem (EventSystem modülü), URP |
 
 > Runtime kodu Editor kodunu **göremez**. Editor tarafında bir mantık runtime'da da
 > gerekiyorsa `Shared/` altına taşınmalıdır (örn. `GameConstants` boyama kuralları).
@@ -75,19 +76,22 @@ Assets/
 ├─ _Project/                    ← Tüm proje varlıkları burada
 │  ├─ Scenes/, Prefabs/, Sprites/, Input/  ← şu an boş (.gitkeep)
 │  └─ Scripts/
+│     ├─ App/                   ← Açılış zinciri: InitSceneLoader, Bootstrap
 │     ├─ Data/                  ← Saf serileştirilebilir veri modelleri
 │     ├─ Gameplay/              ← Sahne çalışma zamanı davranışı (MonoBehaviour)
 │     │  ├─ Aim/  Ball/  Grid/  UI/
-│     ├─ Shared/                ← Statik yardımcılar, matematik, sabitler, FX
-│     ├─ UI/                    ← Menü ekranları (MainMenu / LevelSelect)
-│     └─ Editor/                ← Level editörü (4 sekmeli shell) ve sahne üreteci
+│     ├─ Shared/                ← Statik yardımcılar, matematik, sabitler, FX, GameFlow, MaterialSet
+│     │  └─ Save/               ← ISaveStore + PlayerPrefsSaveStore + SaveStore (kayıt seam'i)
+│     ├─ UI/                    ← UIScene panelleri (MainMenu / LevelSelect / LevelPicker) + UICameraStacker
+│     └─ Editor/                ← Level editörü (4 sekmeli shell) ve sahne üreteçleri
+│        ├─ Scenes/             ← SceneSetBuilder, GameSceneBuilder, GameHudBuilder, UiSceneBuilder, SceneKit…
 │        ├─ UI/                 ← LevelEditorWindow.uxml + .uss, LevelGridElement.uss (yalnız markup/tema)
 │        ├─ Gallery/            ← Gallery sekmesi (thumbnail kartları)
 │        ├─ Produce/            ← Produce sekmesi (toplu üretim runner'ı)
 │        └─ Solving/            ← Solving sekmesi (headless simülatör + bot roster + benchmark)
 ├─ Resources/Levels/*.json      ← Level'lerin TEK yeri: editör buraya yazar, oyun buradan okur
-├─ Scenes/                      ← Gameplay2.unity (aktif), SampleScene.unity
-├─ Settings/                    ← URP asset'leri
+├─ Scenes/                      ← InitScene / BootScene / GameScene / UIScene (üreteçle), SampleScene.unity
+├─ Settings/                    ← URP asset'leri, MaterialSet.asset + Materials/, GameplayPostFX.asset
 ├─ TextMesh Pro/                ← Paket varlıkları (dokunma)
 └─ _Recovery/0.unity            ← Kurtarma artığı, kullanılmıyor
 ```
@@ -179,9 +183,9 @@ Projenin **kural merkezi**. Hem runtime hem editör (validator, auto-solver) bur
 ### 6.1 Level yükleme
 
 ```
-LevelLoader.Start()
-  └─ PlayerPrefs["SelectedLevel"]  (yoksa defaultLevelName = "level1")
-     └─ Resources.Load<TextAsset>("Levels/<ad>")   ← bulunamazsa LoadAll ile ilk level
+LevelLoader.Start()  ve  GameFlow.LevelRequested(ad)  (menü, level seçimi, dev seçici, Retry/Next)
+  └─ LevelLoader.SelectedLevel = SaveStore["SelectedLevel"]  (yoksa defaultLevelName = "level1")
+     └─ Resources.Load<TextAsset>("Levels/<ad>")   ← bulunamazsa LevelOrder.First
         └─ LevelSerializer.FromJson  →  LevelData
            └─ Apply(data):
               1. GridRenderer.BuildGrid(data)        → CellView'leri üretir
@@ -196,12 +200,13 @@ LevelLoader.Start()
               8. BoosterSystem.ResetForLevel()       → booster sayaçları dolar
               9. TutorialHint.BeginLevel(ad, hint)   → ipucu bandı; ilk level + ilk kez ise
                                                        parmak işareti
+              10. GameFlow.ReportLevelStarted(ad)    → UIScene (dev seçici etiketi) duyar
 ```
 
-> 7. adım şart: level seçici (dev dropdown) sahneyi yeniden yüklemeden level değiştirir,
-> yoksa önceki tahtanın skoru (ve bitmiş bir oyunun sonuç paneli) devam eder.
-> `LoadByName` ayrıca adı `SelectLevel` ile kaydeder: Retry sahneyi yeniden yüklediğinde
-> dev seçiciyle açılmış level'i de yeniden oynatsın diye.
+> 7. adım şart: **hiçbir yol sahneyi yeniden yüklemez** — Retry, Next, menü ve seçici
+> level'i yerinde değiştirir; `BeginRun` olmasa önceki tahtanın skoru (ve bitmiş bir oyunun
+> sonuç paneli) devam ederdi. `LoadByName` adı `SelectLevel` ile de kaydeder: uygulama
+> yeniden açıldığında son oynanan level yüklensin diye.
 
 **Kritik sıra:** `Reanchor()` mutlaka `_queue.Load()`'dan **önce** çağrılır, yoksa kuyruk
 topları eski waypoint konumlarında kalır.
@@ -314,23 +319,29 @@ dikkatli ol.
 ### 6.5 Menüler ve ilerleme
 
 ```
-MainMenu (MainMenuUI)
-  ├─ Play   → PlayerProgress.NextToPlay()  (ilk kazanılmamış level; hepsi bittiyse sonuncu)
-  │           → LevelLoader.SelectLevel → Gameplay2
-  └─ Levels → LevelSelect (LevelSelectUI: LevelOrder sırasında kutucuklar;
-              kazanılmış = nane, açık = mavi, kilitli = gri ve tıklanamaz) → Gameplay2
+InitScene (InitSceneLoader) → Boot → Game → UI additive yüklenir, Init kendini kaldırır
+  GameScene: LevelLoader.Start son seçili level'i yükler (menünün arkasında hazır bekler)
+  UIScene:   MainMenuUI.Start menü panelini açar
 
-Gameplay2 · EndGame(Won) → PlayerProgress.MarkWon(levelName)
-  ResultScreenUI: Retry (sahneyi yeniden yükler) · Menu → MainMenu
+UIScene · MainMenu paneli (MainMenuUI)
+  ├─ Play   → GameFlow.RequestLevel(PlayerProgress.NextToPlay())  (ilk kazanılmamış; hepsi bittiyse sonuncu)
+  └─ Levels → GameFlow.RequestLevelSelect → LevelSelect paneli (LevelSelectUI: LevelOrder
+              sırasında kutucuklar; kazanılmış = nane, açık = mavi, kilitli = gri ve
+              tıklanamaz) → GameFlow.RequestLevel(ad) · Back → GameFlow.RequestMenu
+
+GameFlow.LevelRequested → LevelLoader.LoadByName (GameScene) + menü panelleri kapanır (UIScene)
+
+GameScene · EndGame(Won) → PlayerProgress.MarkWon(levelName)
+  ResultScreenUI: Retry → GameFlow.RequestLevel(aynı ad) · Menu → GameFlow.RequestMenu
                   Next Level (yalnız kazanınca ve sonraki varsa) → GameManager.NextLevel
-                    → SelectLevel(LevelOrder.Next) + sahneyi yeniden yükler
-                    (son level'den sonra → LevelSelect)
+                    → GameFlow.RequestLevel(LevelOrder.Next)
+                    (son level'den sonra → GameFlow.RequestLevelSelect)
 ```
 
 Kilit **türetilir, saklanmaz**: bir level ilk level'se ya da önceki kazanılmışsa açıktır
 (`PlayerProgress.IsUnlocked`). Kayıt level **adına** göredir (`Won_<ad>`), sıraya değil —
-araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri henüz
-üretilmediyse `GameManager` Menu/Next butonunda istisna atmak yerine uyarı loglar.
+araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. `GameManager` sahne adı bilmez;
+UIScene yüklü değilse (GameScene tek başına açıldıysa) Menu isteğini dinleyen olmaz.
 
 ---
 
@@ -340,8 +351,8 @@ araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri 
 
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
-| `GameManager.cs` | Mono | Kazanma/kaybetme kararı, biten renklerin kuyruktan temizlenmesi, sonuç ekranı, `RestartLevel()`, `GoToMainMenu()`, **`NextLevel()`** / `HasNextLevel`, `LevelName`. **`BeginRun(levelName)`** (`LevelLoader` çağırır): skor, Keep Going teklifi, bitmiş oyun ve uyarı sıfırlanır — in-place level değişiminde de temiz koşu. Kazanınca `PlayerProgress.MarkWon`. Sahne adları `mainMenuScene` / `levelSelectScene` (üreteç yazar); sahne Build Settings'te yoksa yükleme yerine uyarı. `IsOver` diğer sistemlerce okunur. **Skor:** `Score` / `ComboStreak`, `OnShotScored(ShotScore)` + `OnScoreChanged(int)` event'leri, `ResetScore()` (`BeginRun`'ın parçası). Puan `BallLauncher.OnShotPainted`'ten gelen hücre sayısıyla `GameConstants` kurallarından hesaplanır; son ödül saklanır ki **undo skoru da geri alsın**. `PurgeCompletedColors` boş **joker** hücresi varken hiç purge yapmaz. Ayrıca: `CheckDeadEnd()` (kalan toplar bir rengi bitiremiyorsa **uyarır, bitirmez**: `CoverageAnalyzer`'ın ilk `Impossible` satırı → opsiyonel `warningLabel` üzerinde renkli "Navy can't be finished / Undo or use a booster", `warningDuration` 2.5 sn, unscaled; `_warnedKey` aynı dead-end'i tekrar uyarmaz, çözülebilir olunca / undo / `BeginRun`'da sıfırlanır), `UndoLastShot()` / `CanUndo`, `GrantExtraBalls()` (level başına **bir kez**, `extraBallCount`). Kurtarma topları `BuildRescueBalls` ile **tahtaya bakılarak** seçilir: her (renk, şekil, power) adayı `CoverageAnalyzer.BestPlacement` ile ölçülür, en iyisi alınır ve `ApplyPlacement` ile tahtadan düşülerek sonraki top ona göre seçilir — üç bağımsız tahmin değil, bir **plan**. Beraberlikte küçük damga kazanır (bitirmeye yeter, fazlası değil). `L` aday havuzunda yok: kolları ızgara kenarına gittiği için kurtarmaz, level'i siler |
-| `LevelLoader.cs` | Mono | JSON → sahne. `LoadByName(name)`, `Apply(LevelData)`, statik `SelectLevel/ClearSelection` (PlayerPrefs `"SelectedLevel"`). `LoadByName` başarılı yüklemeyi `SelectLevel` ile de kaydeder (Retry aynı level'i açsın). `Apply` sonunda `GameManager.BeginRun(ad)` — level seçici sahneyi yeniden yüklemiyor; `Apply(data)` dışarıdan çağrılırsa ad `null` olur (ilerleme kaydedilmez) |
+| `GameManager.cs` | Mono | Kazanma/kaybetme kararı, biten renklerin kuyruktan temizlenmesi, sonuç ekranı, `RestartLevel()`, `GoToMainMenu()`, **`NextLevel()`** / `HasNextLevel`, `LevelName`. **`BeginRun(levelName)`** (`LevelLoader` çağırır): skor, Keep Going teklifi, bitmiş oyun ve uyarı sıfırlanır — in-place level değişiminde de temiz koşu. Kazanınca `PlayerProgress.MarkWon`. Retry/Menu/Next yalnız `GameFlow` isteği atar (sahne yüklemez, sahne adı bilmez). `IsOver` diğer sistemlerce okunur. **Skor:** `Score` / `ComboStreak`, `OnShotScored(ShotScore)` + `OnScoreChanged(int)` event'leri, `ResetScore()` (`BeginRun`'ın parçası). Puan `BallLauncher.OnShotPainted`'ten gelen hücre sayısıyla `GameConstants` kurallarından hesaplanır; son ödül saklanır ki **undo skoru da geri alsın**. `PurgeCompletedColors` boş **joker** hücresi varken hiç purge yapmaz. Ayrıca: `CheckDeadEnd()` (kalan toplar bir rengi bitiremiyorsa **uyarır, bitirmez**: `CoverageAnalyzer`'ın ilk `Impossible` satırı → opsiyonel `warningLabel` üzerinde renkli "Navy can't be finished / Undo or use a booster", `warningDuration` 2.5 sn, unscaled; `_warnedKey` aynı dead-end'i tekrar uyarmaz, çözülebilir olunca / undo / `BeginRun`'da sıfırlanır), `UndoLastShot()` / `CanUndo`, `GrantExtraBalls()` (level başına **bir kez**, `extraBallCount`). Kurtarma topları `BuildRescueBalls` ile **tahtaya bakılarak** seçilir: her (renk, şekil, power) adayı `CoverageAnalyzer.BestPlacement` ile ölçülür, en iyisi alınır ve `ApplyPlacement` ile tahtadan düşülerek sonraki top ona göre seçilir — üç bağımsız tahmin değil, bir **plan**. Beraberlikte küçük damga kazanır (bitirmeye yeter, fazlası değil). `L` aday havuzunda yok: kolları ızgara kenarına gittiği için kurtarmaz, level'i siler |
+| `LevelLoader.cs` | Mono | JSON → sahne. `GameFlow.LevelRequested`'i `OnEnable/OnDisable`'da dinler. `LoadByName(name)`, `Apply(LevelData)`, statik `SelectedLevel` + `SelectLevel/ClearSelection` (`SaveStore` `"SelectedLevel"`). `LoadByName` başarılı yüklemeyi `SelectLevel` ile kaydeder ve `GameFlow.ReportLevelStarted` atar. `Apply` sonunda `GameManager.BeginRun(ad)` — hiçbir yol sahneyi yeniden yüklemiyor; `Apply(data)` dışarıdan çağrılırsa ad `null` olur (ilerleme kaydedilmez) |
 | `LaunchAreaAnchor.cs` | Mono | Tepsi kökünü ekranın alt bandına sabitler (`screenY=0.10`). Sadece çözünürlük değişince yeniden hesaplar (shake ile titremesin diye) |
 | `BoosterSystem.cs` | Mono | Üç booster (`BoosterType`: `Rainbow` / `Recolor` / `Bomb`) ve level başına sayaçları (`perLevel`). `CanUse(type)` (sayaç, `IsOver`, seçili top var mı, etkisi olacak mı), `Use(type)` seçili tepsi topunun `BallData`'sını **yerinde** değiştirir ve `BallQueue.NotifyCurrentChanged()` çağırır — tepsi, nişan ve fırlatıcı yeni topu kendi mevcut yollarından görür, ikinci bir "hangi top" kavramı yok. `Recolor` = en çok boş hücresi kalan renk. `ResetForLevel()` (`LevelLoader`), `OnChanged` event'i |
 | `BackgroundGradient.cs` | Mono | Kameraya bağlı, frustum'u dolduran tek unlit quad + çalışma zamanında üretilen 1×64 gradient dokusu (gece mavisi → neredeyse siyah). Aspect değişince yeniden boyutlanır; materyal/doku `OnDestroy`'da yok edilir |
@@ -378,14 +389,15 @@ araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri 
 |---|---|
 | `ProgressHUD.cs` | Renk başına **çubuk** (renk kutusu + dolu/boş çubuk + `dolu/toplam` sayısı) ve üstte toplam etiketi. Satırlar koddan üretilir, yalnızca renk **kümesi** değişince yeniden kurulur. `OnGridChanged`'i `_dirty` ile kare başına **tek** yeniden çizime indirger. Koyu renkleri okunur hâle getirir. `[RequireComponent(typeof(RectTransform))]` — sahne üreteci düz bir GameObject'e eklediği için eskiden RectTransform yoktu ve çocuklar dejenere bir ebeveyne göre hizalanıyordu; `Awake` artık safe area'ya yayıyor. Görselleri `raycastTarget = false` — HUD nişan hareketini yutmamalı |
 | `ResultScreenUI.cs` | Sonuç paneli, `EaseOutBack` giriş animasyonu, Retry/Menu/Keep Going/**Next Level** butonları (Next, Keep Going'in yerinde; yalnız kazanınca ve sonraki level varsa). `Show(Reason, offerExtraBalls, score, hasNextLevel)` — `Reason`: `Won` / `OutOfBalls` (`DeadEnd` 2026-10-04'te kaldırıldı — dead-end artık `GameManager`'da uyarı); `score` alt metne eklenir (negatif geçilirse yazılmaz). Metinlerin tamamı burada durur (GameManager string değil, sebep gönderir) |
-| `TutorialHint.cs` | **Öğretici + ipucu bandı** (Faz 5). `BeginLevel(levelName, hint)` (`LevelLoader` çağırır). Öğretici yalnız `LevelOrder.First`'te ve `TutorialDone` (PlayerPrefs) yokken: adım 1 **TapCell** — mevcut topun en çok boyadığı hücre (`CoverageAnalyzer.BestPlacement`), "Tap a square to throw"; atıştan sonra tahta durunca adım 2 **PickBall** — tepsideki başka renkte bir top, "Tap a ball to pick it" (seçenek yoksa atlanır). Her adım oyuncu başka bir şey yapınca da biter (adım 2'de atış = gerek yok). Sona erince ya da level bitince `TutorialDone` yazılır; yarıda kapatılan ilk oturum tekrar görür. Parmak ucu ekran-uzayında hedefi izler (her kare `WorldToScreenPoint`, unscaled zaman); disk + halka sprite'ları runtime'da (`UiSprites`). İpucu bandı `hintDuration` (4 sn) ya da ilk atışta söner. Hiçbiri raycast hedefi değildir. `ResetDone()` |
+| `TutorialHint.cs` | **Öğretici + ipucu bandı** (Faz 5). `BeginLevel(levelName, hint)` (`LevelLoader` çağırır). Öğretici yalnız `LevelOrder.First`'te ve `TutorialDone` (`SaveStore`) yokken: adım 1 **TapCell** — mevcut topun en çok boyadığı hücre (`CoverageAnalyzer.BestPlacement`), "Tap a square to throw"; atıştan sonra tahta durunca adım 2 **PickBall** — tepsideki başka renkte bir top, "Tap a ball to pick it" (seçenek yoksa atlanır). Her adım oyuncu başka bir şey yapınca da biter (adım 2'de atış = gerek yok). Sona erince ya da level bitince `TutorialDone` yazılır; yarıda kapatılan ilk oturum tekrar görür. Parmak ucu ekran-uzayında hedefi izler (her kare `WorldToScreenPoint`, unscaled zaman); disk + halka sprite'ları runtime'da (`UiSprites`). İpucu bandı `hintDuration` (4 sn) ya da ilk atışta söner. Hiçbiri raycast hedefi değildir. `ResetDone()` |
 | `ScoreHUD.cs` | Skor sayacı (sağ üst) + atış başına kombo patlaması ("x6   +720", 0 hücrelik atış bir seriyi bozduysa "COMBO LOST") + **ekran ortasında praise** (`praiseLabel`: 3+ hücre GOOD, 5+ GREAT!, 8+ AMAZING!; overshoot'lu pop, yukarı kayarak söner). `GameManager.OnScoreChanged` / `OnShotScored` dinler, kendi kuralı yoktur. Undo skoru düşürdüğünde pop animasyonu **çalmaz**. `ProgressHUD` ile aynı `RequireComponent(RectTransform)` tuzağına tabi: sahne üreteci düz GameObject ekliyor, çocuk anchor'ları yoksa dejenere ebeveyne hizalanır |
 | `BoosterBarUI.cs` | Üç booster butonu + "×N" sayaç etiketleri. Saf görünüm: her kural `BoosterSystem`'in. `OnChanged` + `BallQueue.OnChanged` ve oyun-sonu kapısı için her kare yenilenir (sayaç metni yalnız değişince yazılır, kare başına string tahsisi yok). `UndoButtonUI` gibi **Canvas'ta** durur |
 | `UndoButtonUI.cs` | Oyun içi "geri al" butonu. `GameManager.CanUndo`'yu her kare okur ve buton yoksa **gizler** (soluk bırakmaz). **Butonun kendi GameObject'inde duramaz** — butonu `SetActive(false)` ile gizlediği için kendi `Update`'i de dururdu; sahne üreteci onu Canvas'a koyar |
-| `LevelPickerHUD.cs` | Geliştirici aracı: sağ üstte level seçme dropdown'ı. Kendi Canvas'ını ve gerekirse EventSystem'ini **koddan** kurar. Liste `LevelOrder` sırasında (sayısal) |
-| `SafeAreaFitter.cs` | `Screen.safeArea`'ya göre RectTransform'u daraltır (çentik/home bar) |
-| `UI/MainMenuUI.cs` | `MainMenu` sahnesi: Play → `PlayerProgress.NextToPlay()` level'i (etikette "Play · Level N"), Levels → LevelSelect, "3 / 5 levels" ilerleme etiketi |
-| `UI/LevelSelectUI.cs` | `LevelSelect` sahnesi: `LevelOrder` sırasında numaralı kutucuklar, **koddan** (prefab yok; kapsayıcının `GridLayoutGroup`'u dizer). Kazanılmış / açık / kilitli renkleri; kilitli kutucuk tıklanamaz. Back → MainMenu |
+| `UI/LevelPickerHUD.cs` | Geliştirici aracı (UIScene): sağ üstte level seçme dropdown'ı. Çerçeve (toggle + scroll listesi) `LevelPickerFrame` üretecinden gelir; satırlar her açılışta `LevelOrder` sırasında runtime'da kurulur, tıklama `GameFlow.RequestLevel`. Etiketi `GameFlow.LevelStarted` ile güncellenir (ilk level UIScene'den önce başladığı için `Start`'ta `LevelLoader.SelectedLevel` okunur) |
+| `SafeAreaFitter.cs` | `Screen.safeArea`'ya göre RectTransform'u daraltır (çentik/home bar); anchor'lar ekran oranı olduğu için her canvas modunda çalışır |
+| `UI/MainMenuUI.cs` | UIScene'deki menü **paneli** (bileşen her zaman aktif canvas kökünde, paneli gizler/gösterir): Play → `GameFlow.RequestLevel(NextToPlay())` (etikette "Play · Level N"), Levels → `RequestLevelSelect`, "3 / 5 levels" ilerleme etiketi. `MenuRequested`'te açılır, `LevelRequested` / `LevelSelectRequested`'te kapanır |
+| `UI/LevelSelectUI.cs` | UIScene'deki level seçimi **paneli**: her açılışta `LevelOrder` sırasında numaralı kutucuklar, **koddan** (prefab yok; kapsayıcının `GridLayoutGroup`'u dizer, kutucuk kapsayıcının layer'ını alır). Kazanılmış / açık / kilitli renkleri; kilitli kutucuk tıklanamaz. Back → `GameFlow.RequestMenu` |
+| `UI/UICameraStacker.cs` | UIScene'in Overlay kamerasını `Start`'ta `Camera.main`'in (GameScene Base kamerası) URP `cameraStack`'ine ekler, `OnDestroy`'da çıkarır. Sahneler author-time'da birbirine referans veremediği için |
 
 ### `Scripts/Shared/`
 
@@ -396,14 +408,20 @@ araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri 
 | `LaunchSolver.cs` | static | `SolveToCell(grid, origin, gx, gy, angle)` / `SolveToPoint` — sabit atış açısında, verilen hücrenin merkezine düşen hızı çözer. `GameConstants.GravityMagnitude` kullanır |
 | `CoverageAnalyzer.cs` | static | **"Kalan toplar kalan hücreleri kapatabilir mi?"** `TargetBoard` (düz diziler: `colors` / `hits` / `wild` / `stone`; `hits == 0` ⇒ hedef değil) + `BuildTargets(LevelData)` / `BuildTargets(GridRenderer)`; `BestPlacement(board, ball, out landX, out landY)` bir topun **en iyi iniş noktası** ve orada indireceği vuruş sayısı (`BestCoverage` sayı-döndüren sarmalayıcı); `CountPlacement(board, ball, lx, ly)` **tek bir** yerleşimin vuruş sayısı, uygulamadan (Solving botları belirli bir hücreyi tartmak için kullanır); `ApplyPlacement(board, ball, lx, ly, hitInto, filledInto)` bir yerleşimi taslak tahtadan düşer (opsiyonel listeler vuruş alan / dolan hücreleri verir); Gökkuşağı (`Any`) top her rengin `ceiling`'ini yükseltir (gevşek yönde) ve hiçbir satıra ait değildir. `Analyze(...)` renk başına `required` (**vuruş** sayısı — buz iki sayar) vs `ceiling` + `Impossible` / `Tight` (< 1.4×) / `Headroom`, artı gerekiyorsa bir **wild (joker) satırı**. Ölçme ve uygulama **aynı yürüyüşü** paylaşır (`Walk`), böylece plan bir kuralla ölçülüp başka bir kuralla uygulanamaz. Özel hücreler bilerek üst sınırı **gevşetecek** yönde modellenir (yanlış "imkânsız" kararı kazanılabilir bir koşuyu bitirirdi): joker hiçbir rengin `required`'ında yoktur ama **her** rengin `ceiling`'inde sayılır. Üç tüketicisi olduğu için `Shared/`'da: `LevelValidator`, `LevelAutoSolver` (editör) ve `GameManager` (çalışma zamanı erken kayıp tespiti) |
 | `LevelSerializer.cs` | static | `ToJson/FromJson`, `Save/Load` (dosya IO sadece editörde anlamlı) |
-| `GameFX.cs` | Mono singleton | `GameFX.Instance` ilk erişimde kendini yaratır. `Impact`, `ImpactRing`, `Bloom`, `CellPop`, `LaunchPuff`, `Win`, `Firework`, **`Confetti(center, color)`** (renk bitince, Win'den küçük), **`HitStop(sec)`** (`Time.timeScale=0`, unscaled bekleme, üst üste binmez; 8+ hücrelik atışta 50 ms), `Shake`, `ZoomPunch`, `Flash`.
-| `GameAudio.cs` | Mono singleton | **Ses hub'ı**, `GameFX`'in ses ikizi: `GameAudio.Play(Sfx, pitch, volume)` ilk çağrıda kendini yaratır, sahne bağlantısı yok. `Sfx`: `Launch`, `Land`, `CellTick`, `IceCrack`, `ColorFanfare`, `Praise`, `Win`, `Lose`, `Booster`, `Warning`, `Undo`, `Pop`. Projede ses varlığı **yok**: her klip `Awake`'te ton + filtrelenmiş gürültü + zarf ile **sentezlenir** (birkaç ms); `Resources/Audio/<Sfx adı>` altında bir klip varsa o kullanılır. `PlayTick(n)` boyama dalgasında pentatonik basamak, `PlayPraise(tier)` GOOD/GREAT/AMAZING. 10 `AudioSource`'luk round-robin havuz (pitch kaynak başına). `Muted` PlayerPrefs'te (`SoundMuted`), henüz UI'ı yok. Sahnede `AudioListener` yoksa kendine ekler; üretilen klipleri `OnDestroy`'da yok eder |
-| `RoundedCubeMesh.cs` | static | Yuvarlatılmış birim küp mesh'i, `(radius, subdiv)` başına bir kez üretilip önbelleklenir. Hücre, top blokları ve tahta plakası paylaşır. **Yalnız runtime**: sahne dosyasına kaydedilen nesneler prosedürel mesh referansını kaybeder, o yüzden `GameplaySceneBuilder` dekor için primitive kullanır | **`GameFX.CurrentShakeOffset`** — kamera sarsıntısı sadece öteleme yapar; ekrandan-dünyaya ışın atarken bu offset çıkarılmalıdır (`TapLaunchController.PickRay`) |
+| `GameFX.cs` | Mono singleton | GameScene'e üreteçle konur (`materials` = `MaterialSet`; yoksa `Awake` hata loglar — runtime `Shader.Find` yok). Flash canvas'ı Screen Space - Camera. `Impact`, `ImpactRing`, `Bloom`, `CellPop`, `LaunchPuff`, `Win`, `Firework`, **`Confetti(center, color)`** (renk bitince, Win'den küçük), **`HitStop(sec)`** (`Time.timeScale=0`, unscaled bekleme, üst üste binmez; 8+ hücrelik atışta 50 ms), `Shake`, `ZoomPunch`, `Flash`.
+| `GameAudio.cs` | Mono singleton | **Ses hub'ı**, `GameFX`'in ses ikizi: `GameAudio.Play(Sfx, pitch, volume)` ilk çağrıda kendini yaratır, sahne bağlantısı yok. `Sfx`: `Launch`, `Land`, `CellTick`, `IceCrack`, `ColorFanfare`, `Praise`, `Win`, `Lose`, `Booster`, `Warning`, `Undo`, `Pop`. Projede ses varlığı **yok**: her klip `Awake`'te ton + filtrelenmiş gürültü + zarf ile **sentezlenir** (birkaç ms); `Resources/Audio/<Sfx adı>` altında bir klip varsa o kullanılır. `PlayTick(n)` boyama dalgasında pentatonik basamak, `PlayPraise(tier)` GOOD/GREAT/AMAZING. 10 `AudioSource`'luk round-robin havuz (pitch kaynak başına). `Muted` `SaveStore`'da (`SoundMuted`), henüz UI'ı yok. Sahnede `AudioListener` yoksa kendine ekler; üretilen klipleri `OnDestroy`'da yok eder |
+| `RoundedCubeMesh.cs` | static | Yuvarlatılmış birim küp mesh'i, `(radius, subdiv)` başına bir kez üretilip önbelleklenir. Hücre, top blokları ve tahta plakası paylaşır. **Yalnız runtime**: sahne dosyasına kaydedilen nesneler prosedürel mesh referansını kaybeder, o yüzden `GameSceneBuilder` dekor için primitive kullanır | **`GameFX.CurrentShakeOffset`** — kamera sarsıntısı sadece öteleme yapar; ekrandan-dünyaya ışın atarken bu offset çıkarılmalıdır (`TapLaunchController.PickRay`) |
 | `UiSprites.cs` | static | Koddan çizilen UI sprite'ları: `Disc()` (yumuşak kenarlı disk — parmak ucu), `Ring()` (ince halka — dokunuş darbesi). Beyaz, `Image` renklendirir. Bir kez üretilir, uygulama ömrünce tutulur (statik referans sahne değişiminde boşaltılmasını da önler). Projede UI görseli yok, sprite'sız `Image` yalnız kare olabilir |
 | `LevelOrder.cs` | static | Oynanış sırası: `Resources/Levels/*.json` adları, **sondaki sayıya göre** (level2 < level10). `Names`, `IndexOf`, `Next`, `First`, `NumberOf(name)` (editörün `EditorConstants.LevelNumberOf`'u da buna yönlenir — tek numaralama kuralı). İlk erişimde taranıp önbelleklenir; `Refresh()` |
-| `PlayerProgress.cs` | static | Kazanılan level'ler, PlayerPrefs `Won_<levelName>`. `IsWon`, `MarkWon` (anında `Save` — mobilde uygulama her an öldürülebilir), `IsUnlocked` (ilk level ya da öncekisi kazanılmış — **türetilir**), `NextToPlay`, `WonCount`, `ResetAll` |
+| `PlayerProgress.cs` | static | Kazanılan level'ler, `SaveStore` `Won_<levelName>`. `IsWon`, `MarkWon` (anında `Flush` — mobilde uygulama her an öldürülebilir), `IsUnlocked` (ilk level ya da öncekisi kazanılmış — **türetilir**), `NextToPlay`, `WonCount`, `ResetAll` |
 | `Haptics.cs` | static | `Light/Medium/Heavy`. Android'de `AndroidJavaObject` ile Vibrator (API 26+ amplitüdlü), editörde no-op |
 | `Telemetry.cs` | static | `RecordLaunch()` — atışlar arası süreyi loglar, `OnTimeBetweenLaunchesRecorded` |
+| `GameFlow.cs` | static | **Sahneler arası istek hub'ı** (mesaj kütüphanesi yerine): `LevelRequested(ad)`, `LevelStarted(ad)`, `MenuRequested`, `LevelSelectRequested` + `RequestLevel` (boş adı yok sayar) / `ReportLevelStarted` / `RequestMenu` / `RequestLevelSelect`. Abonelikler `OnEnable/OnDisable`'da |
+| `MaterialSet.cs` | ScriptableObject | `Lit` / `Unlit` / `Sprite` taban malzemeleri (`Assets/Settings/MaterialSet.asset`). Runtime'da malzeme gereken her bileşenin `materials` alanı buna bağlanır, `new Material(materials.X)` ile kopyalar — build'de shader'ı bu asset'ler tutar |
+| `UiLayout.cs` | static | `ReferenceResolution` (1320×2868) ve `UiLayer` (5) — üreteçler ve kameralar aynı sayıyı okusun diye |
+| `Save/ISaveStore.cs` · `PlayerPrefsSaveStore.cs` · `SaveStore.cs` | interface / sınıf / static | Kayıt seam'i: `GetInt/SetInt/GetString/SetString/Delete/Flush`; `SaveStore.Current` varsayılan PlayerPrefs. Kodda doğrudan `PlayerPrefs` yok |
+| `App/InitSceneLoader.cs` | Mono | InitScene (index 0): `sceneOrder` (Boot, Game, UI) sahnelerini **sırayla** additive yükler, `GameScene`'i aktif yapar, kendini kaldırır |
+| `App/Bootstrap.cs` | Mono | BootScene: uygulama geneli ayarlar (vSync 0, `targetFrameRate` 60) |
 
 ### `Scripts/Editor/`
 
@@ -428,8 +446,12 @@ araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri 
 | `Solving/ISolverBot.cs` · `SolverRoster.cs` | — | Bot sözleşmesi + popülasyon (8 bot, her biri **farklı karar prosedürü**): `random` (sıfır hipotezi), `gate-greedy` (tavan = Save kapısının solver'ı; %100 altı **level kusuru**), `greedy-window`, `color-focus`, `impulsive`, `careless-15` (**band botu**, `SolverRoster.BandBotId`), `careless-35`, `lookahead-2` (pahalı). Skorlayıcı eklemek bot eklemek değildir |
 | `Solving/LevelBenchmark.cs` | — | Sweep koşucusu: tohum `baseSeed + level·100003 + run·7919`, koşular arasında iptal yoklaması, bot başına `BotStat` (4 sonuç toplamı = koşu sayısı), level başına `LevelResult` (band botu → `measured`, `matches`) |
 | `Solving/LevelSolvingTabController.cs` | Solving sekmesi | Kapsam (açık level / hepsi / aralık) + koşu + seed; maliyet butona basılmadan **önce** yazılır; sweep **daima tüm roster'la** koşar, bot filtresi yalnız çizimi filtreler. Level satırları (band botu win-rate çubuğu, uyuşmazlık vurgusu) → detay kartı: bot başına **yığılmış sonuç çubuğu**, band **gauge**'u, headroom, kayıp koşu çipleri, ham tablo foldout, en sonda verdict. `BuildQuickCard` Editor'ün Status kartında aynı veriyi gösterir |
-| `GameplaySceneBuilder.cs` | `CatapultGames/Build Gameplay Scene` | Oynanabilir sahneyi (`Assets/Scenes/Gameplay2.unity`) sıfırdan üretir ve tüm referansları **reflection ile** bağlar (`SetRef/SetRefArray/SetFloat/SetStr`). `CG_Grid` layer'ını kaydeder, sahneyi Build Settings'e ekler. `MakeText/MakeButton/MakeCanvas/AddEventSystem/SetRef/SetStr/StretchToParent` `internal` — `MenuSceneBuilder` aynılarını kullanır |
-| `MenuSceneBuilder.cs` | `CatapultGames/Build Menu Scenes` | `Assets/Scenes/MainMenu.unity` (başlık, ilerleme etiketi, Play, Levels) ve `LevelSelect.unity` (başlık, `ScrollRect` + `GridLayoutGroup` 4 sütun, Back) sahnelerini üretip bağlar; Build Settings'i **MainMenu = index 0**, LevelSelect, sonra diğerleri olarak sıralar. Sahne adı sabitleri (`MainMenuSceneName`, `LevelSelectSceneName`) `GameplaySceneBuilder` tarafından `GameManager`'a yazılır |
+| `Scenes/SceneSetBuilder.cs` | `CatapultGames/Build Scenes` | Dört sahneyi (`Assets/Scenes/InitScene/BootScene/GameScene/UIScene.unity`) sıfırdan üretir, Build Settings'i **tam olarak** bu sıraya yazar (Init = index 0), InitScene'i açar. Önce `MaterialSetAsset.Ensure()` |
+| `Scenes/GameSceneBuilder.cs` | — | GameScene: ışık, Base kamera (`MainCamera`, cullingMask UI layer'ı **hariç**), post-FX, tahta, tepsi, mancınık, nişan, fırlatıcı, `GameFX`, `GameManager`, `Canvas_Game` (layer 0, gameplay kamerası), loader + girdi. Adımlar `GameSceneParts` üzerinden birbirine referans verir |
+| `Scenes/GameHudBuilder.cs` | — | `Canvas_Game` çocukları: sonuç paneli, undo, booster sütunu, dead-end uyarısı, progress + skor (safe area), öğretici. Eski 1080×1920 değerleri ×1.35 |
+| `Scenes/UiSceneBuilder.cs` · `LevelPickerFrame.cs` | — | UIScene: Overlay `UICamera` (+`UICameraStacker`), tek `EventSystem` (Input System modülü), `Canvas_Meta` (UI layer) → MainMenu + LevelSelect panelleri, dev level seçici çerçevesi |
+| `Scenes/SceneKit.cs` | — | Ortak yapı taşları: `SetRef/SetRefArray/SetFloat/SetStr` (alan adıyla bağlama; yoksa `Field not found` uyarısı), `MakeCanvas` (Screen Space - Camera + `UiLayout`), `NewRect/MakeText/MakeButton/MakeBackdrop`, `AddEventSystem`, `AddDeco`, `EnsureLayer`, `SetLayerRecursively` |
+| `Scenes/MaterialSetAsset.cs` · `PostFxProfileAsset.cs` | — | `MaterialSet.asset` + `Materials/Lit/Unlit/Sprite.mat` (edit-time `Shader.Find`); `GameplayPostFX.asset` (bloom/vignette, her build'de yeniden yazılır) |
 | `LevelValidator.cs` | — | Renk başına `required` (vuruş) vs **gerçek** `coverage` (`CoverageAnalyzer`) → `OK/Warning/Error`, artı joker satırı (`ColorRow.isWild`). `globalErrors` (top yok, renksiz top…) ve `globalWarnings` (< 3 hücrelik renk, komşusuz yalıtılmış hücre, **renkli taş**, **renksiz joker**). Taş ve joker hücreleri yalıtılmışlık/az-hücre uyarılarından muaf. `isValid` yalnızca Error'lara bakar |
 | `LevelAutoSolver.cs` | — | Açgözlü AI: top **sırası sabit**, her top için en çok vuruş indiren iniş noktasını seçer. Tahtayı `CoverageAnalyzer.TargetBoard` olarak tutup `BestPlacement`/`ApplyPlacement` üzerinden oynar — şekil, eşleşme, erişim ve buz maliyeti böylece oyunun kendi koduyla aynı. `Move.hit` (vuruş alan) ile `Move.filled` (dolan) ayrı: buzda ilk vuruş yalnızca çatlatır. "solved" ⇒ level kesin çözülebilir; "failed" ⇒ tasarım uyarısı (kanıt değil). Oyuncu `SelectSlot` ile sıradaki toplardan birini öne alabildiği için solver **kötümser** kaldı |
 | `ImageImportUtility.cs` | — | PNG/JPG → ızgara. Hücre bölgesinin ortalama rengini palete en yakın `CellColor`'a eşler (eşik dışıysa `None`). Doku alt-sol, ızgara üst-sol başlangıçlı olduğu için **Y çevrilir** |
@@ -438,22 +460,28 @@ araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri 
 
 ## 8. Sahneler
 
-| Sahne | Durum | İçerik |
+| Sahne | Build index | İçerik |
 |---|---|---|
-| `Assets/Scenes/MainMenu.unity` | Build index **0** (açılış) | `MenuSceneBuilder` üretir. **Henüz üretilmedi** — Unity'de `CatapultGames/Build Menu Scenes` çalıştırılmalı |
-| `Assets/Scenes/LevelSelect.unity` | Build index 1 | `MenuSceneBuilder` üretir (aynı not) |
-| `Assets/Scenes/Gameplay2.unity` | Build'de etkin | Tek oynanış sahnesi: tap-to-target |
-| `Assets/Scenes/SampleScene.unity` | Build'de var, kapalı | Şablon artığı |
+| `Assets/Scenes/InitScene.unity` | **0** (açılış) | Yalnız `InitSceneLoader`: Boot → Game → UI additive, sonra kendini kaldırır |
+| `Assets/Scenes/BootScene.unity` | 1 | `Bootstrap` (frame rate, vSync) |
+| `Assets/Scenes/GameScene.unity` | 2 | Tahta + oynanış sistemleri + `Canvas_Game` HUD. **Aktif sahne** |
+| `Assets/Scenes/UIScene.unity` | 3 | Meta UI (menü, level seçimi, dev seçici), Overlay kamera, EventSystem |
+| `Assets/Scenes/SampleScene.unity` | — | Şablon artığı, build'de değil |
 
-> Dosya adı hâlâ `Gameplay2` — ileride `Gameplay.unity`'ye yeniden adlandırılabilir (sahne
-> `.meta` GUID'i korunduğu sürece Build Settings bozulmaz); menülerin yüklediği ad
-> `GameplaySceneBuilder.SceneName` sabitinden gelir, birlikte değiştirilmeli.
+Dördü de `CatapultGames/Build Scenes` ile üretilir; **Play'e InitScene açıkken bas.**
+GameScene tek başına da oynanır (son level yüklenir) ama menü/EventSystem UIScene'de
+olduğu için butonlar tıklanmaz.
 
-### Sahne hiyerarşisi (`GameplaySceneBuilder`'ın ürettiği)
+**Kameralar:** GameScene'deki `GridCamera` URP **Base** kameradır ve `UI` layer'ını (5)
+görmez; UIScene'deki `UICamera` **Overlay**'dir, yalnız `UI` layer'ını çizer ve
+`UICameraStacker` ile Base kameranın stack'ine eklenir. `Canvas_Game` layer 0'dadır ve
+Base kamerayla çizilir (sorting 10); `Canvas_Meta` UI layer'ında, Overlay kamerayla (sorting 20).
+
+### GameScene hiyerarşisi (`GameSceneBuilder` + `GameHudBuilder`)
 
 ```
 DirectionalLight      (yumuşak gölge, loş serin ambient)
-GridCamera            (MainCamera tag, GridCameraController, BackgroundGradient, AudioListener, post-processing açık)
+GridCamera            (MainCamera tag, Base, cullingMask ~UI, GridCameraController, BackgroundGradient, AudioListener, post-processing açık)
 PostFX                (global Volume → Assets/Settings/GameplayPostFX.asset: Bloom 0.20 / eşik 1.0, Vignette 0.18 — her build'de yazılır)
 GridRoot              (GridRenderer + GridBoard)   → Cell_x_y çocukları runtime'da
 BallQueue             (BallQueue + BallQueueView)
@@ -465,27 +493,37 @@ LaunchArea            (LaunchAreaAnchor)           konum ~(5.5, 0, -8)
    └─ CatapultBase / CatapultArm / ForkL / ForkR
 AimPreview            (LineRenderer + AimPreview)
 BallLauncher
-EventSystem
-BoosterSystem         (_queue, _grid, gameManager)
-UICanvas              (ResultScreenUI + UndoButtonUI + BoosterBarUI)
+GameFX                (materials)
+GameManager
+BoosterSystem         (queue, grid, gameManager)
+Canvas_Game           (Screen Space - Camera → GridCamera, layer 0; ResultScreenUI + UndoButtonUI + BoosterBarUI)
+├─ TrayRemaining                                  "+N" tepsi sayacı (sağ alt, raycast kapalı)
 ├─ ResultPanel → TitleText, SubText, RetryBtn, MenuBtn, Keep GoingBtn, Next LevelBtn (kapalı başlar)
 ├─ UndoBtn                                        (kapalı başlar; UndoButtonUI açar)
 ├─ RainbowBtn / RecolorBtn / BombBtn → Label, Count  sol alt sütun, x 0.03–0.21, y 0.10'dan yukarı
+├─ WarningLabel                                   dead-end uyarısı (üst-orta, y 0.70–0.77, raycast kapalı, alfa 0)
+├─ HudSafeArea (SafeAreaFitter)
+│  ├─ ProgressHUD → ProgressLabel
+│  │                └─ ProgressBars → Row_<Renk> (runtime)
+│  └─ ScoreHUD    → ScoreLabel, ComboLabel        (sağda, level dropdown'ın altında)
+├─ PraiseLabel                                    "GREAT!" (ekran ortası, raycast kapalı)
 ├─ LevelHint → Text                              ipucu bandı (y 0.63–0.69, koyu yarı saydam, CanvasGroup alfa 0)
 ├─ TutorialCaption → Text                        öğretici yazısı (tepsi üstü, y 0.19–0.245)
-├─ TutorialPointer → Ring                        parmak ucu (en üstte çizilir; sprite runtime'da)
-├─ WarningLabel                                   dead-end uyarısı (üst-orta, y 0.70–0.77, raycast kapalı, alfa 0)
-├─ TrayRemaining                                  "+N" tepsi sayacı (sağ alt, raycast kapalı)
-├─ PraiseLabel                                    "GREAT!" (ekran ortası, raycast kapalı)
-└─ ProgressSafeArea (SafeAreaFitter)
-   ├─ ProgressHUD → ProgressLabel
-   │                └─ ProgressBars → Row_&lt;Renk&gt; (runtime)
-   └─ ScoreHUD    → ScoreLabel, ComboLabel        (sağda, level dropdown'ın altında)
-TutorialHint          (camera, _grid, _queue, queueView, launcher, gameManager + yukarıdaki UI)
-LevelPickerHUD
-GameManager
+└─ TutorialPointer → Ring                        parmak ucu (en üstte çizilir; sprite runtime'da)
+TutorialHint          (camera, grid, queue, queueView, launcher, gameManager + yukarıdaki UI)
 LevelLoader
 TapLaunchController
+```
+
+### UIScene hiyerarşisi (`UiSceneBuilder` + `LevelPickerFrame`)
+
+```
+UICamera              (Overlay, cullingMask = UI, UICameraStacker)
+EventSystem           (InputSystemUIInputModule — oyunun TEK EventSystem'i; Canvas_Game da kullanır)
+Canvas_Meta           (Screen Space - Camera → UICamera, UI layer, sorting 20; MainMenuUI + LevelSelectUI)
+├─ MainMenu (koyu backdrop) → SafeArea → Title, Progress, PlayBtn, LevelsBtn
+├─ LevelSelect (koyu backdrop, kapalı başlar) → SafeArea → Title, Scroll/Viewport/Content (GridLayoutGroup 4 sütun), BackBtn
+└─ LevelPicker (SafeAreaFitter, LevelPickerHUD) → LevelsBtn (sağ üst), LevelList/Viewport/Content (VerticalLayoutGroup)
 ```
 
 ---
@@ -583,21 +621,38 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
 18. **Dead-end bir uyarıdır, kayıp değil.** Kayıp yalnızca kuyruk boşken
     (`OutOfBalls`) ilan edilir. `CheckDeadEnd`'i tekrar `EndGame`'e bağlamak booster ve
     undo'yu anlamsız kılar: oyuncunun kurtarabileceği bir koşu elinden alınır.
+19. **Sahne yükleme sırası Init → Boot → Game → UI.** `UICameraStacker` `Camera.main`'i
+    (GameScene) arar; UIScene önce yüklenirse meta UI hiç çizilmez. Sıra `InitSceneLoader`
+    ve `SceneSetBuilder.Order`'da — ikisi birlikte değişir.
+20. **UI layer'ı (5) yalnız meta UI'ındır.** Base kamera onu culling'den çıkarır, Overlay
+    kamera yalnız onu çizer. GameScene'deki bir nesne UI layer'ına konursa görünmez;
+    UIScene'deki bir nesne başka layer'da kalırsa iki kez ya da hiç çizilmez. Runtime'da
+    UI üreten kod parent'ının layer'ını kopyalar (`LevelSelectUI`, `LevelPickerHUD`).
+21. **Runtime'da `Shader.Find` yok.** Build'e yalnız bir asset'in referans verdiği shader'lar
+    girer; `Shader.Find` player'da null döner. Malzeme gereken bileşen `MaterialSet`
+    alır (`materials` alanı, üreteç bağlar).
+22. **Hiçbir yol sahneyi yeniden yüklemez.** Level değişimi `GameFlow.RequestLevel` →
+    `LevelLoader.LoadByName`; UIScene bir reload'da GameScene'in kamerasını kaybederdi.
 
 ---
 
 ## 11. Kod Konvansiyonları
 
+Tam liste ve bilinçli sapmalar: **CLAUDE.md KURAL 5**. Özet:
+
 - Namespace: runtime `CatapultGames`, editör `CatapultGames.Editor`.
-- Private alanlar `_camelCase`; Inspector'a açılanlar `[SerializeField] private`.
+- `[SerializeField] private camelCase` (alt çizgisiz); serileşmeyen private `_camelCase`.
   **`public` alan kullanma** (istisna: `GridCameraController`'ın slider'ları).
-- Referanslar Inspector'dan bağlanır; `GetComponent`/`Find` runtime aramaları kaçınılır.
-  Opsiyonel referanslar `?.` ile korunur (`_board?.Rebuild(...)`).
-- Sahne bağlantıları elle değil `GameplaySceneBuilder` üzerinden kurulur — yeni bir
-  bileşen eklediysen **oraya da eklemelisin**, yoksa sahne yeniden üretildiğinde kaybolur.
-- Animasyonlar `IEnumerator` + `Time.deltaTime` ile elle yazılır (DOTween vb. yok).
-- Yorumlar İngilizce, "neden" odaklı; hizalı `─── Başlık ───` bölüm ayraçları kullanılır.
-- Shader arayışları daima yedekli: `Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard")`.
+- Sınıflar `sealed`, dosya başına tek tip; üye sırası event → property → serialized →
+  private alan → Unity mesajları → public → private metot.
+- Kontrol akışı gövdesi alt satırda; süslü parantez yalnız çok satırlı gövdede; yeni ve
+  dokunulan metotlar ≤ 20 satır.
+- Referanslar sahne üreteçlerinden bağlanır; `GetComponent`/`Find` runtime aramaları kaçınılır.
+  Opsiyonel referanslar `?.` ile korunur (`board?.Rebuild(...)`).
+- UI listener'ları `OnEnable`/`OnDisable`; canvas'lar Screen Space - Camera.
+- Animasyonlar `IEnumerator` + `Time.deltaTime` ile elle yazılır (tween paketi yok).
+- Yorumlar İngilizce, "neden" odaklı; bölüm ayracı yorumu yok.
+- Malzemeler `MaterialSet`'ten; kayıt `SaveStore.Current`'tan.
 - Girdi daima yeni Input System: `Touchscreen.current?.primaryTouch` önce, sonra `Mouse.current`.
 
 ---
@@ -631,9 +686,8 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   `bed37d0`).
 - **Casual sadeleştirme, paket 2 (görsel).** Yuvarlatılmış küpler, açık tahta/soket teması,
   gradient arka plan, bloom + vignette volume, dolu hücre emisyonu, yumuşak gölge, "GREAT!"
-  praise yazısı, renk bitince konfeti + zoom punch, 8+ hücrede hit-stop. **Sahne dosyası
-  `Gameplay2.unity` yeniden üretilmeden bunların çoğu görünmez** — `CatapultGames/Build
-  Gameplay Scene` çalıştırılmalı (ışık, volume, tepsi, etiketler sahneye üreteçle girer).
+  praise yazısı, renk bitince konfeti + zoom punch, 8+ hücrede hit-stop. Işık, volume,
+  tepsi ve etiketler sahneye üreteçle girer (`CatapultGames/Build Scenes`).
   Editor asmdef artık URP runtime assembly'lerine referanslı (Volume/Bloom kurulumu için);
   runtime kodu URP tipine dokunmaz.
 - **Casual sadeleştirme, paket 3 (2026-10-04).** Booster çubuğu (Rainbow / Recolor / Bomb,
@@ -641,8 +695,8 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   `GameConstants.GetStampPath` / `GridRenderer.IsBlocking` silindi), üretici joker vermiyor,
   dead-end oyunu bitirmek yerine uyarı (`GameManager.CheckDeadEnd`, `ResultScreenUI.Reason.DeadEnd`
   silindi). Booster sütununun ve uyarı etiketinin yerleşimi **Unity'de görülmedi** — tepsi
-  topları veya tahta ile çakışıyorsa `GameplaySceneBuilder.MakeBoosterButton` /
-  `WarningLabel` anchor'ları ayarlanır.
+  topları veya tahta ile çakışıyorsa `GameHudBuilder.AddBoosterButton` /
+  `AddWarning` anchor'ları ayarlanır.
 - **Casual sadeleştirme, paket 4 (ses, 2026-10-04).** `GameAudio` tüm sesleri çalışma zamanında
   sentezler (ses varlığı yok, import ayarı yok). Sentez Unity dışında sayısal olarak kontrol
   edildi (NaN yok, tepe 0.70, uçlarda tık yok) ama **kulakla dinlenmedi**; ses tasarımı zevk
@@ -672,21 +726,30 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   **karanlık temasına** dönüldü: tahta `(0.06, 0.07, 0.12)`, boş hücre koyu tona çekilir
   (`CellView.DarkTint`, `RestingMute` 0.35 / `AwaitingMute` 0.12), boş tahta `(0.16, 0.16, 0.20)`,
   arka plan gece mavisi, ambient `(0.26, 0.28, 0.40)`, ışık 1.15, küplerde emisyon yok,
-  gloss 0.22, bloom 0.20 / eşik 1.0 (`EnsurePostProfile` her build'de yeniden yazar), koyu
+  gloss 0.22, bloom 0.20 / eşik 1.0 (`PostFxProfileAsset` her build'de yeniden yazar), koyu
   tepsi, menüler koyu + beyaz yazı. Palet doygun (§ 5).
 - **Faz 5 (2026-10-04):** öğretici ve ipucu bandı kodda; Unity'de görülmedi (parmak ucunun
   hücre/tepsi üstüne oturması, bandın tahtayı ne kadar örttüğü). Öğreticiyi sıfırlayan bir
-  ayar yok (`TutorialHint.ResetDone()` ya da PlayerPrefs temizliği). İpuçları İngilizce; TMP
+  ayar yok (`TutorialHint.ResetDone()` ya da kayıt temizliği). İpuçları İngilizce; TMP
   varsayılan fontunda olmayabilecek karakterlerden (— ★ ✓) kaçınıldı.
-- **Faz 4 (2026-10-04):** menü akışı, ilerleme kaydı ve Next Level kodda hazır; `MainMenu` /
-  `LevelSelect` sahne dosyaları Unity'de `Build Menu Scenes` ile **üretilmedi**, yerleşim
-  görülmedi. Yıldız sistemi BACKLOG'da vardı, istenmediği için **yapılmadı**. İlerlemeyi
+- **Faz 4 (2026-10-04):** menü akışı, ilerleme kaydı ve Next Level kodda hazır; menüler
+  artık UIScene panelleri (aşağıdaki sahne düzeni maddesi). Yıldız sistemi BACKLOG'da vardı, istenmediği için **yapılmadı**. İlerlemeyi
   sıfırlayan bir ayar ekranı yok (`PlayerProgress.ResetAll` hazır).
 - `Assets/_Recovery/0.unity` ve `Assets/TutorialInfo/` (URP şablon artığı) kullanılmıyor.
 - `applicationIdentifier` hâlâ şablon varsayılanı (`com.UnityTechnologies...`).
 - Otomatik test yok (`com.unity.test-framework` kurulu ama test assembly'si yok).
 - `Assets/_Project/Prefabs`, `Sprites`, `Input`, `Scenes` klasörleri boş.
-- Tek oynanış sahnesinin adı hâlâ `Gameplay2.unity` (bkz. § 8).
+- **Sahne düzeni + kod kuralları (2026-10-04).** Şirketin mobil kod kuralları uygulandı
+  (CLAUDE.md KURAL 5): serialized alanlar alt çizgisiz, `sealed`, tek tip/dosya, üye sırası,
+  kontrol akışı biçimi, listener'lar `OnEnable/OnDisable`. `Gameplay2` + `MainMenu` +
+  `LevelSelect` sahneleri yerine **Init → Boot → Game → UI** additive düzeni; sahneler arası
+  iletişim `GameFlow`, menüler panel, level'ler yerinde yüklenir. Canvas'lar Screen Space -
+  Camera, referans 1320×2868 (değerler ×1.35). Runtime `Shader.Find` → `MaterialSet`,
+  `PlayerPrefs` → `SaveStore`. **Unity'de henüz koşturulmadı:** derleme Unity dışında tip
+  kontrolüyle doğrulandı (runtime + editör assembly'leri, 0 hata); sahneler `Build Scenes`
+  ile üretilip görülmeli — özellikle Overlay kamera stack'i, Screen Space - Camera
+  canvas'larda `GameFX` flash'ı ve ölçeklenmiş HUD yerleşimi. Eski `Gameplay2.unity` silindi;
+  Build Settings'i üreteç yazar. 20 satır kuralı eski uzun metotlara toplu uygulanmadı.
 - **Gerçek fizik (Rigidbody uçuşu) denendi ve geri alındı** (2026-08-11). Top gerçek
   fizik gövdesi olarak uçtuğunda uçuş süresi mesafeye bağlı hâle geliyor ve uzak
   atışlar sürükleniyordu; sabit süreli tween daha iyi hissettirdi. Tekrar denenecekse
