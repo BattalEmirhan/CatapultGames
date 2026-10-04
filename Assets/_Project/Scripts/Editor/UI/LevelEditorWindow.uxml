@@ -53,6 +53,7 @@
                 <ui:VisualElement class="cg-card">
                     <ui:Label text="Level" class="cg-card__header" />
                     <ui:TextField name="level-name" label="Name" />
+                    <ui:TextField name="level-hint" label="Hint" tooltip="Optional one-liner shown when the level starts in the game (e.g. a new mechanic). Leave empty for none." />
                     <ui:VisualElement class="cg-row">
                         <ui:IntegerField name="grid-width"  label="W" value="8" class="cg-field--short" />
                         <ui:IntegerField name="grid-height" label="H" value="8" class="cg-field--short" />

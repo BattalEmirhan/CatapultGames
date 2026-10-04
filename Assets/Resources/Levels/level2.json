@@ -2,7 +2,8 @@
     "metadata": {
         "levelName": "level2",
         "author": "LevelBuilder",
-        "version": 1
+        "version": 1,
+        "hint": "Small balls paint a single square. Keep them for the gaps"
     },
     "grid": {
         "width": 8,

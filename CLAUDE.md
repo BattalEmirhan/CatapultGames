@@ -120,6 +120,7 @@ Ses (sentez + çalma, sahne bağlantısı yok)     → Scripts/Shared/GameAudio.
 JSON → sahne yükleme                           → Scripts/Gameplay/LevelLoader.cs
 Level sırası / ilerleme (kazanılan, kilit)     → Scripts/Shared/LevelOrder.cs + PlayerProgress.cs
 Menü ekranları                                 → Scripts/UI/MainMenuUI.cs + LevelSelectUI.cs
+Öğretici + level ipucu bandı                   → Scripts/Gameplay/UI/TutorialHint.cs
 Girdi (hücreye dokun → ateş)                   → Scripts/Gameplay/Ball/TapLaunchController.cs
 Nişan önizleme (yay + boyanacak hücreler)      → Scripts/Gameplay/Aim/AimPreview.cs
 Sahne kurulumu (referans bağlama)              → Scripts/Editor/GameplaySceneBuilder.cs

@@ -51,6 +51,24 @@ namespace CatapultGames
         // mirrors this as SelectableSlots; keep them equal.
         public int SlotCount => _slots?.Length ?? 0;
 
+        public int SelectedSlot => _selectedSlot;
+
+        // A tray ball was picked (the tap that selects, not a throw). TutorialHint
+        // waits on it; gameplay itself reads the reordered queue instead.
+        public event System.Action<int> OnSlotSelected;
+
+        // The ball shown in a tray slot and where it sits, for anything that has to
+        // point at the tray (the tutorial). False for an empty slot.
+        public bool TryGetSlotBall(int slot, out BallData ball, out Vector3 position)
+        {
+            ball = null; position = default;
+            if (_slots == null || slot < 0 || slot >= SlotCount || !_slots[slot]) return false;
+            if (_slotOffset == null || _slotOffset[slot] < 0 || _slotBalls[slot] == null) return false;
+            ball     = _slotData[slot];
+            position = _slots[slot].position;
+            return ball != null;
+        }
+
         // Where the selected ball sits — the arc starts here (BallLauncher /
         // AimPreview / TapLaunchController all ask, so the shot leaves the tray).
         public Vector3 CurrentLaunchOrigin
@@ -228,7 +246,7 @@ namespace CatapultGames
             if (_queue == null || slot < 0 || slot >= SlotCount) return false;
             int q = _slotOffset[slot];
             if (q < 0) return false;
-            if (q == 0) { _selectedSlot = slot; RefreshLook(); return true; }
+            if (q == 0) { _selectedSlot = slot; RefreshLook(); OnSlotSelected?.Invoke(slot); return true; }
 
             _expectQueueChange = true;
             bool ok = _queue.SelectSlot(q);
@@ -240,6 +258,7 @@ namespace CatapultGames
             _slotOffset[slot] = 0;
             _selectedSlot     = slot;
             RefreshLook();
+            OnSlotSelected?.Invoke(slot);
             return true;
         }
 

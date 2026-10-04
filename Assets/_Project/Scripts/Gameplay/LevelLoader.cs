@@ -21,6 +21,7 @@ namespace CatapultGames
         [SerializeField] private LaunchAreaAnchor     _launchAnchor; // optional — pins balls to screen bottom
         [SerializeField] private GameManager          _gameManager;  // optional — score reset on load
         [SerializeField] private BoosterSystem        _boosters;     // optional — booster counts per level
+        [SerializeField] private TutorialHint         _tutorial;     // optional — first-run tutorial + level hint
 
         [Header("Fallback")]
         [SerializeField] private string _defaultLevelName = "Level_01";
@@ -93,6 +94,7 @@ namespace CatapultGames
             // otherwise carry over.
             _gameManager?.BeginRun(_currentLevelName);
             _boosters?.ResetForLevel();
+            _tutorial?.BeginLevel(_currentLevelName, data.metadata?.hint);
         }
 
         // Strip null entries and clamp powerLevel to 1-3 so bad JSON never crashes gameplay.

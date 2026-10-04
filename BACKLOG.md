@@ -15,7 +15,7 @@
 | **Faz 2** — Merhamet | ✅ Bitti (F2-1, F2-2, F2-3) + kurtarma topu seçimi elden geçirildi |
 | **Faz 3** — Okunabilirlik | ✅ Bitti (F3-1, F3-2, F3-3, F3-4) |
 | **Faz 4** — İlerleme ve meta | ✅ Kodda bitti (2026-10-04) — F4-1 yıldızlar **iptal**, F4-2/3/4 yapıldı; sahneler Unity'de üretilmeli |
-| **Faz 5** — Öğretici | ⬜ Başlanmadı |
+| **Faz 5** — Öğretici | ✅ Kodda bitti (2026-10-04) — F5-1 parmak işareti, F5-2 `metadata.hint`; Unity'de görülmedi |
 | **Faz 6** — Derinlik | ✅ Bitti (F6-1, F6-2, F6-3, F6-4) |
 | **Faz 7** — Büyüme | ⬜ Başlanmadı |
 
@@ -113,7 +113,11 @@ göre veriliyor ve şu anki bolluk oranları anlamsız sayı üretir. **Faz 4'te
 | F4-3 | `LevelSelect` sahnesi — **kod yazılmış, sahne dosyası yok**. `GameplaySceneBuilder` desenini izleyen bir üreteçle kur (`CatapultGames/Build Menu Scenes`), Build Settings'e ekle | + `Assets/Scenes/LevelSelect.unity`, + `Editor/MenuSceneBuilder.cs` | 3–4 sa |
 | F4-4 | `MainMenu` sahnesi — aynı eksik | + `Assets/Scenes/MainMenu.unity` | 2 sa |
 
-### Faz 5 — Öğretici ⬜ (~1 gün) · Faz 1-5'e bağımlı
+### Faz 5 — Öğretici ✅ (kodda bitti, 2026-10-04)
+
+> F5-1: `Gameplay/UI/TutorialHint.cs` — ilk level, ilk oynayış, iki adım (hücreye dokun, tepsiden
+> top seç). F5-2: `LevelMetadata.hint` + editörde Hint alanı + sahnede ipucu bandı; `level2–4`'e
+> ipucu yazıldı. Ayrıntı: `docs/ARCHITECTURE.md` § 7 `TutorialHint`. Aşağıdaki tablo orijinal plandır.
 
 | ID | İş | Dosyalar | Süre |
 |---|---|---|---|

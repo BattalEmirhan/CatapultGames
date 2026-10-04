@@ -87,6 +87,7 @@ namespace CatapultGames.Editor
                               _colorRow, _typeRow, _selectionRow, _cameraDiagram;
         private SliderInt _brushRadiusSlider;
         private TextField _levelName;
+        private TextField _levelHint;
         private IntegerField _gridW, _gridH, _batchCount, _genSeedField;
         private FloatField _cellSize;
         private DropdownField _batchColor, _batchShape, _genBandDd;
@@ -453,6 +454,13 @@ namespace CatapultGames.Editor
                 RefreshFileCard();
             });
 
+            _levelHint = Find<TextField>("level-hint");
+            _levelHint?.RegisterValueChangedCallback(e =>
+            {
+                _level.metadata.hint = e.newValue;
+                RefreshTitlebar();   // dirty marker
+            });
+
             _gridW = Find<IntegerField>("grid-width");
             _gridH = Find<IntegerField>("grid-height");
             BindButton("grid-apply", () =>
@@ -507,6 +515,7 @@ namespace CatapultGames.Editor
         private void RefreshLevelCard()
         {
             _levelName?.SetValueWithoutNotify(_level.metadata.levelName ?? "");
+            _levelHint?.SetValueWithoutNotify(_level.metadata.hint ?? "");
             _gridW?.SetValueWithoutNotify(_level.grid.width);
             _gridH?.SetValueWithoutNotify(_level.grid.height);
             _cellSize?.SetValueWithoutNotify(_level.grid.cellSize);
@@ -1049,9 +1058,11 @@ namespace CatapultGames.Editor
             _genStatus?.RemoveFromClassList("cg-danger");
             PushUndo();
             string keepName = _level.metadata?.levelName;
+            string keepHint = _level.metadata?.hint;
             _level = built;
             LevelEditOps.Normalize(_level);
             if (!string.IsNullOrEmpty(keepName) && keepName != "Untitled") _level.metadata.levelName = keepName;
+            _level.metadata.hint = keepHint ?? "";   // a regenerated board still teaches what the slot teaches
             _selection.Clear();
             ResetPlayback();
             RefreshEverything();

@@ -67,6 +67,15 @@ yerden okuyordu; art arda gelen praise yazısı her seferinde biraz daha yukarı
   `LevelSelect.unity`'yi üretir, Build Settings'i MainMenu = index 0 olacak şekilde sıralar.
 - `LevelPickerHUD` artık sayısal sırada listeliyor (level10 eskiden level2'den önce geliyordu).
 
+## 2c. Faz 5 — öğretici (2026-10-04, üçüncü commit)
+
+- `Gameplay/UI/TutorialHint.cs`: ilk level'in ilk oynanışında parmak ucu (1) en iyi hücreye
+  dokunmayı, (2) tepsiden başka renk top seçmeyi gösterir; bitince `TutorialDone` yazılır.
+- `LevelMetadata.hint` + level başında ipucu bandı (4 sn ya da ilk atışa kadar). Editörde Level
+  kartında **Hint** alanı; Generate / Produce mevcut ipucunu korur. `level2–4`'e ipucu yazıldı.
+- `BallQueueView`: `SelectedSlot`, `TryGetSlotBall`, `OnSlotSelected`. `Shared/UiSprites.cs`:
+  runtime disk/halka sprite'ı.
+
 ## 3. Sıradaki adım: Unity'de doğrulama (zorunlu)
 
 **Hiçbir paket Play modunda izlenmedi.** Bu oturum da Unity olmadan, yalnızca derleme
@@ -89,6 +98,9 @@ kontrolüyle (bkz. § 4) yapıldı.
      açık, kazanınca sonraki açılıyor mu; Next Level son level'de gizli mi; LevelSelect
      kaydırması. Testte ilerlemeyi sıfırlamak için `PlayerPrefs` temizlenir
      (Edit → Clear All PlayerPrefs) — oyunda bir sıfırlama butonu yok.
+   - **Öğretici:** level1'i ilk kez aç (PlayerPrefs temiz): parmak ucu bir hücrenin tam üstünde
+     mi, atınca tepsideki başka renk topa geçiyor mu, ikinci açılışta çıkmıyor mu. level2'de
+     ipucu bandı görünüp ilk atışta sönüyor mu. Level editöründe Hint alanı görünüyor mu.
    - Paket 1–2'den kalanlar: tepsi yuvaları (x = ±1.65), "+N" sayacı, 66° kadraj, bloom
      yoğunluğu (`GameplayPostFX.asset`), `RoundedCubeMesh` ince plakalarda.
 4. Unity'nin kendi derlemesinde hata çıkarsa büyük ihtimalle Unity 6 / paket API farkıdır
@@ -119,7 +131,7 @@ dotnet build tools/compile-check/Editor.Check.csproj    # GameplaySceneBuilder +
 `BACKLOG.md`'deki fazlardan başlanmamış olanlar (paketler bunları kapsamıyordu):
 
 - ~~Faz 4~~ kodda bitti (bkz. § 2b); yıldızlar iptal. Sahneler Unity'de üretilmeli.
-- **Faz 5 — öğretici:** ilk atış ipucu, level'e gömülü `hint`.
+- ~~Faz 5~~ kodda bitti (bkz. § 2c).
 - **Faz 7 — büyüme:** fotoğraftan level, günlük bulmaca, telemetri.
 - **Faz 1** (eski level verisi) 2026-09-15'teki yeniden üretimle büyük ölçüde geçersiz;
   yeni level1–5 Unity'de oynanarak doğrulanmalı.

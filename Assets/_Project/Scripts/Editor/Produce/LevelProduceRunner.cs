@@ -103,6 +103,10 @@ namespace CatapultGames.Editor
                 }
 
                 level.metadata.levelName = row.name;   // file stem = level identity
+                // The hint belongs to the level SLOT (what level n teaches), not to
+                // the board that happened to be generated there — keep it.
+                if (System.IO.File.Exists(path))
+                    level.metadata.hint = LevelSerializer.Load(path)?.metadata?.hint ?? "";
                 LevelSerializer.Save(level, path);     // in place → GUID kept
                 row.status = ProduceStatus.Written;
                 row.note   = $"{LevelDifficultySchedule.Label(band)} · {level.grid.width}×{level.grid.height} · " +

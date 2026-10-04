@@ -2,7 +2,8 @@
     "metadata": {
         "levelName": "level4",
         "author": "LevelBuilder",
-        "version": 1
+        "version": 1,
+        "hint": "Stuck? A booster on the left can save the throw"
     },
     "grid": {
         "width": 8,

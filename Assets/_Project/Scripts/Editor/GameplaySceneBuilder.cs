@@ -365,6 +365,45 @@ namespace CatapultGames.Editor
             SetRef(scoreHUD, "_praiseLabel", praiseTMP);
             SetFloat(scoreHUD, "_burstDuration", 0.95f);
 
+            // ── Tutorial + level hint (Faz 5) ─────────────────────────────
+            // Built after the other canvas children so the fingertip draws on top
+            // of the buttons it points at. Nothing here is a raycast target.
+            var tutorialGo = new GameObject("TutorialHint");
+            var tutorial   = tutorialGo.AddComponent<TutorialHint>();
+
+            var hintGroup = MakePanel(canvasGo.transform, "LevelHint",
+                                      new Vector2(0.08f, 0.63f), new Vector2(0.92f, 0.69f), out var hintTMP, 40);
+            var captionGroup = MakePanel(canvasGo.transform, "TutorialCaption",
+                                         new Vector2(0.25f, 0.19f), new Vector2(0.75f, 0.245f), out var captionTMP, 40);
+
+            var pointerGo = new GameObject("TutorialPointer", typeof(RectTransform));
+            pointerGo.transform.SetParent(canvasGo.transform, false);
+            var pointerRect = (RectTransform)pointerGo.transform;
+            pointerRect.anchorMin = pointerRect.anchorMax = new Vector2(0.5f, 0.5f);
+            pointerRect.sizeDelta = new Vector2(110f, 110f);
+            var pointerImg = pointerGo.AddComponent<Image>();   // sprite is made at runtime (UiSprites)
+            pointerImg.raycastTarget = false;
+            pointerImg.color = new Color(1f, 1f, 1f, 0f);
+            var ringGo = new GameObject("Ring", typeof(RectTransform));
+            ringGo.transform.SetParent(pointerGo.transform, false);
+            StretchToParent((RectTransform)ringGo.transform);
+            var ringImg = ringGo.AddComponent<Image>();
+            ringImg.raycastTarget = false;
+            ringImg.color = new Color(1f, 1f, 1f, 0f);
+
+            SetRef(tutorial, "_camera",       cam);
+            SetRef(tutorial, "_grid",         grid);
+            SetRef(tutorial, "_queue",        queue);
+            SetRef(tutorial, "_queueView",    queueView);
+            SetRef(tutorial, "_launcher",     launcher);
+            SetRef(tutorial, "_gameManager",  gm);
+            SetRef(tutorial, "_pointer",      pointerRect);
+            SetRef(tutorial, "_pointerRing",  ringImg);
+            SetRef(tutorial, "_captionGroup", captionGroup);
+            SetRef(tutorial, "_caption",      captionTMP);
+            SetRef(tutorial, "_hintGroup",    hintGroup);
+            SetRef(tutorial, "_hintLabel",    hintTMP);
+
             // ── Level picker HUD (dev tool — top-right dropdown) ──────────
             var pickerGo = new GameObject("LevelPickerHUD");
             var picker   = pickerGo.AddComponent<LevelPickerHUD>();
@@ -388,6 +427,7 @@ namespace CatapultGames.Editor
             SetRef(loader,  "_launchAnchor",     launchAnchor);
             SetRef(loader,  "_gameManager",      gm);      // resets the score per level
             SetRef(loader,  "_boosters",         boosters); // refills the booster counts per level
+            SetRef(loader,  "_tutorial",         tutorial); // first-run tutorial + level hint banner
             SetStr(loader,  "_defaultLevelName", "level1");
             SetRef(picker,  "_loader",           loader);
 
@@ -615,6 +655,30 @@ namespace CatapultGames.Editor
             countLabel.fontStyle     = FontStyles.Bold;
             countLabel.raycastTarget = false;
             return btn;
+        }
+
+        // A hidden text strip on a translucent dark backing (the HUD's white text
+        // needs it over the light board), faded by its CanvasGroup.
+        private static CanvasGroup MakePanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax,
+                                             out TextMeshProUGUI label, int fontSize)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var r = (RectTransform)go.transform;
+            r.anchorMin = anchorMin; r.anchorMax = anchorMax;
+            r.offsetMin = r.offsetMax = Vector2.zero;
+            var bg = go.AddComponent<Image>();
+            bg.color = new Color(0.10f, 0.12f, 0.22f, 0.55f);
+            bg.raycastTarget = false;
+            var group = go.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable   = false;
+
+            label = MakeText(go.transform, "Text", "", fontSize, Vector2.zero, Vector2.one).GetComponent<TextMeshProUGUI>();
+            label.fontStyle     = FontStyles.Bold;
+            label.raycastTarget = false;
+            return group;
         }
 
         internal static void StretchToParent(RectTransform r)

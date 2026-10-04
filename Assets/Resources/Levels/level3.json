@@ -2,7 +2,8 @@
     "metadata": {
         "levelName": "level3",
         "author": "LevelBuilder",
-        "version": 1
+        "version": 1,
+        "hint": "Missed? Undo takes back your last throw"
     },
     "grid": {
         "width": 8,
