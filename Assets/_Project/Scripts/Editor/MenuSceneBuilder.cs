@@ -24,10 +24,10 @@ namespace CatapultGames.Editor
         private static string MainMenuPath    => $"{SceneFolder}/{MainMenuSceneName}.unity";
         private static string LevelSelectPath => $"{SceneFolder}/{LevelSelectSceneName}.unity";
 
-        // The same sky tone the gameplay camera falls back to, so the menus and the
+        // The same dark tone the gameplay camera falls back to, so the menus and the
         // board read as one game.
-        private static readonly Color Background = new Color(0.78f, 0.86f, 0.98f);
-        private static readonly Color Ink        = new Color(0.22f, 0.26f, 0.40f);
+        private static readonly Color Background = new Color(0.07f, 0.09f, 0.15f);
+        private static readonly Color Ink        = Color.white;
 
         [MenuItem("CatapultGames/Build Menu Scenes", priority = 21)]
         public static void Build()
@@ -178,8 +178,7 @@ namespace CatapultGames.Editor
             return go.transform;
         }
 
-        // Menu text sits on the light background, so it is dark ink rather than the
-        // white the gameplay HUD uses.
+        // Menu text: white on the dark background, like the gameplay HUD.
         private static void StyleInk(GameObject textGo, FontStyles style)
         {
             var tmp = textGo.GetComponent<TextMeshProUGUI>();

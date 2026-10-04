@@ -161,7 +161,7 @@ Projenin **kural merkezi**. Hem runtime hem editör (validator, auto-solver) bur
 | `ColorMatches(cellColor, cellType, ballColor)` | **Eşleşme kararının tek yeri.** `Joker` her rengi kabul eder, `Stone` hiçbirini, boş tahta hücresi hedef değildir; `Any` (gökkuşağı) top her gerçek hedefi doldurur |
 | `GetRequiredHits(cellType)` | Hücrenin dolmak için yediği vuruş sayısı — `Ice` 2, diğerleri 1 |
 | `PointsPerCell = 10` · `GetShotMultiplier(cells)` · `GetComboMultiplier(streak)` · `MaxComboMultiplier = 5` | Skor kuralı. Yoğunluk çarpanı 1/2/3/4 (eşikler 1, 2, 4, 8 hücre), kombo çarpanı = üst üste boyayan atış sayısı (5'te tavan). Toplamı `GameManager` tutar |
-| `CellColorPalette` (`Color32[9]`) | **İndeksleri `CellColor` enum'ıyla birebir aynı olmalı.** 2026-10-04'ten beri **okunabilirlik paleti** (3D küp görünümü aynı kaldı, yalnızca tonlar değişti): yedi tam doygun ton — Red→kırmızı, Green→yeşil, Blue→mavi, Black→**turuncu**, White→sarı, Pink→**camgöbeği**, Purple→**pembe (magenta)**; Any→gökkuşağı topunun tabanı. **Ölçülerek** ayarlandı (CIELAB ΔE): dolu küplerde en yakın çift kırmızı/turuncu ΔE 52; eski pastel sette ΔE 36'ydı (gök/lacivert, mercan/pembe). Boş hücrelerde `CellView` yıkaması (`RestingMute` 0.30) ile en yakın çift ΔE 39 — yıkamayı artırmak bu farkı hızla yer (0.62'de ΔE 21). Enum adları JSON uyumluluğu için eski kimliklerdir; oyuncuya ve editöre görünen ad `GetColorDisplayName` |
+| `CellColorPalette` (`Color32[9]`) | **İndeksleri `CellColor` enum'ıyla birebir aynı olmalı.** 2026-10-04'ten beri **okunabilirlik paleti** (3D küp görünümü aynı kaldı, yalnızca tonlar değişti): yedi tam doygun ton — Red→kırmızı, Green→yeşil, Blue→mavi, Black→**turuncu**, White→sarı, Pink→**camgöbeği**, Purple→**pembe (magenta)**; Any→gökkuşağı topunun tabanı. **Ölçülerek** ayarlandı (CIELAB ΔE): dolu küplerde en yakın çift kırmızı/turuncu ΔE 52; eski pastel sette ΔE 36'ydı (gök/lacivert, mercan/pembe). Boş hücrelerde `CellView` koyulaştırması (`RestingMute` 0.35) ile en yakın çift ΔE 39 — artırmak bu farkı hızla yer (0.54'te ΔE 29; eski açık temanın 0.62 beyaz yıkamasında ΔE 21). Enum adları JSON uyumluluğu için eski kimliklerdir; oyuncuya ve editöre görünen ad `GetColorDisplayName` |
 | `GetColor` / `GetColorF` | Palet erişimi |
 | `GetColorDisplayName(c)` | Oyuncuya ve level editörüne gösterilen renk adı (Black→"Orange", White→"Yellow", Pink→"Cyan", Purple→"Pink"). Editör swatch tooltip'i ve kapsama satırları da bunu yazar. Bir rengi **adıyla** anan her metin (ör. dead-end uyarısı) buradan okur, enum adından değil |
 
@@ -344,17 +344,17 @@ araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri 
 | `LevelLoader.cs` | Mono | JSON → sahne. `LoadByName(name)`, `Apply(LevelData)`, statik `SelectLevel/ClearSelection` (PlayerPrefs `"SelectedLevel"`). `LoadByName` başarılı yüklemeyi `SelectLevel` ile de kaydeder (Retry aynı level'i açsın). `Apply` sonunda `GameManager.BeginRun(ad)` — level seçici sahneyi yeniden yüklemiyor; `Apply(data)` dışarıdan çağrılırsa ad `null` olur (ilerleme kaydedilmez) |
 | `LaunchAreaAnchor.cs` | Mono | Tepsi kökünü ekranın alt bandına sabitler (`_screenY=0.10`). Sadece çözünürlük değişince yeniden hesaplar (shake ile titremesin diye) |
 | `BoosterSystem.cs` | Mono | Üç booster (`BoosterType`: `Rainbow` / `Recolor` / `Bomb`) ve level başına sayaçları (`_perLevel`). `CanUse(type)` (sayaç, `IsOver`, seçili top var mı, etkisi olacak mı), `Use(type)` seçili tepsi topunun `BallData`'sını **yerinde** değiştirir ve `BallQueue.NotifyCurrentChanged()` çağırır — tepsi, nişan ve fırlatıcı yeni topu kendi mevcut yollarından görür, ikinci bir "hangi top" kavramı yok. `Recolor` = en çok boş hücresi kalan renk. `ResetForLevel()` (`LevelLoader`), `OnChanged` event'i |
-| `BackgroundGradient.cs` | Mono | Kameraya bağlı, frustum'u dolduran tek unlit quad + çalışma zamanında üretilen 1×64 gradient dokusu (gök mavisi → lavanta krem). Aspect değişince yeniden boyutlanır; materyal/doku `OnDestroy`'da yok edilir |
+| `BackgroundGradient.cs` | Mono | Kameraya bağlı, frustum'u dolduran tek unlit quad + çalışma zamanında üretilen 1×64 gradient dokusu (gece mavisi → neredeyse siyah). Aspect değişince yeniden boyutlanır; materyal/doku `OnDestroy`'da yok edilir |
 
 ### `Scripts/Gameplay/Grid/`
 
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
 | `GridRenderer.cs` | Mono | Izgaranın sahibi. `BuildGrid/ClearGrid`, `TryGetCell/GetCell`, `SetFilled(Batch)`, **`ApplyHit(x,y)`** (bir damga vuruşu; dolduysa `true` — boyama dalgası bunu kullanır) ve **`UndoHit(x,y)`**, `SetHighlight/SetPreview/SetFootprint/ClearHighlights` (üçü birlikte temizlenir), `SetActiveColor(color)` (mancınıktaki rengin boş hücrelerini vurgular — joker hücreleri **her** renkte parlar), `GridToWorld/WorldToGrid/RaycastToGrid/RaycastToGridClamped`, `CountByColor()` (tahsissiz, enum sırasında), `AllColoredCellsFilled()`, **`HasUnfilledWildCells()`** (purge kapısı), `WorldCenter`, `PulseColor`. `OnGridChanged` event'i. Tüm sayımlar `CellView.IsPaintTarget` üzerinden geçer → **taş hiçbir yerde hedef sayılmaz** |
-| `CellView.cs` | Mono | Tek hücre = **yuvarlatılmış** küp (`RoundedCubeMesh`, r 0.14). Dolu `FullH=0.80`, boş `ThinH=0.11`, `CubeGap=0.86`, taş `StoneH=0.50`, çatlak buz `CrackedH=0.35`. Açık tahta teması (2026-09-15): boş hedef = hedef renginin soluk yıkaması (`WashTint`), boş tahta = açık gri soket, dolu = tam renk + `_EmissionColor` 0.22× (bloom ile şeker parlaklığı; `_EMISSION` keyword'ü paylaşılan baz materyalde açık, batch bozulmaz). `Type` (`CellType`), `HitsTaken`/`HitsRequired`, **`IsFilled` türetilmiştir** (`HitsTaken >= HitsRequired` — "çatlak" ayrı bir durum değil), `IsPaintTarget` (taş ve boş tahta hariç). `SetFilled` (tümden dolu/boş), **`AddHit()`** (dolarsa RisePunch, dolmazsa CrackPunch), **`RemoveHit()`** (undo), `SetHighlight`, `SetPreview` (nefes alan hayalet — yalnız çatlatacak atışta **çatlak yüksekliğine** kadar kalkar, önizleme yalan söylemez), `SetFootprint`, `SetAwaiting`, `Pulse(delay)`. **`Refresh()` tek toplayıcıdır:** tip, hit sayısı, `_awaiting` ve `_footprint` orada okunur. **Her hücrenin kendi `Material` örneği ama tek ortak shader var → SRP Batcher tek batch'te toplar; MaterialPropertyBlock KULLANMA** |
+| `CellView.cs` | Mono | Tek hücre = **yuvarlatılmış** küp (`RoundedCubeMesh`, r 0.14). Dolu `FullH=0.80`, boş `ThinH=0.11`, `CubeGap=0.86`, taş `StoneH=0.50`, çatlak buz `CrackedH=0.35`. Karanlık tema (2026-10-04): boş hedef = hedef renginin koyu tonu (`DarkTint`'e doğru `RestingMute` 0.35, eldeki renkte `AwaitingMute` 0.12), boş tahta = koyu soket `EmptyBase`, dolu = tam renk, emisyon yok, gloss 0.22 (güçlü yansıma rengin üstüne beyaz leke basıyordu). `Type` (`CellType`), `HitsTaken`/`HitsRequired`, **`IsFilled` türetilmiştir** (`HitsTaken >= HitsRequired` — "çatlak" ayrı bir durum değil), `IsPaintTarget` (taş ve boş tahta hariç). `SetFilled` (tümden dolu/boş), **`AddHit()`** (dolarsa RisePunch, dolmazsa CrackPunch), **`RemoveHit()`** (undo), `SetHighlight`, `SetPreview` (nefes alan hayalet — yalnız çatlatacak atışta **çatlak yüksekliğine** kadar kalkar, önizleme yalan söylemez), `SetFootprint`, `SetAwaiting`, `Pulse(delay)`. **`Refresh()` tek toplayıcıdır:** tip, hit sayısı, `_awaiting` ve `_footprint` orada okunur. **Her hücrenin kendi `Material` örneği ama tek ortak shader var → SRP Batcher tek batch'te toplar; MaterialPropertyBlock KULLANMA** |
 | `PaintingSystem.cs` | static | Boyama kuralı uygulayıcı (canlı ızgara üstünde): `Paint` (mutasyon), `Preview` (salt okuma), `PaintTargetsOrdered` (iniş noktasına yakınlık sırasıyla), `CountPaintable`. İki kuralı da `GameConstants`'tan okur (şekil / eşleşme); taş bir delik olduğu için ayrı bir erişim kontrolü yoktur |
 | `GridCameraController.cs` | Mono | Tek perspektif kamera. `FitToGrid(grid, camCfg)` FOV + tilt + padding + `gridScreenPos`'tan konumu otomatik çözer. Sahne `FrontZ = -9f` sabitiyle mancınığı da kadraja alır |
-| `GridBoard.cs` | Mono | Izgaranın altındaki **açık, yuvarlak köşeli plaka** (`RoundedCubeMesh`, üst yüzü Y=0, gölge alır). `Rebuild(GridConfig)` |
+| `GridBoard.cs` | Mono | Izgaranın altındaki **koyu, yuvarlak köşeli plaka** `(0.06, 0.07, 0.12)` (`RoundedCubeMesh`, üst yüzü Y=0, gölge alır). `Rebuild(GridConfig)` |
 
 ### `Scripts/Gameplay/Ball/`
 
@@ -452,13 +452,13 @@ araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri 
 ### Sahne hiyerarşisi (`GameplaySceneBuilder`'ın ürettiği)
 
 ```
-DirectionalLight      (yumuşak gölge, açık ambient)
+DirectionalLight      (yumuşak gölge, loş serin ambient)
 GridCamera            (MainCamera tag, GridCameraController, BackgroundGradient, AudioListener, post-processing açık)
-PostFX                (global Volume → Assets/Settings/GameplayPostFX.asset: Bloom 0.55, Vignette 0.18)
+PostFX                (global Volume → Assets/Settings/GameplayPostFX.asset: Bloom 0.20 / eşik 1.0, Vignette 0.18 — her build'de yazılır)
 GridRoot              (GridRenderer + GridBoard)   → Cell_x_y çocukları runtime'da
 BallQueue             (BallQueue + BallQueueView)
 LaunchArea            (LaunchAreaAnchor)           konum ~(5.5, 0, -8)
-├─ TrayPlate                                      açık renk plaka
+├─ TrayPlate                                      koyu plaka (tahtayla aynı aile)
 ├─ TraySlots/Slot_0..Slot_2                       x = −1.65 / 0 / +1.65, y = 0.62
 ├─ LaunchOrigin                                   yedek origin (orta yuva)
 └─ Catapult (dekor, 0.7 ölçek, tepsinin arkasında)
@@ -666,9 +666,14 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   (`GameConstants` + `CoverageAnalyzer` + `LevelAutoSolver` + `LevelValidator` gerçek
   dosyaları, sahte `UnityEngine` tipleriyle derlenir). Kalıcı bir test assembly'si
   eklenirse ilk taşınacak şey bu.
-- **Görünüm 3D kalır (2026-10-04).** Tahtayı 2D sprite'lara (block-match yapısı) çeviren bir
-  deneme yapıldı ve istenmediği için geri alındı; yuvarlak küpler, açık tahta ve sahne
-  korunuyor. Okunabilirlik yalnızca renkle sağlandı (§ 5 palet, `CellView.RestingMute`).
+- **Görünüm 3D kalır, tema karanlık (2026-10-04).** Tahtayı 2D sprite'lara çeviren bir deneme
+  geri alındı; yuvarlak küpler kalıyor. Paket 2'nin **açık tema**sı (açık tahta, gökyüzü/krem
+  arka plan, parlak ambient, emisyon + güçlü bloom) renkleri soldurduğu için paket 1 öncesinin
+  **karanlık temasına** dönüldü: tahta `(0.06, 0.07, 0.12)`, boş hücre koyu tona çekilir
+  (`CellView.DarkTint`, `RestingMute` 0.35 / `AwaitingMute` 0.12), boş tahta `(0.16, 0.16, 0.20)`,
+  arka plan gece mavisi, ambient `(0.26, 0.28, 0.40)`, ışık 1.15, küplerde emisyon yok,
+  gloss 0.22, bloom 0.20 / eşik 1.0 (`EnsurePostProfile` her build'de yeniden yazar), koyu
+  tepsi, menüler koyu + beyaz yazı. Palet doygun (§ 5).
 - **Faz 5 (2026-10-04):** öğretici ve ipucu bandı kodda; Unity'de görülmedi (parmak ucunun
   hücre/tepsi üstüne oturması, bandın tahtayı ne kadar örttüğü). Öğreticiyi sıfırlayan bir
   ayar yok (`TutorialHint.ResetDone()` ya da PlayerPrefs temizliği). İpuçları İngilizce; TMP

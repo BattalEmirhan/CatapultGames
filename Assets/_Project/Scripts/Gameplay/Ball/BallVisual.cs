@@ -58,7 +58,7 @@ namespace CatapultGames
                          ?? Shader.Find("Standard");
             _bodyMat = new Material(litShader) { color = _color };
             if (_bodyMat.HasProperty("_Smoothness"))
-                _bodyMat.SetFloat("_Smoothness", 0.55f);   // candy gloss
+                _bodyMat.SetFloat("_Smoothness", 0.25f);   // low gloss: keep the colour readable
             if (color == CellColor.Any) EnsureRainbowMaterials(litShader);
 
             // Overall footprint of the body, whatever the shape. Runs and crosses
@@ -87,7 +87,7 @@ namespace CatapultGames
             for (int i = 0; i < 7; i++)
             {
                 _rainbowMats[i] = new Material(shader) { color = GameConstants.GetColorF((CellColor)(i + 1)) };
-                if (_rainbowMats[i].HasProperty("_Smoothness")) _rainbowMats[i].SetFloat("_Smoothness", 0.6f);
+                if (_rainbowMats[i].HasProperty("_Smoothness")) _rainbowMats[i].SetFloat("_Smoothness", 0.25f);
             }
         }
 

@@ -39,18 +39,20 @@ namespace CatapultGames.Editor
             EnsureLayer("CG_Grid");
 
             // ── Lighting ──────────────────────────────────────────────────
-            // Bright, warm key light with soft shadows on a light ambient — the toy
-            // blocks need a visible but gentle shadow to sit on the pale board.
+            // Warm key light with soft shadows over a dim ambient — the dark theme:
+            // the cubes are lit, the board around them stays in shadow.
             var lightGo = new GameObject("DirectionalLight");
             var light   = lightGo.AddComponent<Light>();
             light.type      = LightType.Directional;
             light.color     = new Color(1f, 0.96f, 0.90f);
-            light.intensity = 1.05f;
+            light.intensity = 1.15f;
             light.shadows   = LightShadows.Soft;
             light.shadowStrength = 0.55f;
             light.transform.rotation = Quaternion.Euler(58f, -28f, 0f);
             RenderSettings.ambientMode  = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.58f, 0.60f, 0.70f);
+            // Dim, cool ambient (the dark theme's): bright ambient lifts every face
+            // toward grey and is what made the cubes look washed out.
+            RenderSettings.ambientLight = new Color(0.26f, 0.28f, 0.40f);
 
             // ── Single Perspective Camera — full screen, all layers ───────
             // Renders grid cubes, catapult, trajectory, and queue together.
@@ -63,15 +65,15 @@ namespace CatapultGames.Editor
             cam.orthographic = false;
             cam.fieldOfView  = 60f;
             cam.clearFlags   = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.78f, 0.86f, 0.98f);   // fallback behind the gradient quad
+            cam.backgroundColor = new Color(0.07f, 0.09f, 0.15f);   // fallback behind the gradient quad
             cam.cullingMask  = -1;  // render everything
             cam.depth        = 0;
-            camGo.AddComponent<BackgroundGradient>();   // sky → cream gradient behind everything
+            camGo.AddComponent<BackgroundGradient>();   // dark night-blue gradient behind everything
             camGo.AddComponent<AudioListener>();        // GameAudio plays 2D one-shots; something has to hear them
 
-            // Post-processing: a touch of bloom so filled cells shine (CellView adds
-            // emission), and a soft vignette. The profile is a real asset so the
-            // saved scene keeps its reference; rebuilding reuses it.
+            // Post-processing: a faint bloom on the brightest highlights and a soft
+            // vignette. The profile is a real asset so the saved scene keeps its
+            // reference; rebuilding reuses it and rewrites its values.
             var camData = cam.GetUniversalAdditionalCameraData();
             camData.renderPostProcessing = true;
             var postGo = new GameObject("PostFX");
@@ -114,7 +116,7 @@ namespace CatapultGames.Editor
             // Tray plate — the light slab the three balls sit on.
             AddDeco(launchAreaGo.transform, "TrayPlate", PrimitiveType.Cube,
                     new Vector3(0f, 0.12f, 0f), new Vector3(5.4f, 0.24f, 1.9f),
-                    litShader, new Color(0.94f, 0.92f, 0.89f));
+                    litShader, new Color(0.13f, 0.14f, 0.21f));   // dark, like the board
 
             // Slots: left → right. The selected ball is lifted above its slot by
             // BallQueueView, and the arc starts from wherever that ball is.
@@ -474,17 +476,22 @@ namespace CatapultGames.Editor
         private static VolumeProfile EnsurePostProfile()
         {
             var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(PostProfilePath);
-            if (profile != null) return profile;
+            if (profile == null)
+            {
+                profile = ScriptableObject.CreateInstance<VolumeProfile>();
+                AssetDatabase.CreateAsset(profile, PostProfilePath);
+            }
 
-            profile = ScriptableObject.CreateInstance<VolumeProfile>();
-            AssetDatabase.CreateAsset(profile, PostProfilePath);
-
-            var bloom = profile.Add<Bloom>(true);
-            bloom.intensity.Override(0.55f);
-            bloom.threshold.Override(0.95f);
+            // Written on every rebuild, not only on creation: the look is code, and a
+            // profile left over from an earlier build would otherwise keep old values.
+            if (!profile.TryGet(out Bloom bloom)) bloom = profile.Add<Bloom>(true);
+            // Faint: cubes no longer emit, and a strong bloom haloed them into
+            // each other. Only the brightest highlights catch it.
+            bloom.intensity.Override(0.20f);
+            bloom.threshold.Override(1.0f);
             bloom.scatter.Override(0.65f);
 
-            var vignette = profile.Add<Vignette>(true);
+            if (!profile.TryGet(out Vignette vignette)) vignette = profile.Add<Vignette>(true);
             vignette.intensity.Override(0.18f);
             vignette.smoothness.Override(0.45f);
 

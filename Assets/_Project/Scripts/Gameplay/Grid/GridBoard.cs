@@ -2,13 +2,14 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // The light, rounded plate the cells sit on — a "board" in the casual sense:
-    // pale, soft-edged, receiving the cubes' shadows so they read as objects
-    // standing on it rather than floating over a void.
+    // The dark, rounded plate the cells sit on — soft-edged, receiving the cubes'
+    // shadows so they read as objects standing on it rather than floating over a
+    // void. Dark (2026-10-04, as before the light-board pass) so the coloured
+    // cubes are the brightest things on screen.
     // Call Rebuild() from LevelLoader.Apply() after BuildGrid().
     public class GridBoard : MonoBehaviour
     {
-        private static readonly Color PlateColor = new Color(0.96f, 0.95f, 0.93f);
+        private static readonly Color PlateColor = new Color(0.06f, 0.07f, 0.12f);
         private const float PlateH = 0.22f;
 
         private Transform _plate;

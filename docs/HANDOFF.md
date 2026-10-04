@@ -76,14 +76,16 @@ yerden okuyordu; art arda gelen praise yazısı her seferinde biraz daha yukarı
 - `BallQueueView`: `SelectedSlot`, `TryGetSlotBall`, `OnSlotSelected`. `Shared/UiSprites.cs`:
   runtime disk/halka sprite'ı.
 
-## 2d. Renk okunabilirliği (2026-10-04)
+## 2d. Renk okunabilirliği ve karanlık tema (2026-10-04)
 
-- Bir ara görünüm 2D sprite'lara (block-match yapısı) çevrildi, istenmediği için **geri alındı**:
-  3D yuvarlak küpler, açık tahta ve sahne ilk hâlinde.
-- Kalan değişiklikler yalnızca renk: yeni doygun palet (kırmızı, yeşil, mavi, **turuncu**=Black,
-  sarı=White, **camgöbeği**=Pink, **pembe**=Purple; ölçülmüş, dolu küplerde en yakın çift ΔE 52,
-  eskisi 36) ve boş hücre yıkaması 0.62 → 0.30 (eldeki renk 0.30 → 0.12) — boş hücrelerde en
-  yakın çift ΔE 21 → 39. Editör renkleri görünen adla gösteriyor.
+- Bir ara görünüm 2D sprite'lara çevrildi, istenmediği için **geri alındı**: 3D yuvarlak küpler kalır.
+- Açık tema (paket 2) renkleri soldurduğu için **paket 1 öncesinin karanlık temasına** dönüldü:
+  koyu tahta ve arka plan, boş hücre koyu tona çekilir, loş ambient, emisyon yok, gloss düşük,
+  bloom zayıf (profil her build'de yeniden yazılır — eski `GameplayPostFX.asset` değerleri
+  kalmaz), koyu tepsi, koyu menüler.
+- Yeni doygun palet (kırmızı, yeşil, mavi, **turuncu**=Black, sarı=White, **camgöbeği**=Pink,
+  **pembe**=Purple; ölçülmüş: dolu küplerde en yakın çift ΔE 52, boş hücrelerde ΔE 39).
+  Editör renkleri görünen adla gösteriyor.
 
 ## 3. Sıradaki adım: Unity'de doğrulama (zorunlu)
 
@@ -108,8 +110,8 @@ kontrolüyle (bkz. § 4) yapıldı.
      kaydırması. Testte ilerlemeyi sıfırlamak için `PlayerPrefs` temizlenir
      (Edit → Clear All PlayerPrefs) — oyunda bir sıfırlama butonu yok.
    - **Renkler:** boş (ince) ve dolu (küp) hücrelerde yedi renk birbirinden ayrılıyor mu.
-     Boş hücreler hâlâ soluksa `CellView.RestingMute`'u düşür (0.30 → 0.20); fazla
-     bağırıyorsa artır. Ton değişikliği `GameConstants.CellColorPalette`'te.
+     Boş hücreler fazla koyuysa `CellView.RestingMute`'u düşür (0.35 → 0.25), fazla
+     bağırıyorsa artır (0.45'in üstünde turuncu/sarı karışmaya başlar). Ton değişikliği `GameConstants.CellColorPalette`'te.
    - **Öğretici:** level1'i ilk kez aç (PlayerPrefs temiz): parmak ucu bir hücrenin tam üstünde
      mi, atınca tepsideki başka renk topa geçiyor mu, ikinci açılışta çıkmıyor mu. level2'de
      ipucu bandı görünüp ilk atışta sönüyor mu. Level editöründe Hint alanı görünüyor mu.

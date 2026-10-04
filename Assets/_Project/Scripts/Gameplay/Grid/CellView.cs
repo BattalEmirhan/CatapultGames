@@ -38,28 +38,27 @@ namespace CatapultGames
         private const float FullH     = 0.80f;  // height when filled
         private const float CubeGap   = 0.86f;  // fraction of cellSize (leaves gap between cubes)
 
-        // How far an unfilled cell's colour is washed toward the pale board — a
-        // "socket" in a light tint of its target colour. Resting cells stay quiet;
+        // How far an unfilled cell's colour is darkened toward the board — a
+        // "socket" in a dim shade of its target colour. Resting cells stay quiet;
         // the colour currently selected in the tray reads much closer to its true
         // hue, which is what makes "what can I paint right now" answerable by
         // looking at the board instead of at the tray.
         //
-        // Kept light (2026-10-04): at the old 0.62 the wash pulled every target
-        // colour so close to white that empty orange and yellow cells measured
-        // ΔE 21 apart — the "can't tell the colours apart" complaint. At 0.30 the
-        // closest pair is ΔE 39; empty vs filled is still told by HEIGHT (thin
-        // plate vs full cube), so the colour can stay strong.
-        private const float RestingMute  = 0.30f;
+        // Dark theme again (2026-10-04, as before the light-board pass): the pale
+        // board and its white wash made every colour read washed out. Measured
+        // against the dark board, 0.35 keeps the closest empty pair at ΔE 39
+        // (filled cubes: ΔE 52); push it higher and orange/yellow start to merge.
+        private const float RestingMute  = 0.35f;
         private const float AwaitingMute = 0.12f;
 
-        private static readonly Color WashTint      = new Color(0.97f, 0.96f, 0.95f);   // the board's own tone
-        private static readonly Color EmptyBase     = new Color(0.90f, 0.89f, 0.90f);   // bare socket
-        private static readonly Color FootprintTint = new Color(0.35f, 0.62f, 1f);
+        private static readonly Color DarkTint      = new Color(0.08f, 0.09f, 0.14f);   // the board's own tone
+        private static readonly Color EmptyBase     = new Color(0.16f, 0.16f, 0.20f);   // bare socket
+        private static readonly Color FootprintTint = new Color(0.55f, 0.78f, 1f);
 
         // Special-type tints. Each one has to be recognisable at a glance in
         // perspective on a phone, so they differ in HEIGHT as well as colour.
-        private static readonly Color IceTint   = new Color(0.78f, 0.94f, 1f);
-        private static readonly Color StoneTint = new Color(0.62f, 0.62f, 0.68f);
+        private static readonly Color IceTint   = new Color(0.72f, 0.92f, 1f);
+        private static readonly Color StoneTint = new Color(0.40f, 0.40f, 0.45f);
 
         // Rounded "toy block" mesh shared by every cell (see RoundedCubeMesh).
         private const float CornerRadius = 0.14f;
@@ -125,11 +124,10 @@ namespace CatapultGames
             var shader = Shader.Find("Universal Render Pipeline/Lit")
                       ?? Shader.Find("Standard");
             _sharedBase = new Material(shader);
-            if (_sharedBase.HasProperty("_Smoothness")) _sharedBase.SetFloat("_Smoothness", 0.42f);   // candy gloss
+            // Low gloss: a strong specular highlight paints a white patch over the
+            // colour, which is exactly what the player has to read.
+            if (_sharedBase.HasProperty("_Smoothness")) _sharedBase.SetFloat("_Smoothness", 0.22f);
             if (_sharedBase.HasProperty("_Metallic"))   _sharedBase.SetFloat("_Metallic",   0f);
-            // Emission keyword on for every instance (same variant → still one SRP
-            // batch); the colour itself is black until a cell fills, see SetEmission.
-            if (_sharedBase.HasProperty("_EmissionColor")) _sharedBase.EnableKeyword("_EMISSION");
         }
 
         // Single funnel for every colour change (refresh / highlight / preview / anim),
@@ -137,13 +135,6 @@ namespace CatapultGames
         private void SetColor(Color c)
         {
             if (_mat != null) _mat.color = c;
-        }
-
-        // A filled cell glows a little in its own colour — with the scene's bloom
-        // volume that is the soft candy shine; without it, a slightly brighter cube.
-        private void SetEmission(Color c)
-        {
-            if (_mat != null && _mat.HasProperty("_EmissionColor")) _mat.SetColor("_EmissionColor", c);
         }
 
         // ─── Public API ───────────────────────────────────────────────────
@@ -229,7 +220,7 @@ namespace CatapultGames
             }
             else if (isNone)
             {
-                colour = EmptyBase;              // bare socket, a shade under the plate
+                colour = EmptyBase;              // bare socket, a shade above the dark plate
                 height = ThinH * 0.7f;
             }
             else if (IsFilled)
@@ -241,7 +232,7 @@ namespace CatapultGames
             {
                 // Pale wash of the outline colour (shows "this cell needs this
                 // colour"), lifted a step while that colour is the one selected.
-                colour = Color.Lerp(col, WashTint, _awaiting ? AwaitingMute : RestingMute);
+                colour = Color.Lerp(col, DarkTint, _awaiting ? AwaitingMute : RestingMute);
                 height = _awaiting ? ThinH * 1.5f : ThinH;
 
                 if (Type == CellType.Ice)
@@ -270,7 +261,6 @@ namespace CatapultGames
             }
 
             SetColor(colour);
-            SetEmission(IsFilled && !isNone && Type != CellType.Stone ? col * 0.22f : Color.black);
             ApplyHeight(height);
         }
 

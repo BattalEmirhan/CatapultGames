@@ -5,7 +5,7 @@ namespace UnityEngine.Rendering
     public class VolumeParameter<T> { public T value; public void Override(T v) { } }
     public class ClampedFloatParameter : VolumeParameter<float> { }
     public class MinFloatParameter : VolumeParameter<float> { }
-    public class VolumeProfile : ScriptableObject { public T Add<T>(bool overrides = false) where T : VolumeComponent => null; }
+    public class VolumeProfile : ScriptableObject { public T Add<T>(bool overrides = false) where T : VolumeComponent => null; public bool TryGet<T>(out T component) where T : VolumeComponent { component = null; return false; } }
     public class Volume : MonoBehaviour { public bool isGlobal; public float priority; public VolumeProfile sharedProfile; }
 }
 namespace UnityEngine.Rendering.Universal
