@@ -23,8 +23,9 @@ namespace CatapultGames
         public enum Reason
         {
             Won,
-            OutOfBalls,   // queue ran dry with cells still empty
-            DeadEnd       // balls left, but provably not enough to finish
+            OutOfBalls    // queue ran dry with cells still empty. A proven dead end
+                          // with balls left is only a warning (GameManager), since
+                          // undo and boosters can still turn it around.
         }
 
         [SerializeField] private GameObject      _panel;
@@ -40,11 +41,6 @@ namespace CatapultGames
         [SerializeField] private string _failTitle    = "Try Again";
         [SerializeField] private string _winSubtitle  = "All cells painted!";
         [SerializeField] private string _failSubtitle = "Not enough balls...";
-
-        [Tooltip("Shown when the level became impossible before the queue ran out — " +
-                 "the player is told why instead of being left to fire the rest.")]
-        [SerializeField] private string _deadEndTitle    = "Dead End";
-        [SerializeField] private string _deadEndSubtitle = "The remaining balls can't finish this one.";
 
         [Tooltip("Prefix for the final score line appended to the subtitle.")]
         [SerializeField] private string _scoreLabel = "Score";
@@ -76,21 +72,11 @@ namespace CatapultGames
             if (_panel) _panel.SetActive(true);
 
             if (_titleText)
-                _titleText.text = reason switch
-                {
-                    Reason.Won     => _winTitle,
-                    Reason.DeadEnd => _deadEndTitle,
-                    _              => _failTitle
-                };
+                _titleText.text = won ? _winTitle : _failTitle;
 
             if (_subtitleText)
             {
-                string sub = reason switch
-                {
-                    Reason.Won     => _winSubtitle,
-                    Reason.DeadEnd => _deadEndSubtitle,
-                    _              => _failSubtitle
-                };
+                string sub = won ? _winSubtitle : _failSubtitle;
                 if (score >= 0) sub += $"\n\n{_scoreLabel} {score:n0}";
                 _subtitleText.text = sub;
             }

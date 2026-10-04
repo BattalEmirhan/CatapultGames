@@ -115,12 +115,6 @@ namespace CatapultGames
             return false;
         }
 
-        // Is this cell a Stone — the type that absorbs a stamp and shadows whatever
-        // lies behind it (GameConstants.GetStampPath)? Read by PaintingSystem.
-        public bool IsBlocking(int x, int y) =>
-            _cells.TryGetValue((x, y), out var cell) && cell != null &&
-            cell.Type == CellType.Stone;
-
         // ─── Highlight + paint preview (aim) ──────────────────────────────
         private readonly HashSet<(int, int)> _highlighted = new();
         private readonly HashSet<(int, int)> _previewed   = new();

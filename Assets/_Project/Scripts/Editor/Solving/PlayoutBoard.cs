@@ -9,7 +9,8 @@ namespace CatapultGames.Editor
     {
         Won        = 0,   // every target filled
         OutOfBalls = 1,   // queue empty, targets left — the level is too tight (or the bot too weak)
-        DeadEnd    = 2,   // balls left but proven unable to finish (CoverageAnalyzer) — the game ends the run here too
+        DeadEnd    = 2,   // balls left but proven unable to finish (CoverageAnalyzer) — the game only
+                          // warns here (undo, boosters); a bot has neither, so for it this is a loss
         Unplayable = 3    // nothing to paint, or no balls, before the first shot
     }
 
@@ -25,7 +26,7 @@ namespace CatapultGames.Editor
     //   · stamp / match / reach / ice cost  → CoverageAnalyzer (GameConstants)
     //   · pulling a ball forward            → BallQueue.SelectSlot window (3)
     //   · colour purge                      → GameManager.PurgeCompletedColors
-    //   · dead-end                          → GameManager.IsDeadEnd
+    //   · dead-end                          → GameManager.CheckDeadEnd
     // so a bot cannot play by rules the player does not have.
     //
     // A bot CANNOT undo. A bad early throw is the loss itself — that is the

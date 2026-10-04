@@ -1,0 +1,20 @@
+<!-- Type-checks CatapultGames.Runtime without Unity: `dotnet build tools/compile-check/Runtime.Check.csproj`.
+     UnityEngine comes from the UnityEngine.Modules reference package (2021.3 API, close
+     enough to Unity 6 for what this project uses); uGUI / TMP / Input System are shape-only
+     stubs in stubs/Packages.cs. Passing here is NOT a substitute for Unity's own compile. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>CatapultGames.Runtime</AssemblyName>
+    <NoWarn>CS0649;CS0414;CS0169;CS0612;CS0618</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Assets/_Project/Scripts/**/*.cs" Exclude="../../Assets/_Project/Scripts/Editor/**/*.cs" />
+    <Compile Include="stubs/Packages.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

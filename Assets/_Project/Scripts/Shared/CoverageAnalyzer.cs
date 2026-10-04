@@ -23,7 +23,7 @@ namespace CatapultGames
     // them is arranged to keep the bound loose rather than tight, because a false
     // "impossible" would end a winnable run:
     //   · Ice   — costs two hits, so it counts twice in `required`
-    //   · Stone — not a target at all, and it shadows the stamp behind it
+    //   · Stone — a hole: never a target, the stamp simply paints around it
     //   · Joker — taken out of its colour's `required` (any ball can pay for it)
     //             but left IN every colour's `ceiling`, and given its own row
     //             measured against wild cells alone
@@ -49,7 +49,7 @@ namespace CatapultGames
             public readonly CellColor[] colors;   // colour that fills this cell
             public readonly byte[]      hits;     // hits still needed (Ice: 2)
             public readonly bool[]      wild;     // Joker — any colour fills it
-            public readonly bool[]      stone;    // absorbs the stamp behind it
+            public readonly bool[]      stone;    // a hole — never painted
 
             public TargetBoard(int w, int h)
             {
@@ -131,8 +131,8 @@ namespace CatapultGames
             foreach (var c in level.cells)
             {
                 if (c == null) continue;
-                // An authored-filled cell is done; Stone still has to be recorded,
-                // because it shadows stamps whether or not anything needs paint.
+                // An authored-filled cell is done. Stone is recorded either way so
+                // the board knows its holes (it is never a target).
                 if (c.isFilled && c.cellType != CellType.Stone) continue;
                 board.Set(c.gridX, c.gridY, c.outlineColor, c.cellType);
             }

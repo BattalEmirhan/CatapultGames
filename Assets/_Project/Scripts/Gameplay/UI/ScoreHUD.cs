@@ -81,6 +81,7 @@ namespace CatapultGames
             {
                 _praiseLabel.raycastTarget = false;
                 _praiseLabel.color = new Color(1f, 1f, 1f, 0f);
+                _praiseRest = _praiseLabel.rectTransform.anchoredPosition;
             }
         }
 
@@ -193,13 +194,16 @@ namespace CatapultGames
 
         // ── Praise ("GREAT!") ─────────────────────────────────────────────
         private Coroutine _praise;
+        private Vector2   _praiseRest;   // read once: a praise cut off mid-drift must not move the next one
 
         private void ShowPraise(int cells)
         {
-            if (_praiseLabel == null) return;
-            foreach (var (min, word, tint) in Praise)
+            for (int i = 0; i < Praise.Length; i++)
             {
+                var (min, word, tint) = Praise[i];
                 if (cells < min) continue;
+                GameAudio.PlayPraise(Praise.Length - 1 - i);   // the table runs biggest-first
+                if (_praiseLabel == null) return;
                 _praiseLabel.text  = word;
                 _praiseLabel.color = new Color(tint.r, tint.g, tint.b, 0f);
                 if (_praise != null) StopCoroutine(_praise);
@@ -212,7 +216,7 @@ namespace CatapultGames
         private IEnumerator PraisePop()
         {
             var rt = _praiseLabel.rectTransform;
-            Vector2 rest = rt.anchoredPosition;
+            Vector2 rest = _praiseRest;
             const float dur = 0.9f;
             float t = 0f;
             while (t < dur)

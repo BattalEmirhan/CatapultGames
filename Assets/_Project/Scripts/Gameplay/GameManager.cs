@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -16,6 +17,7 @@ namespace CatapultGames
     //   _launcher     — BallLauncher
     //   _aimPreview   — AimPreview
     //   _resultScreen — ResultScreenUI
+    //   _warningLabel — optional TMP label for the dead-end warning
     public class GameManager : MonoBehaviour
     {
         [SerializeField] private GridRenderer   _grid;
@@ -36,9 +38,24 @@ namespace CatapultGames
                  "ball that does the job, so this is a ceiling, not the size used.")]
         [SerializeField] [Range(1, 3)] private int _extraBallMaxPower = 3;
 
+        [Header("Dead-end warning")]
+        [Tooltip("Optional. Says which colour can no longer be finished. The level " +
+                 "goes on — undo or a booster can still save it — and is only lost " +
+                 "once the queue runs dry.")]
+        [SerializeField] private TextMeshProUGUI _warningLabel;
+        [SerializeField] private float _warningDuration = 2.5f;
+
         private bool _gameOver;
         private bool _extraBallsSpent;                              // offer is once per level
         private readonly List<BallData> _remainingBalls = new();    // reused by the solvability check
+
+        // The dead end last warned about, so the player is told once rather than
+        // after every shot. Cleared when the dead end goes away (undo, booster,
+        // rescue balls), so walking back into it warns again.
+        private const int NoWarning = -1;
+        private const int WildWarning = 1000;                       // the Joker row has no colour
+        private int       _warnedKey = NoWarning;
+        private Coroutine _warning;
 
         // ── Score and combo ───────────────────────────────────────────────
         // A shot pays per cell, multiplied by how dense the hit was and again by the
@@ -139,27 +156,82 @@ namespace CatapultGames
                 return;
             }
 
-            // Balls left, but not enough of them: say so now instead of making the
-            // player fire out a queue whose outcome is already decided. On a long
-            // level this is the difference between one wasted shot and forty.
-            if (IsDeadEnd())
-                EndGame(ResultScreenUI.Reason.DeadEnd);
+            // Balls left, but not enough of them. This used to end the level on the
+            // spot; with undo and boosters in hand that is no longer a fact, only a
+            // warning — the player is told now instead of finding out forty shots
+            // later, and the loss itself waits for an empty queue.
+            CheckDeadEnd();
         }
 
         // Can what is left in the queue still cover what is left on the grid?
         // Same measurement the level editor validates with (CoverageAnalyzer), which
         // is why that lives in Shared/ — a colour whose ceiling has fallen below its
-        // remaining cells can never be completed, no matter how well the rest is played.
-        private bool IsDeadEnd()
+        // remaining cells can never be completed by these balls alone.
+        private void CheckDeadEnd()
         {
-            if (_grid == null || _queue == null) return false;
+            if (_grid == null || _queue == null) return;
 
             _queue.CopyRemaining(_remainingBalls);
-            if (_remainingBalls.Count == 0) return false;   // the empty-queue path handles this
+            if (_remainingBalls.Count == 0) return;   // the empty-queue path handles this
 
             var rows = CoverageAnalyzer.Analyze(CoverageAnalyzer.BuildTargets(_grid), _remainingBalls);
 
-            return CoverageAnalyzer.AnyImpossible(rows);
+            foreach (var row in rows)
+            {
+                if (!row.Impossible) continue;
+
+                int key = row.isWild ? WildWarning : (int)row.color;
+                if (key == _warnedKey) return;   // already said
+                _warnedKey = key;
+                ShowWarning(row);
+                return;
+            }
+
+            _warnedKey = NoWarning;   // solvable again — the next dead end is news
+        }
+
+        private void ShowWarning(CoverageAnalyzer.ColorCoverage row)
+        {
+            GameFX.Instance.Shake(0.10f, 0.22f);
+            Haptics.Medium();
+            GameAudio.Play(GameAudio.Sfx.Warning);
+
+            if (_warningLabel == null) return;
+
+            string what = row.isWild
+                ? "The joker cells"
+                : $"<color=#{ColorUtility.ToHtmlStringRGB(GameConstants.GetColorF(row.color))}>" +
+                  $"{GameConstants.GetColorDisplayName(row.color)}</color>";
+            _warningLabel.text = $"{what} can't be finished\n<size=70%>Undo or use a booster</size>";
+
+            if (_warning != null) StopCoroutine(_warning);
+            _warning = StartCoroutine(FadeWarning());
+        }
+
+        // Quick fade in, hold, fade out. Unscaled time: a hit-stop on the same shot
+        // must not freeze the message.
+        private IEnumerator FadeWarning()
+        {
+            const float fade = 0.2f;
+            float hold = Mathf.Max(0f, _warningDuration - 2f * fade);
+            float total = 2f * fade + hold;
+            var c = _warningLabel.color;
+
+            for (float t = 0f; t < total; t += Time.unscaledDeltaTime)
+            {
+                float a = t < fade ? t / fade : t < fade + hold ? 1f : 1f - (t - fade - hold) / fade;
+                _warningLabel.color = new Color(c.r, c.g, c.b, Mathf.Clamp01(a));
+                yield return null;
+            }
+            HideWarning();
+        }
+
+        private void HideWarning()
+        {
+            if (_warning != null) { StopCoroutine(_warning); _warning = null; }
+            if (_warningLabel == null) return;
+            var c = _warningLabel.color;
+            _warningLabel.color = new Color(c.r, c.g, c.b, 0f);
         }
 
         // ── Scoring ───────────────────────────────────────────────────────
@@ -193,6 +265,8 @@ namespace CatapultGames
             _score       = 0;
             _comboStreak = 0;
             _lastAward   = default;
+            _warnedKey   = NoWarning;
+            HideWarning();
             OnScoreChanged?.Invoke(_score);
         }
 
@@ -240,6 +314,7 @@ namespace CatapultGames
         {
             yield return new WaitForSeconds(0.35f);  // let the firework volley start popping
             if (_grid != null) _grid.PulseColor(color);
+            if (!_gameOver) GameAudio.Play(GameAudio.Sfx.ColorFanfare);   // the win fanfare owns the last one
             // Confetti over the board + a tiny zoom punch: "a whole colour is done"
             // is the mid-level payoff, and it should look like one.
             if (_grid != null) GameFX.Instance.Confetti(_grid.WorldCenter, GameConstants.GetColorF(color));
@@ -270,7 +345,10 @@ namespace CatapultGames
 
             // One step only — the record is spent.
             _launcher.ClearLastShot();
+            _warnedKey = NoWarning;   // the shot that walked into a dead end may be the one undone
+            HideWarning();
             Haptics.Medium();
+            GameAudio.Play(GameAudio.Sfx.Undo);
         }
 
         // ── Keep going offer ──────────────────────────────────────────────
@@ -296,6 +374,7 @@ namespace CatapultGames
 
             GameFX.Instance.Flash(new Color(0.35f, 0.85f, 0.45f), 0.25f, 0.35f);
             Haptics.Medium();
+            GameAudio.Play(GameAudio.Sfx.Booster);   // same sparkle: the rescue is a booster too
         }
 
         // Shapes the rescue may hand out — the casual set only. L is left out on
@@ -379,6 +458,8 @@ namespace CatapultGames
 
             _gameOver = true;
             if (_aimPreview) _aimPreview.enabled = false;
+            HideWarning();
+            GameAudio.Play(won ? GameAudio.Sfx.Win : GameAudio.Sfx.Lose);
 
             if (won)
             {

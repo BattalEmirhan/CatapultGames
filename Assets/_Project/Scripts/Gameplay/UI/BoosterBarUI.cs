@@ -22,6 +22,10 @@ namespace CatapultGames
         [SerializeField] private TextMeshProUGUI _recolorCount;
         [SerializeField] private TextMeshProUGUI _bombCount;
 
+        // Last count drawn per booster — the bar refreshes every frame, and a fresh
+        // "×N" string each time would be garbage for nothing.
+        private readonly int[] _shownCounts = { -1, -1, -1 };
+
         private void Awake()
         {
             _rainbowButton?.onClick.AddListener(() => _boosters?.Use(BoosterType.Rainbow));
@@ -55,7 +59,11 @@ namespace CatapultGames
         private void Apply(Button button, TextMeshProUGUI label, BoosterType type)
         {
             int count = _boosters.Count(type);
-            if (label != null) label.text = $"×{count}";
+            if (label != null && _shownCounts[(int)type] != count)
+            {
+                _shownCounts[(int)type] = count;
+                label.text = $"×{count}";
+            }
             if (button != null) button.interactable = _boosters.CanUse(type);
         }
     }

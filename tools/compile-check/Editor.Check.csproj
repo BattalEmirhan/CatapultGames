@@ -1,0 +1,23 @@
+<!-- Type-checks the scene builder and the headless simulator against UnityEditor 2018.1
+     (the newest UnityEditor reference on NuGet) plus URP stubs in stubs/Urp.cs. The rest of
+     the Editor assembly uses UI Toolkit editor APIs that 2018.1 lacks, so it is left out.
+     `dotnet build tools/compile-check/Editor.Check.csproj` (builds the runtime check first). -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>CatapultGames.Editor</AssemblyName>
+    <NoWarn>CS0649;CS0414;CS0169;CS1701;CS1702;NU1701</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Assets/_Project/Scripts/Editor/GameplaySceneBuilder.cs" />
+    <Compile Include="../../Assets/_Project/Scripts/Editor/Solving/PlayoutBoard.cs" />
+    <Compile Include="stubs/Urp.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Runtime.Check.csproj" />
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" />
+    <PackageReference Include="Unity3D.UnityEditor" Version="2018.1.6-f1" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

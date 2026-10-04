@@ -3,7 +3,7 @@
 > Bu dosya projenin **tek kaynak referansıdır**. Yeni bir geliştirme yaparken önce burayı
 > oku; sadece burada adı geçen dosyaları aç. Yapı değişirse bu dosyayı da güncelle.
 >
-> Son güncelleme: 2026-09-15 · Unity 6000.3.16f1 · URP 17.3.0
+> Son güncelleme: 2026-10-04 · Unity 6000.3.16f1 · URP 17.3.0
 
 ---
 
@@ -16,10 +16,18 @@ eşleşen** hücreleri, şekline göre bir alan içinde doldurur (küpler yükse
 
 - **Kazanma:** Boyanması gereken tüm hücreler dolduğunda.
 - **Kaybetme:** Kuyruk bittiğinde ve havada top kalmadığında hâlâ boş hedef hücre varsa.
+  Kalan toplar bir rengi artık bitiremiyorsa (dead-end) oyun **bitmez**, yalnızca uyarı
+  verilir — undo ya da bir booster hâlâ kurtarabilir. Bkz. § 6.2.
 - Bir renk tamamen bittiğinde, kuyruktaki o renge ait kalan toplar **otomatik silinir** ve
   havai fişek olarak patlatılır.
-- **Özel hücreler** (`CellType`): buz iki vuruş ister, taş hiç boyanmaz ve damgayı yutar,
-  joker her rengi kabul eder. Bkz. § 4 ve § 5.
+- **Özel hücreler** (`CellType`): buz iki vuruş ister, taş bir **delik**tir (hiç boyanmaz,
+  hedef değildir, başka hiçbir şeyi engellemez), joker her rengi kabul eder. Joker artık
+  **legacy**: kodda ve editörde duruyor, üretici vermiyor. Bkz. § 4 ve § 5.
+- **Booster'lar** (level başına birer tane): **Rainbow** seçili topu her rengi boyayan
+  gökkuşağı topuna çevirir, **Recolor** onu tahtada en çok ihtiyaç duyulan renge boyar,
+  **Bomb** onu 3×3 gökkuşağı damgasına çevirir. Bkz. § 7 `BoosterSystem`.
+- **Ses:** Tüm efektler `GameAudio`'da çalışma zamanında sentezlenir; projede ses varlığı
+  yok. `Resources/Audio/<Sfx>` altına konan gerçek bir klip sentezin yerine geçer.
 - **Skor:** Her atış boyadığı hücre sayısı × yoğunluk çarpanı × kombo çarpanı kadar puan
   öder; boş geçen atış komboyu sıfırlar. Bkz. § 5.
 
@@ -93,17 +101,19 @@ LevelData
 ```
 
 - **`CellColor`** (`Data/CellColor.cs`) — `None=0, Red=1, Green=2, Blue=3, Black=4,
-  White=5, Pink=6, Purple=7`. Bu sayılar **JSON'a int olarak yazılır**, sırası asla
-  değiştirilemez; sadece sona ekleme yapılabilir.
+  White=5, Pink=6, Purple=7, Any=8`. Bu sayılar **JSON'a int olarak yazılır**, sırası asla
+  değiştirilemez; sadece sona ekleme yapılabilir. **`Any` yalnızca top rengidir** (Rainbow /
+  Bomb booster'ı üretir), hiçbir hücrenin rengi olamaz; level'ler onu yazmaz, editör sunmaz.
 - **`CellType`** (`Data/CellType.cs`) — `Normal=0`, `Ice=1`, `Stone=2`, `Joker=3`.
   Renkten bağımsız: bir hücrenin hem rengi hem tipi vardır.
   - `Ice` — **iki vuruş** ister; ilki çatlatır, ikincisi doldurur. Yeni hücre eklemeden
     boya maliyetini artırır.
-  - `Stone` — asla boyanmaz **ve damgayı yutar**: iniş hücresinden dışa uzanan düz ışın
-    üzerinde arkasında kalan hücreler boyasız kalır (`GameConstants.GetStampPath`).
-    Doğrudan taşa nişan alınırsa damga **tamamen** yutulur. Taş hiçbir sayımda hedef
+  - `Stone` — bir **delik**: asla boyanmaz, damga onun etrafını boyar (2026-09-16'dan beri
+    gölge/yutma kuralı yok; taşa nişan alan damga da komşularını boyar). Taş hiçbir sayımda hedef
     değildir (ilerleme, kazanma, kapsama).
   - `Joker` — **her renk** doldurur, ama kendi yazılı rengine dolar (resim bozulmaz).
+    **Legacy:** üretici reçeteleri artık joker vermiyor (Rainbow booster'ı aynı işi oyuncunun
+    elinde yapıyor); eski level'ler için kod ve editör desteği duruyor.
     Kapsamada hiçbir rengin `required`'ına yazılmaz; ayrı bir "wild" satırı olur.
   JSON'da alan yoksa `Normal` olur (geri uyumlu). **Sadece sona eklenir.**
 - **`BallShape`** — `Square=0`, `L=1`, `Line=2`, `Column=3`, `Plus=4`, `Diagonal=5`.
@@ -137,18 +147,19 @@ Projenin **kural merkezi**. Hem runtime hem editör (validator, auto-solver) bur
 | `GetPaintedCells(x, y, ball, gridW, gridH)` | **Şekil kararının tek yeri.** `L`→`GetLCells`, `Line`/`Column`→`GetRunCells` (iniş hücresinde ortalı, uzunluk 3/5/7), `Plus`/`Diagonal`→`GetCrossCells` (kol 1/2/3 → 5/9/13 hücre), diğer→kare kuralı. Izgara dışına taşan koordinat dönebilir; her tüketici sınır kontrolü yapar |
 | `GetLCells(...)` | L topu: iniş hücresinden ızgara **iç yönüne** iki kol uzatır, her kol kenara kadar gider. En yakın köşeye göre otomatik döner. 10×10'da 10+10'luk bir L |
 | `GetPaintCellCount(ball, w, h)` | Damganın **boyutu**; kare için `size²`, L için `w + h − 1`. **Kapsama değildir** — bkz. `CoverageAnalyzer` |
-| `ColorMatches(cellColor, cellType, ballColor)` | **Eşleşme kararının tek yeri.** `Joker` her rengi kabul eder, `Stone` hiçbirini, boş tahta hücresi hedef değildir |
+| `ColorMatches(cellColor, cellType, ballColor)` | **Eşleşme kararının tek yeri.** `Joker` her rengi kabul eder, `Stone` hiçbirini, boş tahta hücresi hedef değildir; `Any` (gökkuşağı) top her gerçek hedefi doldurur |
 | `GetRequiredHits(cellType)` | Hücrenin dolmak için yediği vuruş sayısı — `Ice` 2, diğerleri 1 |
-| `GetStampPath(landX, landY, cellX, cellY, into)` | **Erişim kararının tek yeri.** İniş hücresi ile hedef hücre **arasındaki** düz yol; üstünde `Stone` varsa hedef hücre boyasız kalır. Yalnızca dik ve 45° ışınlar yürünür (her damga şekli bu çizgilerden kurulu); 4×4 karenin ışın dışı köşeleri asla gölgelenmez. `into` temizlenip doldurulur — nişan her karede çağırıyor, tahsis olmamalı. **İniş hücresinin kendisi bu yola dahil değildir**; her tüketici onu ayrı sorar (taşa nişan alan damga tamamen yutulur) |
 | `PointsPerCell = 10` · `GetShotMultiplier(cells)` · `GetComboMultiplier(streak)` · `MaxComboMultiplier = 5` | Skor kuralı. Yoğunluk çarpanı 1/2/3/4 (eşikler 1, 2, 4, 8 hücre), kombo çarpanı = üst üste boyayan atış sayısı (5'te tavan). Toplamı `GameManager` tutar |
-| `CellColorPalette` (`Color32[8]`) | **İndeksleri `CellColor` enum'ıyla birebir aynı olmalı.** 2026-09-15'ten beri **candy/pastel** palet: Red→mercan, Green→nane, Blue→gök, Black→lacivert, White→limon, Pink→sakız pembesi, Purple→lavanta. Enum adları JSON uyumluluğu için eski kimliklerdir; saf siyah/beyaz hücre yok |
+| `CellColorPalette` (`Color32[9]`) | **İndeksleri `CellColor` enum'ıyla birebir aynı olmalı.** 2026-09-15'ten beri **candy/pastel** palet: Red→mercan, Green→nane, Blue→gök, Black→lacivert, White→limon, Pink→sakız pembesi, Purple→lavanta, Any→gökkuşağı topunun beyaz tabanı (`BallVisual` bloklarını ayrı renklendirir). Enum adları JSON uyumluluğu için eski kimliklerdir; saf siyah/beyaz hücre yok |
 | `GetColor` / `GetColorF` | Palet erişimi |
+| `GetColorDisplayName(c)` | Oyuncuya gösterilen renk adı (Black→"Navy", White→"Yellow"…). Bir rengi **adıyla** anan her metin (ör. dead-end uyarısı) buradan okur, enum adından değil |
 
 > Boyama kuralını değiştirecek her iş **sadece burada** yapılmalı; `PaintingSystem`,
 > `AimPreview`, `LevelValidator`, `LevelAutoSolver` ve `CoverageAnalyzer` otomatik olarak
-> uyumlu kalır. Bir damganın bir hücreyi boyayıp boyamadığı üç soruya iner ve üçünün de
-> tek cevap yeri burasıdır: **şekil** (`GetPaintedCells`), **eşleşme** (`ColorMatches`),
-> **erişim** (`GetStampPath`).
+> uyumlu kalır. Bir damganın bir hücreyi boyayıp boyamadığı iki soruya iner ve ikisinin de
+> tek cevap yeri burasıdır: **şekil** (`GetPaintedCells`) ve **eşleşme** (`ColorMatches`).
+> Üçüncü soru olan **erişim** (`GetStampPath`, taş gölgesi) 2026-09-16'da kaldırıldı — taş
+> artık bir delik.
 
 ---
 
@@ -169,6 +180,8 @@ LevelLoader.Start()
               5. BallQueue.Load(SanitizeBalls(...))  → powerLevel 1..3'e clamp'lenir
               6. ProgressHUD.Bind(grid)
               7. GameManager.ResetScore()            → level değişimi yeni bir koşu
+                                                       (dead-end uyarısını da sıfırlar)
+              8. BoosterSystem.ResetForLevel()       → booster sayaçları dolar
 ```
 
 > 7. adım şart: level seçici (dev dropdown) sahneyi yeniden yüklemeden level değiştirir,
@@ -204,6 +217,8 @@ TapLaunchController (hücreye dokun / basılı tut-kaydır, bırak)
                                            · PaintWave: PaintingSystem.PaintTargetsOrdered
                                              → GridRenderer.ApplyHit (kademeli, Haptics)
                                                  └─ CellView.AddHit: Ice çatlar / dolar
+                                             → GameAudio.PlayTick(n): dolan her küp
+                                               pentatonik dizide bir basamak yukarı
                                              → GameFX.Bloom
                                            · OnShotPainted(boyanan sayısı, landPos)
                                                 ▼
@@ -221,9 +236,13 @@ TapLaunchController (hücreye dokun / basılı tut-kaydır, bırak)
                                         · grid.AllColoredCellsFilled() → EndGame(Won)
                                         · launcher.IsBusy ise dur (volenin bitmesini bekle)
                                         · queue.IsEmpty                → EndGame(OutOfBalls)
-                                        · IsDeadEnd()                  → EndGame(DeadEnd)
+                                        · CheckDeadEnd()               → yalnız UYARI, oyun sürer
                                              └─ CoverageAnalyzer: kalan toplar kalan
-                                                hücreleri kapatabiliyor mu?
+                                                hücreleri kapatabiliyor mu? İlk Impossible
+                                                satır → _warningLabel "Navy can't be
+                                                finished", Shake + Haptics + ses. Aynı renk
+                                                tekrar uyarılmaz; çözülebilir hâle gelince
+                                                (undo / booster / Keep Going) sıfırlanır
                                                 ▼
                                       ResultScreenUI.Show(reason, offerExtraBalls, score)
                                         · Keep Going → GameManager.GrantExtraBalls()
@@ -231,7 +250,23 @@ TapLaunchController (hücreye dokun / basılı tut-kaydır, bırak)
                                                 panel gizlenir, level kaldığı yerden sürer
 ```
 
-### 6.3 Geri alma (undo)
+### 6.3 Booster
+
+```
+BoosterBarUI (3 buton, sol alt sütun)
+  └─ BoosterSystem.Use(type)   ← CanUse: sayaç > 0, oyun sürüyor, Current var, etkisi olacak
+       · seçili tepsi topunun BallData'sını YERİNDE değiştirir
+         Rainbow → color = Any · Recolor → en çok boş hücresi kalan renk · Bomb → Any + Square + power 2
+       · BallQueue.NotifyCurrentChanged → OnChanged
+            → BallQueueView yeniden çizer · AimPreview.RefreshActiveColor (Any → her hedef parlar)
+```
+
+Booster bir atış **değildir**: kuyruk sırası, skor ve undo kaydı değişmez. Undo booster'ı
+iade etmez — atışın kuyruk anlık görüntüsü top referanslarını tuttuğu için geri alınan
+atış güçlendirilmiş topu geri verir, bu dürüst sonuç. Sayaçlar `LevelLoader.Apply` →
+`ResetForLevel()` ile her level'de dolar (`_perLevel`, varsayılan 1).
+
+### 6.4 Geri alma (undo)
 
 ```
 BallLauncher.Launch()
@@ -268,18 +303,19 @@ dikkatli ol.
 
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
-| `GameManager.cs` | Mono | Kazanma/kaybetme kararı, biten renklerin kuyruktan temizlenmesi, sonuç ekranı, `RestartLevel()`, `GoToMainMenu()`. `IsOver` diğer sistemlerce okunur. **Skor:** `Score` / `ComboStreak`, `OnShotScored(ShotScore)` + `OnScoreChanged(int)` event'leri, `ResetScore()` (`LevelLoader` çağırır). Puan `BallLauncher.OnShotPainted`'ten gelen hücre sayısıyla `GameConstants` kurallarından hesaplanır; son ödül saklanır ki **undo skoru da geri alsın**. `PurgeCompletedColors` boş **joker** hücresi varken hiç purge yapmaz. Ayrıca: `IsDeadEnd()` (kalan toplar yetmiyorsa kuyruk bitmeden bitirir, `CoverageAnalyzer`), `UndoLastShot()` / `CanUndo`, `GrantExtraBalls()` (level başına **bir kez**, `_extraBallCount`). Kurtarma topları `BuildRescueBalls` ile **tahtaya bakılarak** seçilir: her (renk, şekil, power) adayı `CoverageAnalyzer.BestPlacement` ile ölçülür, en iyisi alınır ve `ApplyPlacement` ile tahtadan düşülerek sonraki top ona göre seçilir — üç bağımsız tahmin değil, bir **plan**. Beraberlikte küçük damga kazanır (bitirmeye yeter, fazlası değil). `L` aday havuzunda yok: kolları ızgara kenarına gittiği için kurtarmaz, level'i siler |
+| `GameManager.cs` | Mono | Kazanma/kaybetme kararı, biten renklerin kuyruktan temizlenmesi, sonuç ekranı, `RestartLevel()`, `GoToMainMenu()`. `IsOver` diğer sistemlerce okunur. **Skor:** `Score` / `ComboStreak`, `OnShotScored(ShotScore)` + `OnScoreChanged(int)` event'leri, `ResetScore()` (`LevelLoader` çağırır). Puan `BallLauncher.OnShotPainted`'ten gelen hücre sayısıyla `GameConstants` kurallarından hesaplanır; son ödül saklanır ki **undo skoru da geri alsın**. `PurgeCompletedColors` boş **joker** hücresi varken hiç purge yapmaz. Ayrıca: `CheckDeadEnd()` (kalan toplar bir rengi bitiremiyorsa **uyarır, bitirmez**: `CoverageAnalyzer`'ın ilk `Impossible` satırı → opsiyonel `_warningLabel` üzerinde renkli "Navy can't be finished / Undo or use a booster", `_warningDuration` 2.5 sn, unscaled; `_warnedKey` aynı dead-end'i tekrar uyarmaz, çözülebilir olunca / undo / `ResetScore`'da sıfırlanır), `UndoLastShot()` / `CanUndo`, `GrantExtraBalls()` (level başına **bir kez**, `_extraBallCount`). Kurtarma topları `BuildRescueBalls` ile **tahtaya bakılarak** seçilir: her (renk, şekil, power) adayı `CoverageAnalyzer.BestPlacement` ile ölçülür, en iyisi alınır ve `ApplyPlacement` ile tahtadan düşülerek sonraki top ona göre seçilir — üç bağımsız tahmin değil, bir **plan**. Beraberlikte küçük damga kazanır (bitirmeye yeter, fazlası değil). `L` aday havuzunda yok: kolları ızgara kenarına gittiği için kurtarmaz, level'i siler |
 | `LevelLoader.cs` | Mono | JSON → sahne. `LoadByName(name)`, `Apply(LevelData)`, statik `SelectLevel/ClearSelection` (PlayerPrefs `"SelectedLevel"`). `Apply` sonunda `GameManager.ResetScore()` — level seçici sahneyi yeniden yüklemiyor |
 | `LaunchAreaAnchor.cs` | Mono | Tepsi kökünü ekranın alt bandına sabitler (`_screenY=0.10`). Sadece çözünürlük değişince yeniden hesaplar (shake ile titremesin diye) |
+| `BoosterSystem.cs` | Mono | Üç booster (`BoosterType`: `Rainbow` / `Recolor` / `Bomb`) ve level başına sayaçları (`_perLevel`). `CanUse(type)` (sayaç, `IsOver`, seçili top var mı, etkisi olacak mı), `Use(type)` seçili tepsi topunun `BallData`'sını **yerinde** değiştirir ve `BallQueue.NotifyCurrentChanged()` çağırır — tepsi, nişan ve fırlatıcı yeni topu kendi mevcut yollarından görür, ikinci bir "hangi top" kavramı yok. `Recolor` = en çok boş hücresi kalan renk. `ResetForLevel()` (`LevelLoader`), `OnChanged` event'i |
 | `BackgroundGradient.cs` | Mono | Kameraya bağlı, frustum'u dolduran tek unlit quad + çalışma zamanında üretilen 1×64 gradient dokusu (gök mavisi → lavanta krem). Aspect değişince yeniden boyutlanır; materyal/doku `OnDestroy`'da yok edilir |
 
 ### `Scripts/Gameplay/Grid/`
 
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
-| `GridRenderer.cs` | Mono | Izgaranın sahibi. `BuildGrid/ClearGrid`, `TryGetCell/GetCell`, `SetFilled(Batch)`, **`ApplyHit(x,y)`** (bir damga vuruşu; dolduysa `true` — boyama dalgası bunu kullanır) ve **`UndoHit(x,y)`**, `SetHighlight/SetPreview/SetFootprint/ClearHighlights` (üçü birlikte temizlenir), `SetActiveColor(color)` (mancınıktaki rengin boş hücrelerini vurgular — joker hücreleri **her** renkte parlar), `GridToWorld/WorldToGrid/RaycastToGrid/RaycastToGridClamped`, `CountByColor()` (tahsissiz, enum sırasında), `AllColoredCellsFilled()`, **`HasUnfilledWildCells()`** (purge kapısı), **`IsBlocking(x,y)`** (taş mı — `PaintingSystem` gölge yürüyüşü için), `WorldCenter`, `PulseColor`. `OnGridChanged` event'i. Tüm sayımlar `CellView.IsPaintTarget` üzerinden geçer → **taş hiçbir yerde hedef sayılmaz** |
+| `GridRenderer.cs` | Mono | Izgaranın sahibi. `BuildGrid/ClearGrid`, `TryGetCell/GetCell`, `SetFilled(Batch)`, **`ApplyHit(x,y)`** (bir damga vuruşu; dolduysa `true` — boyama dalgası bunu kullanır) ve **`UndoHit(x,y)`**, `SetHighlight/SetPreview/SetFootprint/ClearHighlights` (üçü birlikte temizlenir), `SetActiveColor(color)` (mancınıktaki rengin boş hücrelerini vurgular — joker hücreleri **her** renkte parlar), `GridToWorld/WorldToGrid/RaycastToGrid/RaycastToGridClamped`, `CountByColor()` (tahsissiz, enum sırasında), `AllColoredCellsFilled()`, **`HasUnfilledWildCells()`** (purge kapısı), `WorldCenter`, `PulseColor`. `OnGridChanged` event'i. Tüm sayımlar `CellView.IsPaintTarget` üzerinden geçer → **taş hiçbir yerde hedef sayılmaz** |
 | `CellView.cs` | Mono | Tek hücre = **yuvarlatılmış** küp (`RoundedCubeMesh`, r 0.14). Dolu `FullH=0.80`, boş `ThinH=0.11`, `CubeGap=0.86`, taş `StoneH=0.50`, çatlak buz `CrackedH=0.35`. Açık tahta teması (2026-09-15): boş hedef = hedef renginin soluk yıkaması (`WashTint`), boş tahta = açık gri soket, dolu = tam renk + `_EmissionColor` 0.22× (bloom ile şeker parlaklığı; `_EMISSION` keyword'ü paylaşılan baz materyalde açık, batch bozulmaz). `Type` (`CellType`), `HitsTaken`/`HitsRequired`, **`IsFilled` türetilmiştir** (`HitsTaken >= HitsRequired` — "çatlak" ayrı bir durum değil), `IsPaintTarget` (taş ve boş tahta hariç). `SetFilled` (tümden dolu/boş), **`AddHit()`** (dolarsa RisePunch, dolmazsa CrackPunch), **`RemoveHit()`** (undo), `SetHighlight`, `SetPreview` (nefes alan hayalet — yalnız çatlatacak atışta **çatlak yüksekliğine** kadar kalkar, önizleme yalan söylemez), `SetFootprint`, `SetAwaiting`, `Pulse(delay)`. **`Refresh()` tek toplayıcıdır:** tip, hit sayısı, `_awaiting` ve `_footprint` orada okunur. **Her hücrenin kendi `Material` örneği ama tek ortak shader var → SRP Batcher tek batch'te toplar; MaterialPropertyBlock KULLANMA** |
-| `PaintingSystem.cs` | static | Boyama kuralı uygulayıcı (canlı ızgara üstünde): `Paint` (mutasyon), `Preview` (salt okuma), `PaintTargetsOrdered` (iniş noktasına yakınlık sırasıyla), `CountPaintable`. Üç kuralı da `GameConstants`'tan okur (şekil / eşleşme / erişim); taş gölgesi için tahsissiz tek bir yol tamponu kullanır |
+| `PaintingSystem.cs` | static | Boyama kuralı uygulayıcı (canlı ızgara üstünde): `Paint` (mutasyon), `Preview` (salt okuma), `PaintTargetsOrdered` (iniş noktasına yakınlık sırasıyla), `CountPaintable`. İki kuralı da `GameConstants`'tan okur (şekil / eşleşme); taş bir delik olduğu için ayrı bir erişim kontrolü yoktur |
 | `GridCameraController.cs` | Mono | Tek perspektif kamera. `FitToGrid(grid, camCfg)` FOV + tilt + padding + `gridScreenPos`'tan konumu otomatik çözer. Sahne `FrontZ = -9f` sabitiyle mancınığı da kadraja alır |
 | `GridBoard.cs` | Mono | Izgaranın altındaki **açık, yuvarlak köşeli plaka** (`RoundedCubeMesh`, üst yüzü Y=0, gölge alır). `Rebuild(GridConfig)` |
 
@@ -287,9 +323,9 @@ dikkatli ol.
 
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
-| `BallQueue.cs` | Mono | Saf mantık, görsel yok. `Load`, `Consume`, `Peek(offset)`, `RemoveColor(color)`, `IsEmpty/Remaining/Current`. Ayrıca `CopyRemaining(list)` (tahsissiz okuma), `Capture()`/`Restore(Snapshot)` (undo — tek top geri koymak yerine **tüm kuyruk** anlık görüntüsü, çünkü atış bir purge tetiklemiş olabilir), `Append(extra)` (+N top teklifi), `SelectSlot(offset)` (seçilen topu **öne taşır** — takas değil, böylece diğerlerinin sırası korunur; seçim kuyruğu yeniden sıralamak olarak modellendiği için atış zincirinin geri kalanı bundan habersiz kalır). Event'ler: `OnBallConsumed`, `OnChanged`, `OnEmpty`, `OnColorCleared(color, count)` |
+| `BallQueue.cs` | Mono | Saf mantık, görsel yok. `Load`, `Consume`, `Peek(offset)`, `RemoveColor(color)`, `IsEmpty/Remaining/Current`. Ayrıca `CopyRemaining(list)` (tahsissiz okuma), `Capture()`/`Restore(Snapshot)` (undo — tek top geri koymak yerine **tüm kuyruk** anlık görüntüsü, çünkü atış bir purge tetiklemiş olabilir), `Append(extra)` (+N top teklifi), `NotifyCurrentChanged()` (booster seçili topu yerinde değiştirdiğinde `OnChanged`'i elle atar), `SelectSlot(offset)` (seçilen topu **öne taşır** — takas değil, böylece diğerlerinin sırası korunur; seçim kuyruğu yeniden sıralamak olarak modellendiği için atış zincirinin geri kalanı bundan habersiz kalır). Event'ler: `OnBallConsumed`, `OnChanged`, `OnEmpty`, `OnColorCleared(color, count)` |
 | `BallLauncher.cs` | Mono | Atış → uçuş → boyama dalgası. `Launch(origin, velocity)` — `TapLaunchController` çağırır (origin = seçili tepsi topunun yeri; `Launch(velocity)` `_launchOrigin` yedeğini kullanır). Topu simüle edilmiş yay boyunca `_flightDuration` sürede tween'ler (mesafeden bağımsız sabit süre). `OnBallLanded`, **`OnShotPainted(hücreSayısı, landPos)`** (skor için, `OnBallLanded`'den **hemen önce** — yoksa kazandıran atış toplamda görünmez), `IsBusy`. Ayrıca `LastShot` (`ShotRecord`: atış öncesi kuyruk anlık görüntüsü + bu atışın **vuruş yaptığı** hücreler) ve `ClearLastShot()` — undo'nun ham maddesi, iniş anında yazılır |
-| `BallVisual.cs` | Mono | Top görseli (fabrika: `Create(parent, color, power, shape, scale)`). **Gövde damganın kendisidir** (2026-09-15): 3×3 top dokuz mini küp, 5'lik Line beş küp, Plus gerçek kol uzunluğu; sayı etiketi yok. Tek ölçek kuralı: her gövde aynı toplam boyda, 5×5 daha ince bir ızgara olur. `L`/`Diagonal` legacy: sembolik 3/5 blok. `EnableTrail`, `PlayFireworkAndDestroy(delay)` |
+| `BallVisual.cs` | Mono | Top görseli (fabrika: `Create(parent, color, power, shape, scale)`). **Gövde damganın kendisidir** (2026-09-15): 3×3 top dokuz mini küp, 5'lik Line beş küp, Plus gerçek kol uzunluğu; sayı etiketi yok. Tek ölçek kuralı: her gövde aynı toplam boyda, 5×5 daha ince bir ızgara olur. `L`/`Diagonal` legacy: sembolik 3/5 blok. **Gökkuşağı topu** (`CellColor.Any`): her blok farklı palet renginde (`EnsureRainbowMaterials`); `Matches(color, power, shape)` tepsinin yeniden çizim gerekip gerekmediğini sorar. `EnableTrail`, `PlayFireworkAndDestroy(delay)` |
 | `BallQueueView.cs` | Mono | **Üçlü tepsi** (block puzzle tepsisi gibi). `_slots[3]` yuva transform'ları, `_remainingLabel` "+N" sayacı. Kuyruk modeli değişmedi (`Current` = offset 0, seçim = `SelectSlot` reorder); view **yuva→offset eşlemesini** tutar, böylece seçilmeyen iki top her atışta yerinde kalır. `Select(slot)`, `TryPickSlot(screenPos, cam, out slot)` (ekran-uzayı mesafesi, collider yok), `IsOverTray` (iptal jesti), **`CurrentLaunchOrigin`** (seçili topun yeri; yay buradan başlar). Kendi `SelectSlot`/`Consume` çağrılarını `_expectQueueChange`/`_consumePending` ile ayırt eder; diğer her `OnChanged` (Load/Restore/purge) eşlemeyi sıfırdan kurar. Yeni gelen top overshoot'lu pop-in ile gelir; seçili topun altında beyaz halka |
 | `TapLaunchController.cs` | Mono | **Tek girdi kaynağı, tek jest.** Tepsi topuna dokun → seçer (atış saymaz, basış anında karara bağlanır). Hücreye dokun → seçili top oraya uçar; basılı tut-kaydır → damga hayaleti + yay parmağı izler, bırakınca ateş. Parmak tepsi bandında bırakılırsa iptal. **Kaldırma/rampa yok** — damga ortalı olduğu için parmağın örttüğü hücre tek bilgi değil. UI üstünde başlayan hareket ateş etmez |
 
@@ -304,8 +340,9 @@ dikkatli ol.
 | Dosya | Sorumluluk |
 |---|---|
 | `ProgressHUD.cs` | Renk başına **çubuk** (renk kutusu + dolu/boş çubuk + `dolu/toplam` sayısı) ve üstte toplam etiketi. Satırlar koddan üretilir, yalnızca renk **kümesi** değişince yeniden kurulur. `OnGridChanged`'i `_dirty` ile kare başına **tek** yeniden çizime indirger. Koyu renkleri okunur hâle getirir. `[RequireComponent(typeof(RectTransform))]` — sahne üreteci düz bir GameObject'e eklediği için eskiden RectTransform yoktu ve çocuklar dejenere bir ebeveyne göre hizalanıyordu; `Awake` artık safe area'ya yayıyor. Görselleri `raycastTarget = false` — HUD nişan hareketini yutmamalı |
-| `ResultScreenUI.cs` | Sonuç paneli, `EaseOutBack` giriş animasyonu, Retry/Menu/Keep Going butonları. `Show(Reason, offerExtraBalls, score)` — `Reason`: `Won` / `OutOfBalls` / `DeadEnd`; `score` alt metne eklenir (negatif geçilirse yazılmaz). Metinlerin tamamı burada durur (GameManager string değil, sebep gönderir) |
+| `ResultScreenUI.cs` | Sonuç paneli, `EaseOutBack` giriş animasyonu, Retry/Menu/Keep Going butonları. `Show(Reason, offerExtraBalls, score)` — `Reason`: `Won` / `OutOfBalls` (`DeadEnd` 2026-10-04'te kaldırıldı — dead-end artık `GameManager`'da uyarı); `score` alt metne eklenir (negatif geçilirse yazılmaz). Metinlerin tamamı burada durur (GameManager string değil, sebep gönderir) |
 | `ScoreHUD.cs` | Skor sayacı (sağ üst) + atış başına kombo patlaması ("x6   +720", 0 hücrelik atış bir seriyi bozduysa "COMBO LOST") + **ekran ortasında praise** (`_praiseLabel`: 3+ hücre GOOD, 5+ GREAT!, 8+ AMAZING!; overshoot'lu pop, yukarı kayarak söner). `GameManager.OnScoreChanged` / `OnShotScored` dinler, kendi kuralı yoktur. Undo skoru düşürdüğünde pop animasyonu **çalmaz**. `ProgressHUD` ile aynı `RequireComponent(RectTransform)` tuzağına tabi: sahne üreteci düz GameObject ekliyor, çocuk anchor'ları yoksa dejenere ebeveyne hizalanır |
+| `BoosterBarUI.cs` | Üç booster butonu + "×N" sayaç etiketleri. Saf görünüm: her kural `BoosterSystem`'in. `OnChanged` + `BallQueue.OnChanged` ve oyun-sonu kapısı için her kare yenilenir (sayaç metni yalnız değişince yazılır, kare başına string tahsisi yok). `UndoButtonUI` gibi **Canvas'ta** durur |
 | `UndoButtonUI.cs` | Oyun içi "geri al" butonu. `GameManager.CanUndo`'yu her kare okur ve buton yoksa **gizler** (soluk bırakmaz). **Butonun kendi GameObject'inde duramaz** — butonu `SetActive(false)` ile gizlediği için kendi `Update`'i de dururdu; sahne üreteci onu Canvas'a koyar |
 | `LevelPickerHUD.cs` | Geliştirici aracı: sağ üstte level seçme dropdown'ı. Kendi Canvas'ını ve gerekirse EventSystem'ini **koddan** kurar |
 | `SafeAreaFitter.cs` | `Screen.safeArea`'ya göre RectTransform'u daraltır (çentik/home bar) |
@@ -319,9 +356,10 @@ dikkatli ol.
 | `GameConstants.cs` | static | Bkz. Bölüm 5 — kural merkezi (yerçekimi + boyama + palet) |
 | `TrajectorySimulator.cs` | static | `Simulate(start, vel, steps, dt, out landing)` — `GameConstants.Gravity` ile entegre eder, `Y=0` düzleminde durur. `SamplePath(path, t)` yay üzerinde normalize zamanla örnekler (tween bunu kullanır) |
 | `LaunchSolver.cs` | static | `SolveToCell(grid, origin, gx, gy, angle)` / `SolveToPoint` — sabit atış açısında, verilen hücrenin merkezine düşen hızı çözer. `GameConstants.GravityMagnitude` kullanır |
-| `CoverageAnalyzer.cs` | static | **"Kalan toplar kalan hücreleri kapatabilir mi?"** `TargetBoard` (düz diziler: `colors` / `hits` / `wild` / `stone`; `hits == 0` ⇒ hedef değil) + `BuildTargets(LevelData)` / `BuildTargets(GridRenderer)`; `BestPlacement(board, ball, out landX, out landY)` bir topun **en iyi iniş noktası** ve orada indireceği vuruş sayısı (`BestCoverage` sayı-döndüren sarmalayıcı); `CountPlacement(board, ball, lx, ly)` **tek bir** yerleşimin vuruş sayısı, uygulamadan (Solving botları belirli bir hücreyi tartmak için kullanır); `ApplyPlacement(board, ball, lx, ly, hitInto, filledInto)` bir yerleşimi taslak tahtadan düşer (opsiyonel listeler vuruş alan / dolan hücreleri verir); `Analyze(...)` renk başına `required` (**vuruş** sayısı — buz iki sayar) vs `ceiling` + `Impossible` / `Tight` (< 1.4×) / `Headroom`, artı gerekiyorsa bir **wild (joker) satırı**. Ölçme ve uygulama **aynı yürüyüşü** paylaşır (`Walk`), böylece plan bir kuralla ölçülüp başka bir kuralla uygulanamaz. Özel hücreler bilerek üst sınırı **gevşetecek** yönde modellenir (yanlış "imkânsız" kararı kazanılabilir bir koşuyu bitirirdi): joker hiçbir rengin `required`'ında yoktur ama **her** rengin `ceiling`'inde sayılır. Üç tüketicisi olduğu için `Shared/`'da: `LevelValidator`, `LevelAutoSolver` (editör) ve `GameManager` (çalışma zamanı erken kayıp tespiti) |
+| `CoverageAnalyzer.cs` | static | **"Kalan toplar kalan hücreleri kapatabilir mi?"** `TargetBoard` (düz diziler: `colors` / `hits` / `wild` / `stone`; `hits == 0` ⇒ hedef değil) + `BuildTargets(LevelData)` / `BuildTargets(GridRenderer)`; `BestPlacement(board, ball, out landX, out landY)` bir topun **en iyi iniş noktası** ve orada indireceği vuruş sayısı (`BestCoverage` sayı-döndüren sarmalayıcı); `CountPlacement(board, ball, lx, ly)` **tek bir** yerleşimin vuruş sayısı, uygulamadan (Solving botları belirli bir hücreyi tartmak için kullanır); `ApplyPlacement(board, ball, lx, ly, hitInto, filledInto)` bir yerleşimi taslak tahtadan düşer (opsiyonel listeler vuruş alan / dolan hücreleri verir); Gökkuşağı (`Any`) top her rengin `ceiling`'ini yükseltir (gevşek yönde) ve hiçbir satıra ait değildir. `Analyze(...)` renk başına `required` (**vuruş** sayısı — buz iki sayar) vs `ceiling` + `Impossible` / `Tight` (< 1.4×) / `Headroom`, artı gerekiyorsa bir **wild (joker) satırı**. Ölçme ve uygulama **aynı yürüyüşü** paylaşır (`Walk`), böylece plan bir kuralla ölçülüp başka bir kuralla uygulanamaz. Özel hücreler bilerek üst sınırı **gevşetecek** yönde modellenir (yanlış "imkânsız" kararı kazanılabilir bir koşuyu bitirirdi): joker hiçbir rengin `required`'ında yoktur ama **her** rengin `ceiling`'inde sayılır. Üç tüketicisi olduğu için `Shared/`'da: `LevelValidator`, `LevelAutoSolver` (editör) ve `GameManager` (çalışma zamanı erken kayıp tespiti) |
 | `LevelSerializer.cs` | static | `ToJson/FromJson`, `Save/Load` (dosya IO sadece editörde anlamlı) |
 | `GameFX.cs` | Mono singleton | `GameFX.Instance` ilk erişimde kendini yaratır. `Impact`, `ImpactRing`, `Bloom`, `CellPop`, `LaunchPuff`, `Win`, `Firework`, **`Confetti(center, color)`** (renk bitince, Win'den küçük), **`HitStop(sec)`** (`Time.timeScale=0`, unscaled bekleme, üst üste binmez; 8+ hücrelik atışta 50 ms), `Shake`, `ZoomPunch`, `Flash`.
+| `GameAudio.cs` | Mono singleton | **Ses hub'ı**, `GameFX`'in ses ikizi: `GameAudio.Play(Sfx, pitch, volume)` ilk çağrıda kendini yaratır, sahne bağlantısı yok. `Sfx`: `Launch`, `Land`, `CellTick`, `IceCrack`, `ColorFanfare`, `Praise`, `Win`, `Lose`, `Booster`, `Warning`, `Undo`, `Pop`. Projede ses varlığı **yok**: her klip `Awake`'te ton + filtrelenmiş gürültü + zarf ile **sentezlenir** (birkaç ms); `Resources/Audio/<Sfx adı>` altında bir klip varsa o kullanılır. `PlayTick(n)` boyama dalgasında pentatonik basamak, `PlayPraise(tier)` GOOD/GREAT/AMAZING. 10 `AudioSource`'luk round-robin havuz (pitch kaynak başına). `Muted` PlayerPrefs'te (`SoundMuted`), henüz UI'ı yok. Sahnede `AudioListener` yoksa kendine ekler; üretilen klipleri `OnDestroy`'da yok eder |
 | `RoundedCubeMesh.cs` | static | Yuvarlatılmış birim küp mesh'i, `(radius, subdiv)` başına bir kez üretilip önbelleklenir. Hücre, top blokları ve tahta plakası paylaşır. **Yalnız runtime**: sahne dosyasına kaydedilen nesneler prosedürel mesh referansını kaybeder, o yüzden `GameplaySceneBuilder` dekor için primitive kullanır | **`GameFX.CurrentShakeOffset`** — kamera sarsıntısı sadece öteleme yapar; ekrandan-dünyaya ışın atarken bu offset çıkarılmalıdır (`TapLaunchController.PickRay`) |
 | `Haptics.cs` | static | `Light/Medium/Heavy`. Android'de `AndroidJavaObject` ile Vibrator (API 26+ amplitüdlü), editörde no-op |
 | `Telemetry.cs` | static | `RecordLaunch()` — atışlar arası süreyi loglar, `OnTimeBetweenLaunchesRecorded` |
@@ -345,7 +383,7 @@ dikkatli ol.
 | `Gallery/LevelThumbnailElement.cs` | — | Tahtayı tek elemanın `generateVisualContent`'inde `Painter2D` ile boyar (40 kart × 225 hücre = 40 eleman) |
 | `Produce/LevelProduceRunner.cs` | — | UI'sız runner: `LevelProduceRequest.Normalized()` (özet, onay, runner ve rapor **aynı** aralığı okur; `MaxCountedLevel=999`, span ≤ 300), level başına band `Schedule.For(n)`, mevcut dosya overwrite kapalıysa `Skipped`, üretilemezse `Failed` + sebep, JSON **yerinde** yazılır (.meta/GUID korunur). `LevelProduceReport` satır satır |
 | `Produce/LevelProduceTabController.cs` | Produce sekmesi | Aralık + seed + attempts + overwrite; band reçete editörü (tip başına tek paylaşılan handler, alan adı `switch`'i); mevcut dosyalar varsa **önce onay**; koşu iptal edilebilir progress bar; bitince `AssetDatabase.Refresh()` + shell `OnCatalogProduced` |
-| `Solving/PlayoutBoard.cs` | — | **Headless simülatör.** `CoverageAnalyzer.TargetBoard` + kuyruk; damga/eşleşme/erişim/buz `CoverageAnalyzer`'dan, öne alma penceresi `SelectableSlots=3` (`BallQueueView` ile aynı), purge `GameManager.PurgeCompletedColors` kuralı, dead-end `GameManager.IsDeadEnd`. Bot **geri alamaz**; `Clone()` ile özel tahtada keşfeder. Sonuç: `Won / OutOfBalls / DeadEnd / Unplayable`. **Simüle edilmeyenler:** Keep Going (+N top), undo, skor, fiziksel yay |
+| `Solving/PlayoutBoard.cs` | — | **Headless simülatör.** `CoverageAnalyzer.TargetBoard` + kuyruk; damga/eşleşme/buz `CoverageAnalyzer`'dan, öne alma penceresi `SelectableSlots=3` (`BallQueueView` ile aynı), purge `GameManager.PurgeCompletedColors` kuralı, dead-end `GameManager.CheckDeadEnd` ölçümü (oyun yalnız uyarır; bot undo/booster kullanamadığı için onun için kayıp). Bot **geri alamaz**; `Clone()` ile özel tahtada keşfeder. Sonuç: `Won / OutOfBalls / DeadEnd / Unplayable`. **Simüle edilmeyenler:** Keep Going (+N top), undo, booster, skor, fiziksel yay |
 | `Solving/ISolverBot.cs` · `SolverRoster.cs` | — | Bot sözleşmesi + popülasyon (8 bot, her biri **farklı karar prosedürü**): `random` (sıfır hipotezi), `gate-greedy` (tavan = Save kapısının solver'ı; %100 altı **level kusuru**), `greedy-window`, `color-focus`, `impulsive`, `careless-15` (**band botu**, `SolverRoster.BandBotId`), `careless-35`, `lookahead-2` (pahalı). Skorlayıcı eklemek bot eklemek değildir |
 | `Solving/LevelBenchmark.cs` | — | Sweep koşucusu: tohum `baseSeed + level·100003 + run·7919`, koşular arasında iptal yoklaması, bot başına `BotStat` (4 sonuç toplamı = koşu sayısı), level başına `LevelResult` (band botu → `measured`, `matches`) |
 | `Solving/LevelSolvingTabController.cs` | Solving sekmesi | Kapsam (açık level / hepsi / aralık) + koşu + seed; maliyet butona basılmadan **önce** yazılır; sweep **daima tüm roster'la** koşar, bot filtresi yalnız çizimi filtreler. Level satırları (band botu win-rate çubuğu, uyuşmazlık vurgusu) → detay kartı: bot başına **yığılmış sonuç çubuğu**, band **gauge**'u, headroom, kayıp koşu çipleri, ham tablo foldout, en sonda verdict. `BuildQuickCard` Editor'ün Status kartında aynı veriyi gösterir |
@@ -371,7 +409,7 @@ dikkatli ol.
 
 ```
 DirectionalLight      (yumuşak gölge, açık ambient)
-GridCamera            (MainCamera tag, GridCameraController, BackgroundGradient, post-processing açık)
+GridCamera            (MainCamera tag, GridCameraController, BackgroundGradient, AudioListener, post-processing açık)
 PostFX                (global Volume → Assets/Settings/GameplayPostFX.asset: Bloom 0.55, Vignette 0.18)
 GridRoot              (GridRenderer + GridBoard)   → Cell_x_y çocukları runtime'da
 BallQueue             (BallQueue + BallQueueView)
@@ -384,9 +422,12 @@ LaunchArea            (LaunchAreaAnchor)           konum ~(5.5, 0, -8)
 AimPreview            (LineRenderer + AimPreview)
 BallLauncher
 EventSystem
-UICanvas              (ResultScreenUI + UndoButtonUI)
+BoosterSystem         (_queue, _grid, _gameManager)
+UICanvas              (ResultScreenUI + UndoButtonUI + BoosterBarUI)
 ├─ ResultPanel → TitleText, SubText, RetryBtn, MenuBtn, Keep GoingBtn (kapalı başlar)
 ├─ UndoBtn                                        (kapalı başlar; UndoButtonUI açar)
+├─ RainbowBtn / RecolorBtn / BombBtn → Label, Count  sol alt sütun, x 0.03–0.21, y 0.10'dan yukarı
+├─ WarningLabel                                   dead-end uyarısı (üst-orta, y 0.70–0.77, raycast kapalı, alfa 0)
 ├─ TrayRemaining                                  "+N" tepsi sayacı (sağ alt, raycast kapalı)
 ├─ PraiseLabel                                    "GREAT!" (ekran ortası, raycast kapalı)
 └─ ProgressSafeArea (SafeAreaFitter)
@@ -457,7 +498,8 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
 9. **`LaunchAreaAnchor.Reanchor()` `BallQueue.Load()`'dan önce** çağrılmalı.
 10. **Material/Texture sızıntısı:** Kod runtime'da `new Material(...)` yapıyorsa
     `OnDestroy`'da `Destroy` etmeli (`CellView`, `BallVisual`, `AimPreview`, `GridBoard`
-    bunu yapıyor — yeni kod da yapmalı).
+    bunu yapıyor — yeni kod da yapmalı). Aynısı `AudioClip.Create` için: `GameAudio`
+    sentezlediği klipleri yok eder.
 11. **Undo yalnızca tahta dururken açılır** (`!IsBusy`). Toplar üst üste atılabildiği
     için uçuş sırasında "son atış" belirsizdir; ayrıca boyama dalgası sürerken kuyruğu
     geri sarmak `BallLauncher._activeFlights` sayacıyla çakışır. Geri alma, atışın
@@ -474,8 +516,9 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
     doğrulayıcı tek bir yüklem üzerinden geçer (`CellView.IsPaintTarget` /
     `LevelValidator.IsPaintTarget`). Bir taşı hedef saymak level'i **kalıcı olarak
     bitirilemez** yapar — üstelik sessizce, çünkü tahtada boyanacak bir hücre gibi durur.
-14. **Kapsamada özel hücreler daima üst sınırı gevşetir.** `Impossible` kararı oyunu
-    bitirdiği için yanlış pozitif **verilemez**: joker hücreleri hiçbir rengin
+14. **Kapsamada özel hücreler daima üst sınırı gevşetir.** `Impossible` kararı oyuncuya
+    "bu renk bitmez" diye uyarı gösterir ve editörde level'i kırmızıya boyar; yanlış pozitif
+    **verilemez**: joker hücreleri hiçbir rengin
     `required`'ına yazılmaz ama her rengin `ceiling`'inde sayılır, ayrı bir wild satırı
     yalnızca joker hücrelerine karşı ölçülür. Yeni bir hücre tipi eklerken de yön aynı:
     şüphede kal, kanıtlama.
@@ -485,6 +528,13 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
 16. **Undo skoru da geri alır** (`GameManager.RevertLastAward`). Yoksa "boya → geri al →
     aynı yeri boya" sınırsız puan üretir. Aynı sebeple `LevelLoader.Apply`
     `ResetScore()` çağırır: level seçici sahneyi yeniden yüklemiyor.
+17. **`CellColor.Any` hiçbir zaman hücre rengi olmaz.** Yalnızca booster'ın ürettiği top
+    rengidir. `ColorMatches` onu her hedefle eşler, `CoverageAnalyzer` onu her rengin
+    tavanına ekler — ikisi de "Any bir hücre olamaz" varsayımıyla yazıldı. Level JSON'u
+    `8` içermemeli; editör swatch'ı gizler (`LevelEditorWindow`), üretici vermez.
+18. **Dead-end bir uyarıdır, kayıp değil.** Kayıp yalnızca kuyruk boşken
+    (`OutOfBalls`) ilan edilir. `CheckDeadEnd`'i tekrar `EndGame`'e bağlamak booster ve
+    undo'yu anlamsız kılar: oyuncunun kurtarabileceği bir koşu elinden alınır.
 
 ---
 
@@ -506,16 +556,17 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
 
 ## 12. Bilinen Boşluklar / Teknik Borç
 
-- **Level verisi bozuk (tespit edildi, düzeltilmedi).** Doğrulayıcı 2026-08-11'de
-  gerçek kapsamaya geçirilince şunlar ortaya çıktı ve hâlâ duruyor:
+- **Eski elle yazılmış level verisi bozuktu** (tarihsel not — `level1–5` 2026-09-15'te
+  `LevelBuilder` ile yeniden üretildi, bkz. paket 1; yenileri Unity'de oynanarak henüz
+  doğrulanmadı). Doğrulayıcı 2026-08-11'de gerçek kapsamaya geçirilince eski dosyalarda
+  şunlar ortaya çıkmıştı:
   `level1` **bitirilemiyor** (siyah iki adet 1 sıralık şerit: 24 hücre, kare
   damgaların tavanı 18); `level2`'nin top kuyruğu **boş**; `level1–3`'te
   `(1,1)`'de tek hücrelik bir yeşil renk var (içe aktarma artığı, oyuncuya
   özel bir top harcatıyor); `level5`'te pembe ve mor 2'şer çapraz hücre,
   tam 1.00× payla. Editörde bu level'ler artık kırmızı görünüyor.
-  **Beklenen davranış:** `GameManager.IsDeadEnd()` devreye girdiği için `level1`
-  ilk atıştan hemen sonra "Dead End" ile biter — bu bir hata değil, doğru teşhis.
-  Level verisi düzeltilince kendiliğinden geçer.
+  O dönem `level1` ilk atıştan hemen sonra "Dead End" ile bitiyordu; bugün aynı durum
+  yalnızca bir uyarı gösterir (bkz. § 6.2, değişmez 18).
   **Not:** `level1`'in siyah şeridi tam olarak `Line` damgasının işi — aynı 5 top
   `Line` olsaydı tavan 18 yerine 31 olurdu (gereken 24). Tek sıralık şeritleri kare
   damgayla boyatmak yerine şekli değiştirmek, düzeltmenin en ucuz yolu.
@@ -537,8 +588,19 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   `Gameplay2.unity` yeniden üretilmeden bunların çoğu görünmez** — `CatapultGames/Build
   Gameplay Scene` çalıştırılmalı (ışık, volume, tepsi, etiketler sahneye üreteçle girer).
   Editor asmdef artık URP runtime assembly'lerine referanslı (Volume/Bloom kurulumu için);
-  runtime kodu URP tipine dokunmaz. Sırada: paket 3 (booster çubuğu, taş gölgesi/joker
-  hücresinin kaldırılması, dead-end'in uyarıya dönmesi), paket 4 (ses).
+  runtime kodu URP tipine dokunmaz.
+- **Casual sadeleştirme, paket 3 (2026-10-04).** Booster çubuğu (Rainbow / Recolor / Bomb,
+  `BoosterSystem` + `BoosterBarUI`, `CellColor.Any`), taş = delik (gölge/yutma kuralı ve
+  `GameConstants.GetStampPath` / `GridRenderer.IsBlocking` silindi), üretici joker vermiyor,
+  dead-end oyunu bitirmek yerine uyarı (`GameManager.CheckDeadEnd`, `ResultScreenUI.Reason.DeadEnd`
+  silindi). Booster sütununun ve uyarı etiketinin yerleşimi **Unity'de görülmedi** — tepsi
+  topları veya tahta ile çakışıyorsa `GameplaySceneBuilder.MakeBoosterButton` /
+  `WarningLabel` anchor'ları ayarlanır.
+- **Casual sadeleştirme, paket 4 (ses, 2026-10-04).** `GameAudio` tüm sesleri çalışma zamanında
+  sentezler (ses varlığı yok, import ayarı yok). Sentez Unity dışında sayısal olarak kontrol
+  edildi (NaN yok, tepe 0.70, uçlarda tık yok) ama **kulakla dinlenmedi**; ses tasarımı zevk
+  meselesi — beğenilmeyen bir ses kod değiştirmeden `Resources/Audio/<Sfx>` ile değiştirilir.
+  Sessize alma (`GameAudio.Muted`) var ama onu açıp kapatan bir ayar ekranı yok.
 - **Level editörü UI Toolkit'e taşındı (2026-09-15).** Eski tek panelli IMGUI penceresi,
   dört sekmeli shell'e dönüştü (bkz. § 7 Editor tablosu, § 9). Bilinen sınırlar:
   · Solving simülatörü Keep Going / undo / skor / fiziksel yayı modellemiyor (kasıtlı).
@@ -552,8 +614,8 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   · Kompozisyon doğrulaması Unity dışında koşturuldu: `dotnet build` ile tip kontrolü +
     gerçek DLL'lere karşı konsol koşumu (level1 dead-end, level2 oynanamaz, level3–5 kapı %100).
   · UXML/USS `.meta` dosyaları Unity ilk odakta üretir; commit'e onları da ekle.
-- **Test assembly'si hâlâ yok.** F6-3'ün kapsama matematiği (buz vuruşları, taş gölgesi,
-  joker kovası) `dotnet` altında çalışan geçici bir konsol koşumuyla doğrulandı
+- **Test assembly'si hâlâ yok.** F6-3'ün kapsama matematiği (buz vuruşları, o zamanki taş
+  gölgesi, joker kovası) `dotnet` altında çalışan geçici bir konsol koşumuyla doğrulandı
   (`GameConstants` + `CoverageAnalyzer` + `LevelAutoSolver` + `LevelValidator` gerçek
   dosyaları, sahte `UnityEngine` tipleriyle derlenir). Kalıcı bir test assembly'si
   eklenirse ilk taşınacak şey bu.

@@ -1,0 +1,6 @@
+<Project>
+  <!-- Two projects share this folder; give each its own obj/ so restores don't collide. -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

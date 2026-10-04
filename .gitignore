@@ -79,3 +79,7 @@ Thumbs.db
 
 # Native build tool cache
 .utmp/
+
+# Unity-free compile check (see docs/HANDOFF.md)
+!/tools/compile-check/*.csproj
+/tools/compile-check/bin/

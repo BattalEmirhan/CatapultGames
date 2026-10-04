@@ -66,6 +66,7 @@ namespace CatapultGames.Editor
             cam.cullingMask  = -1;  // render everything
             cam.depth        = 0;
             camGo.AddComponent<BackgroundGradient>();   // sky → cream gradient behind everything
+            camGo.AddComponent<AudioListener>();        // GameAudio plays 2D one-shots; something has to hear them
 
             // Post-processing: a touch of bloom so filled cells shine (CellView adds
             // emission), and a soft vignette. The profile is a real asset so the
@@ -267,6 +268,43 @@ namespace CatapultGames.Editor
             SetRef(undoUI, "_button",      undoBtn);
             SetRef(undoUI, "_gameManager", gm);
 
+            // ── Boosters (left edge, mirroring the undo button) ───────────
+            // A short column left of the tray, bottom-up: Rainbow, Recolor, Bomb.
+            // Kept off the tray band itself — a button over a tray ball would eat
+            // the tap that selects it (UI gestures never reach TapLaunchController).
+            var boosterGo = new GameObject("BoosterSystem");
+            var boosters  = boosterGo.AddComponent<BoosterSystem>();
+            SetRef(boosters, "_queue",       queue);
+            SetRef(boosters, "_grid",        grid);
+            SetRef(boosters, "_gameManager", gm);
+
+            var rainbow = MakeBoosterButton(canvasGo.transform, "Rainbow", 0, new Color(0.62f, 0.42f, 0.86f), out var rainbowCount);
+            var recolor = MakeBoosterButton(canvasGo.transform, "Recolor", 1, new Color(0.24f, 0.60f, 0.86f), out var recolorCount);
+            var bomb    = MakeBoosterButton(canvasGo.transform, "Bomb",    2, new Color(0.90f, 0.42f, 0.32f), out var bombCount);
+
+            // One view drives all three buttons, so it sits on the canvas (next to
+            // UndoButtonUI) rather than on any one of them.
+            var boosterBar = canvasGo.AddComponent<BoosterBarUI>();
+            SetRef(boosterBar, "_boosters",      boosters);
+            SetRef(boosterBar, "_queue",         queue);
+            SetRef(boosterBar, "_rainbowButton", rainbow);
+            SetRef(boosterBar, "_recolorButton", recolor);
+            SetRef(boosterBar, "_bombButton",    bomb);
+            SetRef(boosterBar, "_rainbowCount",  rainbowCount);
+            SetRef(boosterBar, "_recolorCount",  recolorCount);
+            SetRef(boosterBar, "_bombCount",     bombCount);
+
+            // ── Dead-end warning — top centre, under the HUD rows ─────────
+            // GameManager fades it in when a colour can no longer be finished.
+            var warningGo  = MakeText(canvasGo.transform, "WarningLabel", "", 46,
+                                      new Vector2(0.05f, 0.70f), new Vector2(0.95f, 0.77f));
+            var warningTMP = warningGo.GetComponent<TextMeshProUGUI>();
+            warningTMP.fontStyle     = FontStyles.Bold;
+            warningTMP.raycastTarget = false;
+            warningTMP.richText      = true;               // the colour name is tinted
+            warningTMP.color         = new Color(1f, 1f, 1f, 0f);   // starts hidden
+            SetRef(gm, "_warningLabel", warningTMP);
+
             // ── Progress HUD — top-left, inside safe area ─────────────────
             // Wrap in a SafeAreaFitter panel so it respects notch / home indicator
             var safeAreaGo = new GameObject("ProgressSafeArea");
@@ -346,6 +384,7 @@ namespace CatapultGames.Editor
             SetRef(loader,  "_levelPicker",      picker);
             SetRef(loader,  "_launchAnchor",     launchAnchor);
             SetRef(loader,  "_gameManager",      gm);      // resets the score per level
+            SetRef(loader,  "_boosters",         boosters); // refills the booster counts per level
             SetStr(loader,  "_defaultLevelName", "level1");
             SetRef(picker,  "_loader",           loader);
 
@@ -515,6 +554,32 @@ namespace CatapultGames.Editor
             r.offsetMin = r.offsetMax = Vector2.zero;
 
             var textGo = MakeText(go.transform, "Label", label, 34, Vector2.zero, Vector2.one);
+            return btn;
+        }
+
+        // One booster button in the left column (row 0 at the bottom), with its
+        // "×N" count in the top-right corner. Same anchor band as the undo button
+        // for row 0, so the two read as a pair.
+        private static Button MakeBoosterButton(Transform parent, string label, int row, Color color,
+                                                out TextMeshProUGUI countLabel)
+        {
+            const float bottom = 0.10f, height = 0.065f, gap = 0.01f;
+            float y0 = bottom + row * (height + gap);
+            var btn = MakeButton(parent, label, new Vector2(0.03f, y0), new Vector2(0.21f, y0 + height));
+            btn.GetComponent<Image>().color = color;
+            var text = btn.GetComponentInChildren<TextMeshProUGUI>();
+            text.fontSize  = 30;
+            text.fontStyle = FontStyles.Bold;
+            var textRect = text.rectTransform;          // name in the lower part, count above it
+            textRect.anchorMin = new Vector2(0.04f, 0.04f);
+            textRect.anchorMax = new Vector2(0.96f, 0.60f);
+
+            var countGo = MakeText(btn.transform, "Count", "×1", 28,
+                                   new Vector2(0.50f, 0.58f), new Vector2(0.96f, 0.98f));
+            countLabel = countGo.GetComponent<TextMeshProUGUI>();
+            countLabel.alignment     = TextAlignmentOptions.TopRight;
+            countLabel.fontStyle     = FontStyles.Bold;
+            countLabel.raycastTarget = false;
             return btn;
         }
 

@@ -114,7 +114,9 @@ harita eskirse sonraki geliştirme yanlış varsayımla başlar.
 Kural merkezi (yerçekimi/boyama/palet/yörünge) → Assets/_Project/Scripts/Shared/GameConstants.cs
 Izgara sahibi + koordinat dönüşümleri         → Scripts/Gameplay/Grid/GridRenderer.cs
 Atış → uçuş → boyama zinciri                   → Scripts/Gameplay/Ball/BallLauncher.cs
-Kazanma/kaybetme kararı                        → Scripts/Gameplay/GameManager.cs
+Kazanma/kaybetme kararı + dead-end uyarısı    → Scripts/Gameplay/GameManager.cs
+Booster'lar (Rainbow/Recolor/Bomb)             → Scripts/Gameplay/BoosterSystem.cs (+ UI/BoosterBarUI.cs)
+Ses (sentez + çalma, sahne bağlantısı yok)     → Scripts/Shared/GameAudio.cs
 JSON → sahne yükleme                           → Scripts/Gameplay/LevelLoader.cs
 Girdi (hücreye dokun → ateş)                   → Scripts/Gameplay/Ball/TapLaunchController.cs
 Nişan önizleme (yay + boyanacak hücreler)      → Scripts/Gameplay/Aim/AimPreview.cs

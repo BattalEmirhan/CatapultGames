@@ -259,6 +259,21 @@ namespace CatapultGames
 
         public static Color32 GetColor(CellColor c) => CellColorPalette[(int)c];
 
+        // What the player calls each colour. The enum names are legacy ids (Black
+        // is navy, White is lemon), so any text that names a colour reads it here.
+        public static string GetColorDisplayName(CellColor c) => c switch
+        {
+            CellColor.Red    => "Red",
+            CellColor.Green  => "Green",
+            CellColor.Blue   => "Blue",
+            CellColor.Black  => "Navy",
+            CellColor.White  => "Yellow",
+            CellColor.Pink   => "Pink",
+            CellColor.Purple => "Purple",
+            CellColor.Any    => "Rainbow",
+            _                => "",
+        };
+
         // Same as GetColor but as a float Color (handy for VFX / materials).
         public static Color GetColorF(CellColor c)
         {

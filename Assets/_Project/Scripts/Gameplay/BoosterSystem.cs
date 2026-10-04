@@ -80,6 +80,7 @@ namespace CatapultGames
             _queue.NotifyCurrentChanged();
             GameFX.Instance.Flash(new Color(1f, 1f, 1f), 0.18f, 0.25f);
             Haptics.Medium();
+            GameAudio.Play(GameAudio.Sfx.Booster);
             OnChanged?.Invoke();
             return true;
         }

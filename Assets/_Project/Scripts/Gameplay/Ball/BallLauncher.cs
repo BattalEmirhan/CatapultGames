@@ -110,6 +110,7 @@ namespace CatapultGames
             bv.EnableTrail(_ballVisualScale * 0.6f);
 
             GameFX.Instance.LaunchPuff(origin);
+            GameAudio.Play(GameAudio.Sfx.Launch, UnityEngine.Random.Range(0.95f, 1.05f));
 
             // Tween ball along arc — with a quick pop-in scale as it leaves.
             const float popDur = 0.12f;
@@ -130,6 +131,8 @@ namespace CatapultGames
             Color ballCol = GameConstants.GetColorF(ballData.color);
             GameFX.Instance.Impact(landPos, ballCol);
             GameFX.Instance.ImpactRing(landPos, ballCol);
+            // Bigger stamp, deeper thud.
+            GameAudio.Play(GameAudio.Sfx.Land, 1.12f - 0.1f * Mathf.Clamp(ballData.powerLevel, 1, 3));
 
             // Raise the painted cells as a wave rippling outward from the hit cell,
             // then a big bloom once they have all risen. Awaited (not fire-and-forget)
@@ -164,9 +167,11 @@ namespace CatapultGames
             if (targets.Count == 0) yield break;
 
             var wait = _riseStagger > 0f ? new WaitForSeconds(_riseStagger) : null;
+            int rising = 0;   // cubes that filled so far — each one a step up the scale
             foreach (var c in targets)
             {
-                _grid.ApplyHit(c.x, c.y);
+                if (_grid.ApplyHit(c.x, c.y)) GameAudio.PlayTick(rising++);
+                else                          GameAudio.Play(GameAudio.Sfx.IceCrack);
                 paintedInto?.Add(c);
                 Haptics.Light();                 // tick as each cube starts rising
                 if (wait != null) yield return wait;

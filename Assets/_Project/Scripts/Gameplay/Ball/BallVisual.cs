@@ -250,6 +250,7 @@ namespace CatapultGames
             transform.position = target;
 
             GameFX.Instance.Firework(target, _color);
+            GameAudio.Play(GameAudio.Sfx.Pop, Random.Range(0.85f, 1.2f));
             Destroy(gameObject);
         }
 
