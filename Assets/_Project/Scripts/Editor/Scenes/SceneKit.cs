@@ -17,8 +17,14 @@ namespace CatapultGames.Editor
         internal static Scene NewScene() =>
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-        internal static void SetRef(Object target, string field, Object value) =>
+        // A destroyed or unloaded object compares equal to null while the reference
+        // itself is not; wiring one would silently save an empty field.
+        internal static void SetRef(Object target, string field, Object value)
+        {
+            if (value == null && !ReferenceEquals(value, null))
+                Debug.LogError($"[SceneKit] {target.GetType().Name}.{field}: the object was unloaded before wiring.");
             Apply(target, field, p => p.objectReferenceValue = value);
+        }
 
         internal static void SetFloat(Object target, string field, float value) =>
             Apply(target, field, p => p.floatValue = value);

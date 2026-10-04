@@ -15,11 +15,14 @@ namespace CatapultGames.Editor
         private static readonly Color DarkWood = new Color(0.52f, 0.40f, 0.30f);
         private static readonly Color Neutral  = new Color(0.2f, 0.2f, 0.2f);
 
-        internal static void Build(MaterialSet materials, string path)
+        // The MaterialSet is fetched only after NewScene: a single-mode scene switch
+        // unloads unused assets, and a ScriptableObject reference held across it
+        // reads as null — every "materials" field would be saved empty.
+        internal static void Build(string path)
         {
             var scene = SceneKit.NewScene();
             SceneKit.EnsureLayer("CG_Grid");
-            var p = new GameSceneParts { Materials = materials };
+            var p = new GameSceneParts { Materials = MaterialSetAsset.Ensure() };
             BuildWorld(p);
             BuildHud(p);
             AddLoader(p);

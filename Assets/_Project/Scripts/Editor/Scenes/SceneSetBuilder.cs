@@ -11,6 +11,7 @@ namespace CatapultGames.Editor
     //   GameScene           → board, gameplay systems, in-game HUD
     //   UIScene             → meta UI over the board, overlay camera, EventSystem
     // Nothing is placed by hand, so a rebuild can never lose a reference.
+    // The MaterialSet is loaded by GameSceneBuilder itself, after its NewScene: see there.
     internal static class SceneSetBuilder
     {
         private const string Folder = "Assets/Scenes";
@@ -23,10 +24,9 @@ namespace CatapultGames.Editor
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 return;
             Directory.CreateDirectory(Folder);
-            var materials = MaterialSetAsset.Ensure();
             BuildSingle(PathOf("InitScene"), "InitSceneLoader", typeof(InitSceneLoader));
             BuildSingle(PathOf("BootScene"), "Bootstrap",       typeof(Bootstrap));
-            GameSceneBuilder.Build(materials, PathOf("GameScene"));
+            GameSceneBuilder.Build(PathOf("GameScene"));
             UiSceneBuilder.Build(PathOf("UIScene"));
             AssetDatabase.Refresh();
             SetBuildScenes();
