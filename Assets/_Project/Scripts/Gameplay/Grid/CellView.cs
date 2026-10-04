@@ -46,8 +46,8 @@ namespace CatapultGames
         public  const int BoardOrder  = -20;   // GridBoard's panel, under everything
 
         private const float Padding       = 0.04f;   // gap between sockets, fraction of a cell
-        private const float MarkerResting = 0.40f;   // marker size, fraction of a cell
-        private const float MarkerAwaiting = 0.56f;  // …while its colour is the ball in hand
+        private const float MarkerResting  = 0.46f;  // marker size, fraction of a cell
+        private const float MarkerAwaiting = 0.62f;  // …while its colour is the ball in hand
         private const float PieceLift     = 0.25f;   // how far a filling tile pops toward the camera
 
         private static readonly Color FootprintTint = new Color(0.75f, 0.85f, 1f);

@@ -3,8 +3,10 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // The board's art, in the block-match look: saturated glossy tiles on a deep
-    // purple board with a checkered socket grid. Every sprite is DRAWN IN CODE
+    // The board's art, in the block-match structure: saturated glossy tiles on a
+    // neutral slate board with a checkered socket grid. The board is deliberately
+    // colourless — any hue in it (the purple tried first) eats into the contrast
+    // of the tiles that share it. Every sprite is DRAWN IN CODE
     // (the project ships no art), once, and kept for the app's lifetime.
     //
     // Swapping in real art needs no code: a Sprite at Resources/Art/<name> wins
@@ -17,10 +19,10 @@ namespace CatapultGames
     {
         // Board tones, shared by the grid, the tray plate and the menus so the
         // whole game sits on one background family.
-        public static readonly Color Board   = new Color32( 57,  30,  76, 255);
-        public static readonly Color SocketA = new Color32( 91,  44, 124, 255);
-        public static readonly Color SocketB = new Color32( 77,  36, 106, 255);
-        public static readonly Color Hole    = new Color32( 30,  15,  42, 255);   // Stone: a gap in the board
+        public static readonly Color Board   = new Color32( 34,  36,  48, 255);
+        public static readonly Color SocketA = new Color32( 52,  55,  72, 255);
+        public static readonly Color SocketB = new Color32( 44,  47,  62, 255);
+        public static readonly Color Hole    = new Color32( 14,  15,  22, 255);   // Stone: a gap in the board
 
         private const int Size = 128;   // px per tile sprite; 1 world unit
 
@@ -50,9 +52,16 @@ namespace CatapultGames
 
         // The "paint me" marker on an empty target: a small flat square in the
         // TRUE target colour (tinted by the renderer). Flat and small on purpose —
-        // nothing like a filled tile, and never washed out by alpha.
+        // nothing like a filled tile, and never washed out by alpha. White with a
+        // grey rim, so once tinted the rim is a darker shade of the same hue that
+        // separates the marker from the socket under it.
         public static Sprite Marker() => _marker != null ? _marker : _marker =
-            Load("Art/Board/Marker") ?? Draw("Marker", (u, v) => Flat(u, v, 0.47f, 0.22f));
+            Load("Art/Board/Marker") ?? Draw("Marker", (u, v) =>
+            {
+                float d = RoundedRect(u, v, 0.47f, 0.24f);
+                float rim = Mathf.Clamp01(1f + d / 0.10f);   // 0 inside, 1 at the edge
+                return ToColor32(Color.white * (1f - 0.62f * rim), Coverage(d, Size));
+            });
 
         // 9-sliced board panel; the border is the rounded corner plus its rim.
         public static Sprite Panel()
@@ -103,19 +112,21 @@ namespace CatapultGames
             float a = Coverage(dOuter, Size);
             if (a <= 0f) return new Color32(0, 0, 0, 0);
 
-            Color dark  = b * 0.62f;
-            Color light = Color.Lerp(b, Color.white, 0.28f);
+            // Saturation first: the face is the pure colour, and the light only
+            // touches the rim and a thin gloss band — whitening the whole tile is
+            // what made the earlier set look washed out.
+            Color dark  = b * 0.58f;
+            Color light = Color.Lerp(b, Color.white, 0.18f);
             Color col   = Color.Lerp(dark, light, Mathf.Clamp01(0.5f + v * 1.1f));
 
             float face = Coverage(RoundedRect(u, v - 0.012f, 0.36f, 0.09f), Size);
-            Color faceCol = Color.Lerp(b, Color.Lerp(b, Color.white, 0.10f), Mathf.Clamp01(0.5f + v));
-            col = Color.Lerp(col, faceCol, face);
+            col = Color.Lerp(col, b, face);
 
-            float gloss = Mathf.Clamp01((v - 0.06f) / 0.28f) * face * Mathf.Clamp01(1f - Mathf.Pow(Mathf.Abs(u) / 0.34f, 6f));
-            col = Color.Lerp(col, Color.white, 0.22f * gloss);
+            float gloss = Mathf.Clamp01((v - 0.10f) / 0.24f) * face * Mathf.Clamp01(1f - Mathf.Pow(Mathf.Abs(u) / 0.34f, 6f));
+            col = Color.Lerp(col, Color.white, 0.16f * gloss);
 
             float edge = Mathf.Clamp01(1f + dOuter * Size / 2.5f);
-            col = Color.Lerp(col, b * 0.45f, 0.55f * edge);
+            col = Color.Lerp(col, b * 0.40f, 0.6f * edge);
             return ToColor32(col, a);
         }
 

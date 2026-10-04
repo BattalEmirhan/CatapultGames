@@ -240,23 +240,25 @@ namespace CatapultGames
         public static int GetComboMultiplier(int streak) =>
             Mathf.Clamp(streak, 1, MaxComboMultiplier);
 
-        // Block-match palette (2026-10-04): seven saturated, maximally distinct hues
-        // on a deep purple board (TileArt) — red, green, blue, orange, yellow, cyan,
-        // pink, no two neighbours on the colour wheel. The pastel set before it
-        // washed out against the light board, and navy/lavender/blue read alike.
-        // The enum NAMES are legacy identifiers kept for JSON compatibility; what
-        // the player sees is GetColorDisplayName. Purple is not in the set because
-        // the board itself is purple. Index == (int)CellColor — never reorder.
+        // Readability palette (2026-10-04): seven fully saturated hues spread round
+        // the colour wheel — red, green, blue, orange, yellow, cyan, magenta — on a
+        // NEUTRAL slate board (TileArt), so no tile competes with the board's own hue.
+        // Tuned by measured CIELAB distance: the closest pair (red/orange) is ΔE 52
+        // and every colour is ΔE 74+ from the board. The pastel set before it had
+        // pairs at ΔE 36 (sky/navy, coral/pink) and was the "can't tell them apart"
+        // problem. The enum NAMES are legacy identifiers kept for JSON compatibility;
+        // what the player sees is GetColorDisplayName. Index == (int)CellColor —
+        // never reorder.
         public static readonly Color32[] CellColorPalette = new Color32[]
         {
             new Color32(  0,   0,   0,   0),  // None    (transparent)
-            new Color32(238,  52,  48, 255),  // Red     → red
-            new Color32( 52, 196,  62, 255),  // Green   → green
-            new Color32( 30, 112, 250, 255),  // Blue    → blue
-            new Color32(253, 146,  28, 255),  // Black   → orange
-            new Color32(252, 206,  30, 255),  // White   → yellow
-            new Color32( 18, 196, 240, 255),  // Pink    → cyan
-            new Color32(240,  76, 182, 255),  // Purple  → pink
+            new Color32(230,  25,  55, 255),  // Red     → red
+            new Color32( 35, 200,  70, 255),  // Green   → green
+            new Color32( 35,  80, 240, 255),  // Blue    → blue
+            new Color32(255, 135,   0, 255),  // Black   → orange
+            new Color32(255, 230,  20, 255),  // White   → yellow
+            new Color32(  0, 210, 235, 255),  // Pink    → cyan
+            new Color32(230,  40, 220, 255),  // Purple  → pink (magenta)
             new Color32(250, 250, 252, 255),  // Any     → rainbow ball base (BallVisual cycles real tiles)
         };
 

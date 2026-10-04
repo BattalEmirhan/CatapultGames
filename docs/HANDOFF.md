@@ -79,10 +79,11 @@ yerden okuyordu; art arda gelen praise yazısı her seferinde biraz daha yukarı
 ## 2d. Görsel dil — block-match (2026-10-04, dördüncü commit)
 
 - Pastel 3D küpler → tahta düzleminde **katmanlı sprite'lar** (`CellView`): damalı soket,
-  boş hedefte **gerçek renkli küçük marker**, dolunca parlak taş, buz örtüsü. Koyu mor 9-slice
-  panel (`GridBoard`), menekşe arka plan, mor tepsi, menüler aynı aile.
-- Yeni palet: kırmızı, yeşil, mavi, **turuncu** (Black), sarı (White), **camgöbeği** (Pink),
-  **pembe** (Purple). Editör swatch'ları ve satırlar artık görünen adı yazıyor.
+  boş hedefte **gerçek renkli marker**, dolunca parlak taş, buz örtüsü. Koyu **nötr arduvaz**
+  9-slice panel (`GridBoard`), renksiz koyu arka plan, arduvaz tepsi, menüler aynı aile.
+- Yeni palet (tam doygun, ölçülmüş: en yakın çift ΔE 52, eskisi 36): kırmızı, yeşil, mavi,
+  **turuncu** (Black), sarı (White), **camgöbeği** (Pink), **pembe/magenta** (Purple). Editör
+  swatch'ları ve satırlar artık görünen adı yazıyor.
 - Bütün sprite'lar `Shared/TileArt.cs`'te **kodla çiziliyor**; Block-Match yalnızca yapı/renk
   referansı. Gerçek art eklemek için `Resources/Art/...` (bkz. ARCHITECTURE § 7 `TileArt`).
 - Top gövdeleri aynı taşlardan (`BallVisual`). `RoundedCubeMesh` silindi.

@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // The deep purple panel the cells sit on — one 9-sliced sprite (TileArt.Panel)
+    // The dark slate panel the cells sit on — one 9-sliced sprite (TileArt.Panel)
     // lying under the grid, a little larger than it, drawn before every socket.
     // Call Rebuild() from LevelLoader.Apply() after BuildGrid().
     public class GridBoard : MonoBehaviour

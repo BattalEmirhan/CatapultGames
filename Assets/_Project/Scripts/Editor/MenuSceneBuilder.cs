@@ -24,9 +24,9 @@ namespace CatapultGames.Editor
         private static string MainMenuPath    => $"{SceneFolder}/{MainMenuSceneName}.unity";
         private static string LevelSelectPath => $"{SceneFolder}/{LevelSelectSceneName}.unity";
 
-        // The gameplay background's violet, so the menus and the board read as one
+        // The gameplay background's slate, so the menus and the board read as one
         // game; white ink on it, like the in-game HUD.
-        private static readonly Color Background = new Color(0.20f, 0.10f, 0.30f);
+        private static readonly Color Background = new Color(0.12f, 0.13f, 0.19f);
         private static readonly Color Ink        = Color.white;
 
         [MenuItem("CatapultGames/Build Menu Scenes", priority = 21)]
@@ -178,7 +178,7 @@ namespace CatapultGames.Editor
             return go.transform;
         }
 
-        // Menu text: the same white as the gameplay HUD, on the violet background.
+        // Menu text: the same white as the gameplay HUD, on the slate background.
         private static void StyleInk(GameObject textGo, FontStyles style)
         {
             var tmp = textGo.GetComponent<TextMeshProUGUI>();

@@ -63,10 +63,10 @@ namespace CatapultGames.Editor
             cam.orthographic = false;
             cam.fieldOfView  = 60f;
             cam.clearFlags   = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.16f, 0.08f, 0.25f);   // fallback behind the gradient quad
+            cam.backgroundColor = new Color(0.10f, 0.11f, 0.16f);   // fallback behind the gradient quad
             cam.cullingMask  = -1;  // render everything
             cam.depth        = 0;
-            camGo.AddComponent<BackgroundGradient>();   // violet → plum gradient behind everything
+            camGo.AddComponent<BackgroundGradient>();   // slate → near-black gradient behind everything
             camGo.AddComponent<AudioListener>();        // GameAudio plays 2D one-shots; something has to hear them
 
             // Post-processing: a touch of bloom so filled cells shine (CellView adds
@@ -111,12 +111,12 @@ namespace CatapultGames.Editor
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (!litShader) litShader = Shader.Find("Standard");
 
-            // Tray plate — the slab the three balls sit on, in the board's purple
+            // Tray plate — the slab the three balls sit on, in the board's slate
             // (a shade lighter, so it separates from the background) so the tray
             // reads as part of the board family and the tiles on it pop the same way.
             AddDeco(launchAreaGo.transform, "TrayPlate", PrimitiveType.Cube,
                     new Vector3(0f, 0.12f, 0f), new Vector3(5.4f, 0.24f, 1.9f),
-                    litShader, new Color(0.30f, 0.17f, 0.42f));
+                    litShader, new Color(0.23f, 0.24f, 0.32f));
 
             // Slots: left → right. The selected ball is lifted above its slot by
             // BallQueueView, and the arc starts from wherever that ball is.
