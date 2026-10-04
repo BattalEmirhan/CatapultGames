@@ -2,10 +2,8 @@ using UnityEngine;
 
 namespace CatapultGames
 {
-    // Soft vertical gradient behind everything: dark, cool and nearly colourless
-    // (2026-10-04), so the only saturated things on screen are the tiles and
-    // balls the player has to tell apart. A shade lighter than the board at the
-    // top, so the board still reads as a panel. A single unlit quad parented to the camera, far
+    // Soft vertical gradient behind everything — the "calm sky" every casual
+    // block puzzle sits on. A single unlit quad parented to the camera, far
     // down the frustum and sized to fill it, with a 1×64 gradient texture
     // generated at runtime (no asset to keep in sync with the palette).
     //
@@ -13,8 +11,8 @@ namespace CatapultGames
     [RequireComponent(typeof(Camera))]
     public class BackgroundGradient : MonoBehaviour
     {
-        [SerializeField] private Color _top    = new Color(0.157f, 0.173f, 0.251f);   // slate
-        [SerializeField] private Color _bottom = new Color(0.059f, 0.063f, 0.094f);   // near-black
+        [SerializeField] private Color _top    = new Color(0.60f, 0.78f, 0.98f);   // sky blue
+        [SerializeField] private Color _bottom = new Color(0.95f, 0.91f, 0.97f);   // lavender cream
         [SerializeField] private float _distance = 60f;
 
         private Camera    _cam;

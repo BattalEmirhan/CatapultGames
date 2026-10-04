@@ -39,8 +39,8 @@ namespace CatapultGames.Editor
             EnsureLayer("CG_Grid");
 
             // ── Lighting ──────────────────────────────────────────────────
-            // Warm key light with soft shadows. The board is unlit sprites now, so
-            // this only shapes the tray plate and the decorative catapult.
+            // Bright, warm key light with soft shadows on a light ambient — the toy
+            // blocks need a visible but gentle shadow to sit on the pale board.
             var lightGo = new GameObject("DirectionalLight");
             var light   = lightGo.AddComponent<Light>();
             light.type      = LightType.Directional;
@@ -63,10 +63,10 @@ namespace CatapultGames.Editor
             cam.orthographic = false;
             cam.fieldOfView  = 60f;
             cam.clearFlags   = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.10f, 0.11f, 0.16f);   // fallback behind the gradient quad
+            cam.backgroundColor = new Color(0.78f, 0.86f, 0.98f);   // fallback behind the gradient quad
             cam.cullingMask  = -1;  // render everything
             cam.depth        = 0;
-            camGo.AddComponent<BackgroundGradient>();   // slate → near-black gradient behind everything
+            camGo.AddComponent<BackgroundGradient>();   // sky → cream gradient behind everything
             camGo.AddComponent<AudioListener>();        // GameAudio plays 2D one-shots; something has to hear them
 
             // Post-processing: a touch of bloom so filled cells shine (CellView adds
@@ -111,12 +111,10 @@ namespace CatapultGames.Editor
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (!litShader) litShader = Shader.Find("Standard");
 
-            // Tray plate — the slab the three balls sit on, in the board's slate
-            // (a shade lighter, so it separates from the background) so the tray
-            // reads as part of the board family and the tiles on it pop the same way.
+            // Tray plate — the light slab the three balls sit on.
             AddDeco(launchAreaGo.transform, "TrayPlate", PrimitiveType.Cube,
                     new Vector3(0f, 0.12f, 0f), new Vector3(5.4f, 0.24f, 1.9f),
-                    litShader, new Color(0.23f, 0.24f, 0.32f));
+                    litShader, new Color(0.94f, 0.92f, 0.89f));
 
             // Slots: left → right. The selected ball is lifted above its slot by
             // BallQueueView, and the arc starts from wherever that ball is.
@@ -482,10 +480,8 @@ namespace CatapultGames.Editor
             AssetDatabase.CreateAsset(profile, PostProfilePath);
 
             var bloom = profile.Add<Bloom>(true);
-            // Gentle: the tiles' baked highlights are already near white, and a
-            // strong bloom smears them into each other on the dark board.
-            bloom.intensity.Override(0.30f);
-            bloom.threshold.Override(1.0f);
+            bloom.intensity.Override(0.55f);
+            bloom.threshold.Override(0.95f);
             bloom.scatter.Override(0.65f);
 
             var vignette = profile.Add<Vignette>(true);

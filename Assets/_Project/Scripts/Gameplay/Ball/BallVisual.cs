@@ -5,18 +5,14 @@ namespace CatapultGames
 {
     // Unified ball visual for the tray and for flight.
     //
-    // The body IS the stamp: a 3x3 ball is nine little tiles, a 5-long line is
-    // five tiles in a row, a plus is a plus — the same glossy tiles the board
-    // fills with (TileArt), lying flat like it. No numbers to decode: the player
+    // The body IS the stamp: a 3x3 ball is nine little cubes, a 5-long line is
+    // five cubes in a row, a plus is a plus. No numbers to decode — the player
     // reads the shape the way they read a piece in a block puzzle. The one
     // scaling rule keeps every body about the same overall size, so a 5x5 is a
     // finer grid rather than a bigger blob.
     public class BallVisual : MonoBehaviour
     {
-        // Above the whole board (CellView's layers run -20…5), so a ball flying
-        // over the grid is never drawn under the tiles it passes.
-        private const int BlockOrder = 20;
-
+        private Material _bodyMat;
         private Material _trailMat;
         private Color    _color;
         private int      _power;
@@ -31,7 +27,10 @@ namespace CatapultGames
         public bool Matches(BallData d) =>
             d != null && d.color == BallColor && Mathf.Clamp(d.powerLevel, 1, 3) == _power && d.shape == _shape;
 
-        // Rainbow (CellColor.Any) balls give each block a different real colour.
+        // Rainbow (CellColor.Any) balls tint each block with a different palette
+        // hue. Seven shared materials, built once and kept for the app's life —
+        // small, and never per-ball.
+        private static Material[] _rainbowMats;
         private int _rainbowIndex;
 
         // ── Factory ───────────────────────────────────────────────────────
@@ -55,6 +54,13 @@ namespace CatapultGames
             _power    = Mathf.Clamp(powerLevel, 1, 3);
             _shape    = shape;
 
+            var litShader = Shader.Find("Universal Render Pipeline/Lit")
+                         ?? Shader.Find("Standard");
+            _bodyMat = new Material(litShader) { color = _color };
+            if (_bodyMat.HasProperty("_Smoothness"))
+                _bodyMat.SetFloat("_Smoothness", 0.55f);   // candy gloss
+            if (color == CellColor.Any) EnsureRainbowMaterials(litShader);
+
             // Overall footprint of the body, whatever the shape. Runs and crosses
             // get a little more room because they are long and thin.
             float span = baseScale * 0.95f;
@@ -74,25 +80,35 @@ namespace CatapultGames
         private static int RunLength(int power) =>
             GameConstants.GetPaintCellCount(new BallData(CellColor.None, power, BallShape.Line), 0, 0);
 
-        // One flat tile at a local position, edge length `size` (sprites are one
-        // unit wide). A rainbow ball walks the seven real colours block by block.
-        private void AddBlock(Vector3 localPos, float size)
+        private static void EnsureRainbowMaterials(Shader shader)
         {
-            var go = new GameObject("Block");
-            go.transform.SetParent(transform, false);
-            go.transform.localPosition = localPos;
-            go.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);   // flat, like the board
-            go.transform.localScale    = Vector3.one * size;
-
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = BallColor == CellColor.Any
-                ? TileArt.Tile((CellColor)(1 + _rainbowIndex++ % 7))
-                : TileArt.Tile(BallColor);
-            sr.sortingOrder      = BlockOrder;
-            sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            if (_rainbowMats != null && _rainbowMats.Length > 0 && _rainbowMats[0] != null) return;
+            _rainbowMats = new Material[7];
+            for (int i = 0; i < 7; i++)
+            {
+                _rainbowMats[i] = new Material(shader) { color = GameConstants.GetColorF((CellColor)(i + 1)) };
+                if (_rainbowMats[i].HasProperty("_Smoothness")) _rainbowMats[i].SetFloat("_Smoothness", 0.6f);
+            }
         }
 
-        // N×N mini tiles filling `span` — the real stamp at tray scale. Cell edge
+        // One lit rounded block at a local position, edge length `size`.
+        private void AddBlock(Vector3 localPos, float size)
+        {
+            var cube = new GameObject("Block");
+            cube.transform.SetParent(transform, false);
+            cube.transform.localPosition = localPos;
+            cube.transform.localScale    = Vector3.one * size;
+            cube.AddComponent<MeshFilter>().sharedMesh = RoundedCubeMesh.Get(0.16f, 3);
+
+            var mr = cube.AddComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+            mr.receiveShadows    = true;
+            mr.sharedMaterial    = BallColor == CellColor.Any && _rainbowMats != null
+                ? _rainbowMats[_rainbowIndex++ % _rainbowMats.Length]
+                : _bodyMat;
+        }
+
+        // N×N mini cubes filling `span` — the real stamp at tray scale. Cell edge
         // leaves a hair of gap so the grid inside the body stays readable.
         private void BuildSquare(float span, int n)
         {
@@ -105,7 +121,7 @@ namespace CatapultGames
                 AddBlock(new Vector3(start + x * cell, 0f, start + y * cell), edge);
         }
 
-        // A straight run of `len` tiles, real length.
+        // A straight run of `len` cubes, real length.
         private void BuildRun(float span, int len, bool horizontal)
         {
             len = Mathf.Max(1, len);
@@ -240,6 +256,7 @@ namespace CatapultGames
 
         private void OnDestroy()
         {
+            if (_bodyMat)  Destroy(_bodyMat);
             if (_trailMat) Destroy(_trailMat);
         }
     }

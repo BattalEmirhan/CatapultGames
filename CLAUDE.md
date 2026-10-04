@@ -45,8 +45,7 @@ Sahne içeriğini öğrenmek için `.unity` YAML'ını okuma —
    `LaunchSolver` ondan türer. Hiçbirine ayrı sayı yazma.
 2. `CellColor` enum sırası = palet indeksi = JSON'daki int. Araya değer eklemek tüm
    level'leri bozar; sadece **sona** ekle.
-3. Tahta sprite katmanları `sortingOrder` ile yığılır (`CellView`: panel −20 … buz 5, toplar 20);
-   derinliğe güvenme. Hücre rengi `SpriteRenderer.color`, hücre başına materyal yok. Çizimler `Shared/TileArt.cs`.
+3. `CellView` hücrelerinde `MaterialPropertyBlock` kullanma — SRP Batcher'ı bozar.
 
 Boyama kuralı (kaç hücre, hangi şekil) değişecekse **tek yer**: `Shared/GameConstants.cs`.
 Oradan `PaintingSystem`, `AimPreview`, `LevelValidator`, `LevelAutoSolver` otomatik uyumlanır.

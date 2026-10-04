@@ -241,12 +241,11 @@ namespace CatapultGames
             Mathf.Clamp(streak, 1, MaxComboMultiplier);
 
         // Readability palette (2026-10-04): seven fully saturated hues spread round
-        // the colour wheel — red, green, blue, orange, yellow, cyan, magenta — on a
-        // NEUTRAL slate board (TileArt), so no tile competes with the board's own hue.
+        // the colour wheel — red, green, blue, orange, yellow, cyan, magenta.
         // Tuned by measured CIELAB distance: the closest pair (red/orange) is ΔE 52
-        // and every colour is ΔE 74+ from the board. The pastel set before it had
-        // pairs at ΔE 36 (sky/navy, coral/pink) and was the "can't tell them apart"
-        // problem. The enum NAMES are legacy identifiers kept for JSON compatibility;
+        // for filled cubes. The pastel set before it had pairs at ΔE 36 (sky/navy,
+        // coral/pink) and was the "can't tell them apart" problem. Empty cells show
+        // these through CellView's wash, kept light for the same reason. The enum NAMES are legacy identifiers kept for JSON compatibility;
         // what the player sees is GetColorDisplayName. Index == (int)CellColor —
         // never reorder.
         public static readonly Color32[] CellColorPalette = new Color32[]
@@ -266,8 +265,7 @@ namespace CatapultGames
 
         // What the player (and the level editor) calls each colour. The enum names
         // are legacy ids — Black is orange, Pink is cyan — so every text that names
-        // a colour reads it here. Also the file name of an art override
-        // (Resources/Art/Tiles/<name>, see TileArt).
+        // a colour reads it here.
         public static string GetColorDisplayName(CellColor c) => c switch
         {
             CellColor.Red    => "Red",
