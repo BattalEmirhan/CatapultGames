@@ -1,4 +1,4 @@
-<!-- Type-checks the scene builder and the headless simulator against UnityEditor 2018.1
+<!-- Type-checks the scene builders, EditorConstants and the headless simulator against UnityEditor 2018.1
      (the newest UnityEditor reference on NuGet) plus URP stubs in stubs/Urp.cs. The rest of
      the Editor assembly uses UI Toolkit editor APIs that 2018.1 lacks, so it is left out.
      `dotnet build tools/compile-check/Editor.Check.csproj` (builds the runtime check first). -->
@@ -12,6 +12,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../Assets/_Project/Scripts/Editor/GameplaySceneBuilder.cs" />
+    <Compile Include="../../Assets/_Project/Scripts/Editor/MenuSceneBuilder.cs" />
+    <Compile Include="../../Assets/_Project/Scripts/Editor/EditorConstants.cs" />
     <Compile Include="../../Assets/_Project/Scripts/Editor/Solving/PlayoutBoard.cs" />
     <Compile Include="stubs/Urp.cs" />
   </ItemGroup>

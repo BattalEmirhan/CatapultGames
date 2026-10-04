@@ -27,7 +27,8 @@ namespace CatapultGames
         [SerializeField] private ResultScreenUI _resultScreen;
 
         [Header("Scene names")]
-        [SerializeField] private string _mainMenuScene = "MainMenu";
+        [SerializeField] private string _mainMenuScene    = "MainMenu";
+        [SerializeField] private string _levelSelectScene = "LevelSelect";   // after the last level
 
         [Header("Keep going offer")]
         [Tooltip("Balls handed out when the player takes the offer after a loss. " +
@@ -56,6 +57,11 @@ namespace CatapultGames
         private const int WildWarning = 1000;                       // the Joker row has no colour
         private int       _warnedKey = NoWarning;
         private Coroutine _warning;
+
+        // The level this run is playing, for progress and "next level". Null when
+        // a level came from no file (test harness).
+        private string _levelName;
+        public  string LevelName => _levelName;
 
         // ── Score and combo ───────────────────────────────────────────────
         // A shot pays per cell, multiplied by how dense the hit was and again by the
@@ -128,6 +134,26 @@ namespace CatapultGames
             if (!_launcher) return;
             _launcher.OnBallLanded  -= OnBallLanded;
             _launcher.OnShotPainted -= OnShotPainted;
+        }
+
+        // ── Run start ─────────────────────────────────────────────────────
+        // Called by LevelLoader once the grid and queue hold the new level. The dev
+        // level picker swaps levels in place instead of reloading the scene, so this
+        // has to put EVERYTHING back to a fresh run — including a run that had
+        // already ended, or the next board would start behind a result panel.
+        public void BeginRun(string levelName)
+        {
+            _levelName       = levelName;
+            _extraBallsSpent = false;
+
+            if (_gameOver)
+            {
+                _gameOver = false;
+                if (_aimPreview) _aimPreview.enabled = true;
+                _resultScreen?.Hide();
+            }
+
+            ResetScore();
         }
 
         // ── Game events ───────────────────────────────────────────────────
@@ -257,10 +283,9 @@ namespace CatapultGames
             OnScoreChanged?.Invoke(_score);
         }
 
-        // Called by LevelLoader when a level is applied. The dev level picker swaps
-        // levels in place instead of reloading the scene, so without this the score
-        // from the previous board would keep counting.
-        public void ResetScore()
+        // Part of BeginRun: without it the score from the previous board would keep
+        // counting across an in-place level switch.
+        private void ResetScore()
         {
             _score       = 0;
             _comboStreak = 0;
@@ -464,6 +489,7 @@ namespace CatapultGames
             if (won)
             {
                 if (_grid != null) GameFX.Instance.Win(_grid.WorldCenter);
+                PlayerProgress.MarkWon(_levelName);   // opens the next level
             }
             else
             {
@@ -478,6 +504,8 @@ namespace CatapultGames
             float delay = won ? 0.5f : 0.2f;
             StartCoroutine(ShowResultDelayed(reason, offerExtra, delay));
         }
+
+        public bool HasNextLevel => LevelOrder.Next(_levelName) != null;
 
         private IEnumerator ShowResultDelayed(ResultScreenUI.Reason reason, bool offerExtra, float delay)
         {
@@ -494,7 +522,7 @@ namespace CatapultGames
             // frame; don't cover a resumed level with a result panel.
             if (!_gameOver) yield break;
 
-            if (_resultScreen) _resultScreen.Show(reason, offerExtra, _score);
+            if (_resultScreen) _resultScreen.Show(reason, offerExtra, _score, HasNextLevel);
         }
 
         private static bool AnyPointerPressedThisFrame()
@@ -515,7 +543,27 @@ namespace CatapultGames
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
 
-        public void GoToMainMenu() =>
-            SceneManager.LoadScene(_mainMenuScene);
+        // The level after this one, through the same scene reload Retry uses, so
+        // the next board starts from a clean scene rather than a patched one. After
+        // the last level there is nowhere further: back to the level list.
+        public void NextLevel()
+        {
+            string next = LevelOrder.Next(_levelName);
+            if (next == null) { LoadSceneIfBuilt(_levelSelectScene); return; }
+
+            LevelLoader.SelectLevel(next);
+            _gameOver = false;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+
+        public void GoToMainMenu() => LoadSceneIfBuilt(_mainMenuScene);
+
+        // The menu scenes are generated (CatapultGames/Build Menu Scenes); until they
+        // are, a menu button should say why it does nothing instead of throwing.
+        private static void LoadSceneIfBuilt(string scene)
+        {
+            if (Application.CanStreamedLevelBeLoaded(scene)) SceneManager.LoadScene(scene);
+            else Debug.LogWarning($"[GameManager] Scene '{scene}' is not in Build Settings — run CatapultGames/Build Menu Scenes.");
+        }
     }
 }

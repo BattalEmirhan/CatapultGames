@@ -70,7 +70,7 @@ namespace UnityEngine.UI
     public class HorizontalOrVerticalLayoutGroup : LayoutGroup { public float spacing { get; set; } public bool childControlWidth { get; set; } public bool childControlHeight { get; set; } public bool childForceExpandWidth { get; set; } public bool childForceExpandHeight { get; set; } public bool childScaleWidth { get; set; } public bool childScaleHeight { get; set; } }
     public class VerticalLayoutGroup : HorizontalOrVerticalLayoutGroup { }
     public class HorizontalLayoutGroup : HorizontalOrVerticalLayoutGroup { }
-    public class GridLayoutGroup : LayoutGroup { public Vector2 cellSize { get; set; } public Vector2 spacing { get; set; } }
+    public class GridLayoutGroup : LayoutGroup { public enum Constraint { Flexible, FixedColumnCount, FixedRowCount } public Vector2 cellSize { get; set; } public Vector2 spacing { get; set; } public Constraint constraint { get; set; } public int constraintCount { get; set; } }
     public class LayoutElement : UIBehaviour { public float minHeight { get; set; } public float preferredHeight { get; set; } public float minWidth { get; set; } public float preferredWidth { get; set; } public float flexibleWidth { get; set; } public float flexibleHeight { get; set; } }
     public class ContentSizeFitter : UIBehaviour { public enum FitMode { Unconstrained, MinSize, PreferredSize } public FitMode horizontalFit { get; set; } public FitMode verticalFit { get; set; } }
     public class CanvasScaler : UIBehaviour { public enum ScaleMode { ConstantPixelSize, ScaleWithScreenSize, ConstantPhysicalSize } public ScaleMode uiScaleMode { get; set; } public Vector2 referenceResolution { get; set; } public float matchWidthOrHeight { get; set; } }

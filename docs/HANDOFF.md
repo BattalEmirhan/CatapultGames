@@ -49,14 +49,33 @@ değiştirmek için `Assets/Resources/Audio/<Sfx adı>.wav` koymak yeterli. Bağ
 **Yol üstünde düzeltilen:** `ScoreHUD.PraisePop` her kesintide dinlenme konumunu kaymış
 yerden okuyordu; art arda gelen praise yazısı her seferinde biraz daha yukarı kayıyordu.
 
+## 2b. Faz 4 — menüler ve ilerleme (2026-10-04, ikinci commit)
+
+- **Yıldız sistemi yok** — istenmedi (BACKLOG F4-1 iptal).
+- `Shared/LevelOrder.cs` (sayısal level sırası, editörün numaralamasıyla ortak) ve
+  `Shared/PlayerProgress.cs` (kazanılan level'ler `Won_<ad>`; kilit türetilir: ilk level ya da
+  öncekisi kazanılmış).
+- `GameManager.BeginRun(levelName)` (`ResetScore`'un yerine, `LevelLoader` çağırır): in-place
+  level değişiminde bitmiş oyun / Keep Going teklifi de sıfırlanır. Kazanınca `MarkWon`.
+  `NextLevel()` + sonuç ekranında **Next Level** butonu. Menü sahnesi Build Settings'te yoksa
+  Menu/Next uyarı loglar, istisna atmaz.
+- `LevelLoader.LoadByName` adı `SelectLevel` ile de kaydeder → Retry, dev seçiciyle açılan
+  level'i yeniden oynatır (önceden varsayılan level'e dönüyordu).
+- `MainMenuUI` (Play → ilk kazanılmamış level, "3 / 5 levels") ve `LevelSelectUI` (koddan
+  numaralı kutucuklar, prefab yok) yeniden yazıldı.
+- `Editor/MenuSceneBuilder.cs` → `CatapultGames/Build Menu Scenes`: `MainMenu.unity` ve
+  `LevelSelect.unity`'yi üretir, Build Settings'i MainMenu = index 0 olacak şekilde sıralar.
+- `LevelPickerHUD` artık sayısal sırada listeliyor (level10 eskiden level2'den önce geliyordu).
+
 ## 3. Sıradaki adım: Unity'de doğrulama (zorunlu)
 
 **Hiçbir paket Play modunda izlenmedi.** Bu oturum da Unity olmadan, yalnızca derleme
 kontrolüyle (bkz. § 4) yapıldı.
 
 1. Unity'yi aç, odaklanınca `GameAudio.cs.meta` ve UXML/USS `.meta`'ları üretilsin/eşleşsin.
-2. `CatapultGames/Build Gameplay Scene` çalıştır. Bu yapılmazsa booster'lar, uyarı etiketi,
-   AudioListener ve paket 2'nin çoğu **görünmez**.
+2. `CatapultGames/Build Menu Scenes`, **sonra** `CatapultGames/Build Gameplay Scene` çalıştır.
+   Bu yapılmazsa menüler, Next Level, booster'lar, uyarı etiketi, AudioListener ve paket 2'nin
+   çoğu **görünmez**. Sonra Play'e `MainMenu` sahnesinden bas.
 3. Gözle bakılacaklar:
    - **Booster sütunu** sol tepsi topuyla ya da tahtayla çakışıyor mu? Çakışıyorsa
      `GameplaySceneBuilder.MakeBoosterButton`'daki anchor'ları ayarla. Rainbow → tepsi topu
@@ -66,6 +85,10 @@ kontrolüyle (bkz. § 4) yapıldı.
      oyun bitmemeli. Undo'dan sonra aynı hataya tekrar düşünce yeniden uyarmalı.
    - **Sesler:** dalga tıkları tırmanıyor mu, hit-stop sırasında ses kesiliyor mu (kesilmemeli),
      genel seviye (`GameAudio.Mix` tablosu). Beğenilmeyen sesi Resources/Audio ile değiştir.
+   - **Menü akışı:** MainMenu → Play doğru level'i açıyor mu; LevelSelect'te yalnız ilk level
+     açık, kazanınca sonraki açılıyor mu; Next Level son level'de gizli mi; LevelSelect
+     kaydırması. Testte ilerlemeyi sıfırlamak için `PlayerPrefs` temizlenir
+     (Edit → Clear All PlayerPrefs) — oyunda bir sıfırlama butonu yok.
    - Paket 1–2'den kalanlar: tepsi yuvaları (x = ±1.65), "+N" sayacı, 66° kadraj, bloom
      yoğunluğu (`GameplayPostFX.asset`), `RoundedCubeMesh` ince plakalarda.
 4. Unity'nin kendi derlemesinde hata çıkarsa büyük ihtimalle Unity 6 / paket API farkıdır
@@ -95,10 +118,7 @@ dotnet build tools/compile-check/Editor.Check.csproj    # GameplaySceneBuilder +
 
 `BACKLOG.md`'deki fazlardan başlanmamış olanlar (paketler bunları kapsamıyordu):
 
-- **Faz 4 — ilerleme/meta:** yıldızlar, `PlayerProgress` (PlayerPrefs), `MainMenu` ve
-  `LevelSelect` **sahneleri yok**: sonuç ekranındaki Menu butonu var olmayan bir sahneye
-  gidiyor. Kazanınca "Next level" yok. Bunlar bir menü sahne üreteci (`MenuSceneBuilder`)
-  ister.
+- ~~Faz 4~~ kodda bitti (bkz. § 2b); yıldızlar iptal. Sahneler Unity'de üretilmeli.
 - **Faz 5 — öğretici:** ilk atış ipucu, level'e gömülü `hint`.
 - **Faz 7 — büyüme:** fotoğraftan level, günlük bulmaca, telemetri.
 - **Faz 1** (eski level verisi) 2026-09-15'teki yeniden üretimle büyük ölçüde geçersiz;

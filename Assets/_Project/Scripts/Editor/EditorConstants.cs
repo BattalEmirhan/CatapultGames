@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace CatapultGames.Editor
@@ -41,15 +40,10 @@ namespace CatapultGames.Editor
         public static string LevelPath(int number) =>
             Path.Combine(LevelsAbsoluteFolder, LevelFileName(number) + LevelExtension);
 
-        private static readonly Regex TrailingNumber = new Regex(@"(\d+)\s*$", RegexOptions.Compiled);
-
         // "level12" → 12, "boss_final" → -1. The catalog's sort key and the
-        // difficulty schedule's input — both read it through here.
-        public static int LevelNumberOf(string levelName)
-        {
-            if (string.IsNullOrEmpty(levelName)) return -1;
-            var m = TrailingNumber.Match(levelName);
-            return m.Success && int.TryParse(m.Groups[1].Value, out int n) ? n : -1;
-        }
+        // difficulty schedule's input — both read it through here. The rule itself
+        // lives in the runtime LevelOrder, so the game's menus number levels the
+        // same way the editor does.
+        public static int LevelNumberOf(string levelName) => LevelOrder.NumberOf(levelName);
     }
 }

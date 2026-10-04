@@ -17,6 +17,7 @@ namespace CatapultGames.Editor
     public static class GameplaySceneBuilder
     {
         private const string ScenePath = "Assets/Scenes/Gameplay2.unity";
+        internal const string SceneName = "Gameplay2";   // what the menus load
 
         // Priority 20 leaves a >10 gap below the Level Editor (0), which Unity
         // renders as a separator — this rebuilds the scene from scratch, so it
@@ -177,15 +178,7 @@ namespace CatapultGames.Editor
             SetFloat(launcher, "_ballVisualScale",  0.45f);
 
             // ── EventSystem (required for Canvas button clicks on mobile) ──
-            var esGo = new GameObject("EventSystem");
-            esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
-            // Reflection avoids a hard assembly reference — works with old and new Input System
-            var inputModuleType = System.Type.GetType(
-                "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
-            if (inputModuleType != null)
-                esGo.AddComponent(inputModuleType);
-            else
-                esGo.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+            AddEventSystem();
 
             // ── Result screen UI ──────────────────────────────────────────
             var canvasGo = new GameObject("UICanvas");
@@ -234,6 +227,13 @@ namespace CatapultGames.Editor
             keepGoingBtn.GetComponent<Image>().color = new Color(0.16f, 0.42f, 0.22f);
             keepGoingBtn.gameObject.SetActive(false);
 
+            // "Next level" takes the same slot: shown only after a win, when the
+            // offer never is.
+            var nextBtn = MakeButton(panel.transform, "Next Level",
+                                     new Vector2(0.18f,0.08f), new Vector2(0.82f,0.19f));
+            nextBtn.GetComponent<Image>().color = new Color(0.20f, 0.45f, 0.80f);
+            nextBtn.gameObject.SetActive(false);
+
             // ── GameManager ───────────────────────────────────────────────
             var gmGo = new GameObject("GameManager");
             var gm   = gmGo.AddComponent<GameManager>();
@@ -241,6 +241,8 @@ namespace CatapultGames.Editor
             SetRef(gm, "_queue",        queue);
             SetRef(gm, "_launcher",     launcher);
             SetRef(gm, "_aimPreview",   aimPreview);
+            SetStr(gm, "_mainMenuScene",    MenuSceneBuilder.MainMenuSceneName);
+            SetStr(gm, "_levelSelectScene", MenuSceneBuilder.LevelSelectSceneName);
 
             // ResultScreenUI
             var resultUI = canvasGo.AddComponent<ResultScreenUI>();
@@ -250,6 +252,7 @@ namespace CatapultGames.Editor
             SetRef(resultUI, "_retryButton",      retryBtn);
             SetRef(resultUI, "_menuButton",       menuBtn);
             SetRef(resultUI, "_extraBallsButton", keepGoingBtn);
+            SetRef(resultUI, "_nextButton",       nextBtn);
             SetRef(resultUI, "_gameManager",  gm);
             SetRef(gm, "_resultScreen",  resultUI);
             // Button listeners are wired in ResultScreenUI.Awake — no need to add them here.
@@ -491,7 +494,38 @@ namespace CatapultGames.Editor
             return 0;
         }
 
-        private static void SetRef(Object target, string fieldName, Object value)
+        internal static void AddEventSystem()
+        {
+            var esGo = new GameObject("EventSystem");
+            esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
+            // Reflection avoids a hard assembly reference — works with old and new Input System
+            var inputModuleType = System.Type.GetType(
+                "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
+            if (inputModuleType != null)
+                esGo.AddComponent(inputModuleType);
+            else
+                esGo.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+        }
+
+        // A full-screen Screen Space Overlay canvas at the project's reference
+        // resolution (portrait 1080x1920), the same setup every screen uses.
+        internal static GameObject MakeCanvas(string name, int sortingOrder = 10)
+        {
+            var canvasGo = new GameObject(name);
+            var canvas   = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode   = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = sortingOrder;
+
+            var scaler                 = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode         = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1080f, 1920f);
+            scaler.matchWidthOrHeight  = 0.5f;
+
+            canvasGo.AddComponent<GraphicRaycaster>();
+            return canvasGo;
+        }
+
+        internal static void SetRef(Object target, string fieldName, Object value)
         {
             var so = new SerializedObject(target);
             var prop = so.FindProperty(fieldName);
@@ -518,14 +552,14 @@ namespace CatapultGames.Editor
             if (prop != null) { prop.floatValue = value; so.ApplyModifiedPropertiesWithoutUndo(); }
         }
 
-        private static void SetStr(Object target, string fieldName, string value)
+        internal static void SetStr(Object target, string fieldName, string value)
         {
             var so = new SerializedObject(target);
             var prop = so.FindProperty(fieldName);
             if (prop != null) { prop.stringValue = value; so.ApplyModifiedPropertiesWithoutUndo(); }
         }
 
-        private static GameObject MakeText(Transform parent, string name, string text,
+        internal static GameObject MakeText(Transform parent, string name, string text,
                                            int fontSize, Vector2 anchorMin, Vector2 anchorMax)
         {
             var go  = new GameObject(name);
@@ -541,7 +575,7 @@ namespace CatapultGames.Editor
             return go;
         }
 
-        private static Button MakeButton(Transform parent, string label,
+        internal static Button MakeButton(Transform parent, string label,
                                          Vector2 anchorMin, Vector2 anchorMax)
         {
             var go  = new GameObject(label + "Btn");
@@ -583,13 +617,13 @@ namespace CatapultGames.Editor
             return btn;
         }
 
-        private static void StretchToParent(RectTransform r)
+        internal static void StretchToParent(RectTransform r)
         {
             r.anchorMin = Vector2.zero; r.anchorMax = Vector2.one;
             r.offsetMin = r.offsetMax  = Vector2.zero;
         }
 
-        private static void AddSceneToBuildSettings(string scenePath)
+        internal static void AddSceneToBuildSettings(string scenePath)
         {
             var scenes = new System.Collections.Generic.List<EditorBuildSettingsScene>(
                 EditorBuildSettings.scenes);

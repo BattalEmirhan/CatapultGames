@@ -14,7 +14,7 @@
 | **Faz 1** — Adalet | ⏭️ **Atlandı** — bilinçli karar, ama borç olarak duruyor |
 | **Faz 2** — Merhamet | ✅ Bitti (F2-1, F2-2, F2-3) + kurtarma topu seçimi elden geçirildi |
 | **Faz 3** — Okunabilirlik | ✅ Bitti (F3-1, F3-2, F3-3, F3-4) |
-| **Faz 4** — İlerleme ve meta | ⬜ Başlanmadı |
+| **Faz 4** — İlerleme ve meta | ✅ Kodda bitti (2026-10-04) — F4-1 yıldızlar **iptal**, F4-2/3/4 yapıldı; sahneler Unity'de üretilmeli |
 | **Faz 5** — Öğretici | ⬜ Başlanmadı |
 | **Faz 6** — Derinlik | ✅ Bitti (F6-1, F6-2, F6-3, F6-4) |
 | **Faz 7** — Büyüme | ⬜ Başlanmadı |
@@ -99,7 +99,12 @@ göre veriliyor ve şu anki bolluk oranları anlamsız sayı üretir. **Faz 4'te
 > — imkânsız. Aynı 5 top **`Line`** olsaydı tavan 31 olurdu. F6-1 geldiği için artık top
 > eklemek yerine **şekli değiştirmek** en ucuz düzeltme.
 
-### Faz 4 — İlerleme ve meta ⬜ (~2 gün)
+### Faz 4 — İlerleme ve meta ✅ (kodda bitti, 2026-10-04)
+
+> F4-1 (yıldız) istenmediği için yapılmadı. F4-2 yıldız yerine "kazanıldı" bayrağı tutuyor
+> (`Shared/PlayerProgress.cs`), F4-3/F4-4 sahneleri `Editor/MenuSceneBuilder.cs`
+> (`CatapultGames/Build Menu Scenes`) üretir. Ek olarak sonuç ekranında **Next Level** var.
+> Ayrıntı: `docs/ARCHITECTURE.md` § 6.5. Aşağıdaki tablo orijinal plandır.
 
 | ID | İş | Dosyalar | Süre |
 |---|---|---|---|

@@ -102,7 +102,7 @@ namespace CatapultGames
 
         // ── Events ────────────────────────────────────────────────────────
         // No Bind() counterpart to ProgressHUD's: GameManager outlives a level swap,
-        // and it announces the reset itself (GameManager.ResetScore).
+        // and it announces the reset itself (GameManager.BeginRun).
         private void HandleScoreChanged(int score)
         {
             if (_scoreLabel == null) return;

@@ -118,9 +118,12 @@ Kazanma/kaybetme kararı + dead-end uyarısı    → Scripts/Gameplay/GameManage
 Booster'lar (Rainbow/Recolor/Bomb)             → Scripts/Gameplay/BoosterSystem.cs (+ UI/BoosterBarUI.cs)
 Ses (sentez + çalma, sahne bağlantısı yok)     → Scripts/Shared/GameAudio.cs
 JSON → sahne yükleme                           → Scripts/Gameplay/LevelLoader.cs
+Level sırası / ilerleme (kazanılan, kilit)     → Scripts/Shared/LevelOrder.cs + PlayerProgress.cs
+Menü ekranları                                 → Scripts/UI/MainMenuUI.cs + LevelSelectUI.cs
 Girdi (hücreye dokun → ateş)                   → Scripts/Gameplay/Ball/TapLaunchController.cs
 Nişan önizleme (yay + boyanacak hücreler)      → Scripts/Gameplay/Aim/AimPreview.cs
 Sahne kurulumu (referans bağlama)              → Scripts/Editor/GameplaySceneBuilder.cs
+Menü sahneleri kurulumu                        → Scripts/Editor/MenuSceneBuilder.cs
 Level yazma aracı (shell + Editor sekmesi)     → Scripts/Editor/LevelEditorWindow.cs
 Pencere ağacı / tema (UI Toolkit)              → Scripts/Editor/UI/LevelEditorWindow.uxml + .uss
 Gallery / Produce / Solving sekmeleri          → Scripts/Editor/Gallery|Produce|Solving/
@@ -135,3 +138,4 @@ diğerini de değiştir, yoksa sessiz null); statik UI koddan değil UXML'den; g
 Editör menüleri (hepsi tek üst menüde, `CatapultGames`):
 - `CatapultGames/Level Editor`
 - `CatapultGames/Build Gameplay Scene`
+- `CatapultGames/Build Menu Scenes`

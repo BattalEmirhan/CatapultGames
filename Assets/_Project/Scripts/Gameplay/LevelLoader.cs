@@ -27,6 +27,10 @@ namespace CatapultGames
 
         private const string SelectedLevelKey = "SelectedLevel";
 
+        // Name of the level last loaded from a file; null after Apply(data) from a
+        // harness. GameManager keys progress and "next level" on it.
+        private string _currentLevelName;
+
         // ── Lifecycle ─────────────────────────────────────────────────────
         private void Start()
         {
@@ -63,7 +67,12 @@ namespace CatapultGames
                 return;
             }
 
+            // Remember it as the selection too, so Retry (a scene reload) replays THIS
+            // level even when it was reached by the in-place dev picker.
+            SelectLevel(levelName);
+            _currentLevelName = levelName;
             Apply(data);
+            _currentLevelName = null;
             _levelPicker?.SetCurrent(levelName);
         }
 
@@ -80,8 +89,9 @@ namespace CatapultGames
             _queue.Load(SanitizeBalls(data.balls));
             _progressHUD?.Bind(_grid);
             // A level switch is a new run: the picker HUD loads in place rather than
-            // reloading the scene, so the score would otherwise carry over.
-            _gameManager?.ResetScore();
+            // reloading the scene, so score, rescue offer and game-over state would
+            // otherwise carry over.
+            _gameManager?.BeginRun(_currentLevelName);
             _boosters?.ResetForLevel();
         }
 

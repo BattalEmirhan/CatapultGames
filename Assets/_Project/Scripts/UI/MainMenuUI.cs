@@ -5,19 +5,21 @@ using UnityEngine.UI;
 
 namespace CatapultGames
 {
-    // Task 17 — Main menu screen.
+    // Main menu screen. Scene "MainMenu", built by MenuSceneBuilder.
     //
-    // Scene: "MainMenu"
-    // Expected buttons in Inspector:
-    //   _playButton        → loads Gameplay scene directly (uses default/last level)
-    //   _levelSelectButton → loads LevelSelect scene
+    //   _playButton        → the first level not yet won (PlayerProgress.NextToPlay)
+    //   _playLabel         → optional; shows which level Play goes to
+    //   _levelSelectButton → LevelSelect scene
+    //   _progressLabel     → optional; "3 / 5 levels"
     public class MainMenuUI : MonoBehaviour
     {
-        [SerializeField] private Button _playButton;
-        [SerializeField] private Button _levelSelectButton;
+        [SerializeField] private Button          _playButton;
+        [SerializeField] private TextMeshProUGUI _playLabel;
+        [SerializeField] private Button          _levelSelectButton;
+        [SerializeField] private TextMeshProUGUI _progressLabel;
 
         [Header("Scene names")]
-        [SerializeField] private string _gameplayScene    = "Gameplay";
+        [SerializeField] private string _gameplayScene    = "Gameplay2";
         [SerializeField] private string _levelSelectScene = "LevelSelect";
 
         // ── Lifecycle ─────────────────────────────────────────────────────
@@ -27,10 +29,23 @@ namespace CatapultGames
             if (_levelSelectButton) _levelSelectButton.onClick.AddListener(OnLevelSelect);
         }
 
+        private void Start()
+        {
+            string next = PlayerProgress.NextToPlay();
+            int    n    = LevelOrder.NumberOf(next);
+            if (_playLabel) _playLabel.text = n > 0 ? $"Play  ·  Level {n}" : "Play";
+
+            int total = LevelOrder.Names.Count;
+            if (_progressLabel) _progressLabel.text = total > 0 ? $"{PlayerProgress.WonCount()} / {total} levels" : "";
+            if (_playButton) _playButton.interactable = next != null;
+        }
+
         // ── Handlers ──────────────────────────────────────────────────────
         private void OnPlay()
         {
-            LevelLoader.ClearSelection();   // use default level
+            string next = PlayerProgress.NextToPlay();
+            if (next == null) return;
+            LevelLoader.SelectLevel(next);
             SceneManager.LoadScene(_gameplayScene);
         }
 

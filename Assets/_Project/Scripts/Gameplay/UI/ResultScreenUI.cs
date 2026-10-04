@@ -15,6 +15,7 @@ namespace CatapultGames
     //   _retryButton  — restart current level
     //   _menuButton   — go to main menu
     //   _extraBallsButton — take the "keep going" offer (hidden when not offered)
+    //   _nextButton   — next level (shown on a win when there is one)
     //   _gameManager  — reference for button callbacks
     public class ResultScreenUI : MonoBehaviour
     {
@@ -34,6 +35,7 @@ namespace CatapultGames
         [SerializeField] private Button          _retryButton;
         [SerializeField] private Button          _menuButton;
         [SerializeField] private Button          _extraBallsButton;
+        [SerializeField] private Button          _nextButton;
         [SerializeField] private GameManager     _gameManager;
 
         [Header("Messages")]
@@ -58,6 +60,7 @@ namespace CatapultGames
             if (_retryButton)      _retryButton.onClick.AddListener(() => _gameManager?.RestartLevel());
             if (_menuButton)       _menuButton.onClick.AddListener(() => _gameManager?.GoToMainMenu());
             if (_extraBallsButton) _extraBallsButton.onClick.AddListener(() => _gameManager?.GrantExtraBalls());
+            if (_nextButton)       _nextButton.onClick.AddListener(() => _gameManager?.NextLevel());
         }
 
         // ── API ───────────────────────────────────────────────────────────
@@ -65,7 +68,7 @@ namespace CatapultGames
         // the panel is built by GameplaySceneBuilder, and a second label there would
         // be one more reference to lose on a scene rebuild for no extra information.
         // Pass a negative score to leave it out.
-        public void Show(Reason reason, bool offerExtraBalls = false, int score = -1)
+        public void Show(Reason reason, bool offerExtraBalls = false, int score = -1, bool hasNextLevel = false)
         {
             bool won = reason == Reason.Won;
 
@@ -84,6 +87,9 @@ namespace CatapultGames
             // The offer is made once per level, so the button is not a permanent
             // fixture of the panel — it appears only when there is one going.
             if (_extraBallsButton) _extraBallsButton.gameObject.SetActive(offerExtraBalls);
+            // Next sits where the offer would: a win never has an offer, a loss
+            // never has a next level.
+            if (_nextButton) _nextButton.gameObject.SetActive(won && hasNextLevel);
 
             // Win already flashes gold via GameFX.Win; give the fail screen a red one.
             if (!won) GameFX.Instance.Flash(new Color(0.9f, 0.25f, 0.25f), 0.32f, 0.40f);

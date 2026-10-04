@@ -26,6 +26,10 @@ eşleşen** hücreleri, şekline göre bir alan içinde doldurur (küpler yükse
 - **Booster'lar** (level başına birer tane): **Rainbow** seçili topu her rengi boyayan
   gökkuşağı topuna çevirir, **Recolor** onu tahtada en çok ihtiyaç duyulan renge boyar,
   **Bomb** onu 3×3 gökkuşağı damgasına çevirir. Bkz. § 7 `BoosterSystem`.
+- **Akış ve ilerleme:** `MainMenu` → (Play: ilk kazanılmamış level · Levels: `LevelSelect`)
+  → `Gameplay2`. Kazanılan level kaydedilir (`PlayerProgress`, PlayerPrefs) ve sonrakinin
+  kilidini açar; sonuç ekranında **Next Level** var. Yıldız/derece sistemi **yok** (bilinçli
+  karar, 2026-10-04). Bkz. § 6.5.
 - **Ses:** Tüm efektler `GameAudio`'da çalışma zamanında sentezlenir; projede ses varlığı
   yok. `Resources/Audio/<Sfx>` altına konan gerçek bir klip sentezin yerine geçer.
 - **Skor:** Her atış boyadığı hücre sayısı × yoğunluk çarpanı × kombo çarpanı kadar puan
@@ -179,13 +183,16 @@ LevelLoader.Start()
               4. LaunchAreaAnchor.Reanchor()         → mancınığı ekran altına sabitler
               5. BallQueue.Load(SanitizeBalls(...))  → powerLevel 1..3'e clamp'lenir
               6. ProgressHUD.Bind(grid)
-              7. GameManager.ResetScore()            → level değişimi yeni bir koşu
-                                                       (dead-end uyarısını da sıfırlar)
+              7. GameManager.BeginRun(levelName)     → level değişimi yeni bir koşu: skor,
+                                                       Keep Going teklifi, bitmiş oyun ve
+                                                       dead-end uyarısı sıfırlanır
               8. BoosterSystem.ResetForLevel()       → booster sayaçları dolar
 ```
 
 > 7. adım şart: level seçici (dev dropdown) sahneyi yeniden yüklemeden level değiştirir,
-> yoksa önceki tahtanın skoru devam eder.
+> yoksa önceki tahtanın skoru (ve bitmiş bir oyunun sonuç paneli) devam eder.
+> `LoadByName` ayrıca adı `SelectLevel` ile kaydeder: Retry sahneyi yeniden yüklediğinde
+> dev seçiciyle açılmış level'i de yeniden oynatsın diye.
 
 **Kritik sıra:** `Reanchor()` mutlaka `_queue.Load()`'dan **önce** çağrılır, yoksa kuyruk
 topları eski waypoint konumlarında kalır.
@@ -295,6 +302,27 @@ sayacı, boyama dalgası bitene kadar azaltılmaz; `GameManager` kaybetme karar�
 `!_launcher.IsBusy` şartına bağlar. Bu yüzden `IsBusy`/`_activeFlights` mantığına dokunurken
 dikkatli ol.
 
+### 6.5 Menüler ve ilerleme
+
+```
+MainMenu (MainMenuUI)
+  ├─ Play   → PlayerProgress.NextToPlay()  (ilk kazanılmamış level; hepsi bittiyse sonuncu)
+  │           → LevelLoader.SelectLevel → Gameplay2
+  └─ Levels → LevelSelect (LevelSelectUI: LevelOrder sırasında kutucuklar;
+              kazanılmış = nane, açık = mavi, kilitli = gri ve tıklanamaz) → Gameplay2
+
+Gameplay2 · EndGame(Won) → PlayerProgress.MarkWon(levelName)
+  ResultScreenUI: Retry (sahneyi yeniden yükler) · Menu → MainMenu
+                  Next Level (yalnız kazanınca ve sonraki varsa) → GameManager.NextLevel
+                    → SelectLevel(LevelOrder.Next) + sahneyi yeniden yükler
+                    (son level'den sonra → LevelSelect)
+```
+
+Kilit **türetilir, saklanmaz**: bir level ilk level'se ya da önceki kazanılmışsa açıktır
+(`PlayerProgress.IsUnlocked`). Kayıt level **adına** göredir (`Won_<ad>`), sıraya değil —
+araya level eklemek başka bir tahtayı "kazanılmış" yapmaz. Menü sahneleri henüz
+üretilmediyse `GameManager` Menu/Next butonunda istisna atmak yerine uyarı loglar.
+
 ---
 
 ## 7. Dosya Dosya Sorumluluklar
@@ -303,8 +331,8 @@ dikkatli ol.
 
 | Dosya | Tip | Sorumluluk / Önemli API |
 |---|---|---|
-| `GameManager.cs` | Mono | Kazanma/kaybetme kararı, biten renklerin kuyruktan temizlenmesi, sonuç ekranı, `RestartLevel()`, `GoToMainMenu()`. `IsOver` diğer sistemlerce okunur. **Skor:** `Score` / `ComboStreak`, `OnShotScored(ShotScore)` + `OnScoreChanged(int)` event'leri, `ResetScore()` (`LevelLoader` çağırır). Puan `BallLauncher.OnShotPainted`'ten gelen hücre sayısıyla `GameConstants` kurallarından hesaplanır; son ödül saklanır ki **undo skoru da geri alsın**. `PurgeCompletedColors` boş **joker** hücresi varken hiç purge yapmaz. Ayrıca: `CheckDeadEnd()` (kalan toplar bir rengi bitiremiyorsa **uyarır, bitirmez**: `CoverageAnalyzer`'ın ilk `Impossible` satırı → opsiyonel `_warningLabel` üzerinde renkli "Navy can't be finished / Undo or use a booster", `_warningDuration` 2.5 sn, unscaled; `_warnedKey` aynı dead-end'i tekrar uyarmaz, çözülebilir olunca / undo / `ResetScore`'da sıfırlanır), `UndoLastShot()` / `CanUndo`, `GrantExtraBalls()` (level başına **bir kez**, `_extraBallCount`). Kurtarma topları `BuildRescueBalls` ile **tahtaya bakılarak** seçilir: her (renk, şekil, power) adayı `CoverageAnalyzer.BestPlacement` ile ölçülür, en iyisi alınır ve `ApplyPlacement` ile tahtadan düşülerek sonraki top ona göre seçilir — üç bağımsız tahmin değil, bir **plan**. Beraberlikte küçük damga kazanır (bitirmeye yeter, fazlası değil). `L` aday havuzunda yok: kolları ızgara kenarına gittiği için kurtarmaz, level'i siler |
-| `LevelLoader.cs` | Mono | JSON → sahne. `LoadByName(name)`, `Apply(LevelData)`, statik `SelectLevel/ClearSelection` (PlayerPrefs `"SelectedLevel"`). `Apply` sonunda `GameManager.ResetScore()` — level seçici sahneyi yeniden yüklemiyor |
+| `GameManager.cs` | Mono | Kazanma/kaybetme kararı, biten renklerin kuyruktan temizlenmesi, sonuç ekranı, `RestartLevel()`, `GoToMainMenu()`, **`NextLevel()`** / `HasNextLevel`, `LevelName`. **`BeginRun(levelName)`** (`LevelLoader` çağırır): skor, Keep Going teklifi, bitmiş oyun ve uyarı sıfırlanır — in-place level değişiminde de temiz koşu. Kazanınca `PlayerProgress.MarkWon`. Sahne adları `_mainMenuScene` / `_levelSelectScene` (üreteç yazar); sahne Build Settings'te yoksa yükleme yerine uyarı. `IsOver` diğer sistemlerce okunur. **Skor:** `Score` / `ComboStreak`, `OnShotScored(ShotScore)` + `OnScoreChanged(int)` event'leri, `ResetScore()` (`BeginRun`'ın parçası). Puan `BallLauncher.OnShotPainted`'ten gelen hücre sayısıyla `GameConstants` kurallarından hesaplanır; son ödül saklanır ki **undo skoru da geri alsın**. `PurgeCompletedColors` boş **joker** hücresi varken hiç purge yapmaz. Ayrıca: `CheckDeadEnd()` (kalan toplar bir rengi bitiremiyorsa **uyarır, bitirmez**: `CoverageAnalyzer`'ın ilk `Impossible` satırı → opsiyonel `_warningLabel` üzerinde renkli "Navy can't be finished / Undo or use a booster", `_warningDuration` 2.5 sn, unscaled; `_warnedKey` aynı dead-end'i tekrar uyarmaz, çözülebilir olunca / undo / `BeginRun`'da sıfırlanır), `UndoLastShot()` / `CanUndo`, `GrantExtraBalls()` (level başına **bir kez**, `_extraBallCount`). Kurtarma topları `BuildRescueBalls` ile **tahtaya bakılarak** seçilir: her (renk, şekil, power) adayı `CoverageAnalyzer.BestPlacement` ile ölçülür, en iyisi alınır ve `ApplyPlacement` ile tahtadan düşülerek sonraki top ona göre seçilir — üç bağımsız tahmin değil, bir **plan**. Beraberlikte küçük damga kazanır (bitirmeye yeter, fazlası değil). `L` aday havuzunda yok: kolları ızgara kenarına gittiği için kurtarmaz, level'i siler |
+| `LevelLoader.cs` | Mono | JSON → sahne. `LoadByName(name)`, `Apply(LevelData)`, statik `SelectLevel/ClearSelection` (PlayerPrefs `"SelectedLevel"`). `LoadByName` başarılı yüklemeyi `SelectLevel` ile de kaydeder (Retry aynı level'i açsın). `Apply` sonunda `GameManager.BeginRun(ad)` — level seçici sahneyi yeniden yüklemiyor; `Apply(data)` dışarıdan çağrılırsa ad `null` olur (ilerleme kaydedilmez) |
 | `LaunchAreaAnchor.cs` | Mono | Tepsi kökünü ekranın alt bandına sabitler (`_screenY=0.10`). Sadece çözünürlük değişince yeniden hesaplar (shake ile titremesin diye) |
 | `BoosterSystem.cs` | Mono | Üç booster (`BoosterType`: `Rainbow` / `Recolor` / `Bomb`) ve level başına sayaçları (`_perLevel`). `CanUse(type)` (sayaç, `IsOver`, seçili top var mı, etkisi olacak mı), `Use(type)` seçili tepsi topunun `BallData`'sını **yerinde** değiştirir ve `BallQueue.NotifyCurrentChanged()` çağırır — tepsi, nişan ve fırlatıcı yeni topu kendi mevcut yollarından görür, ikinci bir "hangi top" kavramı yok. `Recolor` = en çok boş hücresi kalan renk. `ResetForLevel()` (`LevelLoader`), `OnChanged` event'i |
 | `BackgroundGradient.cs` | Mono | Kameraya bağlı, frustum'u dolduran tek unlit quad + çalışma zamanında üretilen 1×64 gradient dokusu (gök mavisi → lavanta krem). Aspect değişince yeniden boyutlanır; materyal/doku `OnDestroy`'da yok edilir |
@@ -340,14 +368,14 @@ dikkatli ol.
 | Dosya | Sorumluluk |
 |---|---|
 | `ProgressHUD.cs` | Renk başına **çubuk** (renk kutusu + dolu/boş çubuk + `dolu/toplam` sayısı) ve üstte toplam etiketi. Satırlar koddan üretilir, yalnızca renk **kümesi** değişince yeniden kurulur. `OnGridChanged`'i `_dirty` ile kare başına **tek** yeniden çizime indirger. Koyu renkleri okunur hâle getirir. `[RequireComponent(typeof(RectTransform))]` — sahne üreteci düz bir GameObject'e eklediği için eskiden RectTransform yoktu ve çocuklar dejenere bir ebeveyne göre hizalanıyordu; `Awake` artık safe area'ya yayıyor. Görselleri `raycastTarget = false` — HUD nişan hareketini yutmamalı |
-| `ResultScreenUI.cs` | Sonuç paneli, `EaseOutBack` giriş animasyonu, Retry/Menu/Keep Going butonları. `Show(Reason, offerExtraBalls, score)` — `Reason`: `Won` / `OutOfBalls` (`DeadEnd` 2026-10-04'te kaldırıldı — dead-end artık `GameManager`'da uyarı); `score` alt metne eklenir (negatif geçilirse yazılmaz). Metinlerin tamamı burada durur (GameManager string değil, sebep gönderir) |
+| `ResultScreenUI.cs` | Sonuç paneli, `EaseOutBack` giriş animasyonu, Retry/Menu/Keep Going/**Next Level** butonları (Next, Keep Going'in yerinde; yalnız kazanınca ve sonraki level varsa). `Show(Reason, offerExtraBalls, score, hasNextLevel)` — `Reason`: `Won` / `OutOfBalls` (`DeadEnd` 2026-10-04'te kaldırıldı — dead-end artık `GameManager`'da uyarı); `score` alt metne eklenir (negatif geçilirse yazılmaz). Metinlerin tamamı burada durur (GameManager string değil, sebep gönderir) |
 | `ScoreHUD.cs` | Skor sayacı (sağ üst) + atış başına kombo patlaması ("x6   +720", 0 hücrelik atış bir seriyi bozduysa "COMBO LOST") + **ekran ortasında praise** (`_praiseLabel`: 3+ hücre GOOD, 5+ GREAT!, 8+ AMAZING!; overshoot'lu pop, yukarı kayarak söner). `GameManager.OnScoreChanged` / `OnShotScored` dinler, kendi kuralı yoktur. Undo skoru düşürdüğünde pop animasyonu **çalmaz**. `ProgressHUD` ile aynı `RequireComponent(RectTransform)` tuzağına tabi: sahne üreteci düz GameObject ekliyor, çocuk anchor'ları yoksa dejenere ebeveyne hizalanır |
 | `BoosterBarUI.cs` | Üç booster butonu + "×N" sayaç etiketleri. Saf görünüm: her kural `BoosterSystem`'in. `OnChanged` + `BallQueue.OnChanged` ve oyun-sonu kapısı için her kare yenilenir (sayaç metni yalnız değişince yazılır, kare başına string tahsisi yok). `UndoButtonUI` gibi **Canvas'ta** durur |
 | `UndoButtonUI.cs` | Oyun içi "geri al" butonu. `GameManager.CanUndo`'yu her kare okur ve buton yoksa **gizler** (soluk bırakmaz). **Butonun kendi GameObject'inde duramaz** — butonu `SetActive(false)` ile gizlediği için kendi `Update`'i de dururdu; sahne üreteci onu Canvas'a koyar |
-| `LevelPickerHUD.cs` | Geliştirici aracı: sağ üstte level seçme dropdown'ı. Kendi Canvas'ını ve gerekirse EventSystem'ini **koddan** kurar |
+| `LevelPickerHUD.cs` | Geliştirici aracı: sağ üstte level seçme dropdown'ı. Kendi Canvas'ını ve gerekirse EventSystem'ini **koddan** kurar. Liste `LevelOrder` sırasında (sayısal) |
 | `SafeAreaFitter.cs` | `Screen.safeArea`'ya göre RectTransform'u daraltır (çentik/home bar) |
-| `UI/MainMenuUI.cs` | `MainMenu` sahnesi: Play → Gameplay, Level Select → LevelSelect |
-| `UI/LevelSelectUI.cs` | `LevelSelect` sahnesi: `Resources.LoadAll<TextAsset>("Levels")` → buton listesi |
+| `UI/MainMenuUI.cs` | `MainMenu` sahnesi: Play → `PlayerProgress.NextToPlay()` level'i (etikette "Play · Level N"), Levels → LevelSelect, "3 / 5 levels" ilerleme etiketi |
+| `UI/LevelSelectUI.cs` | `LevelSelect` sahnesi: `LevelOrder` sırasında numaralı kutucuklar, **koddan** (prefab yok; kapsayıcının `GridLayoutGroup`'u dizer). Kazanılmış / açık / kilitli renkleri; kilitli kutucuk tıklanamaz. Back → MainMenu |
 
 ### `Scripts/Shared/`
 
@@ -361,6 +389,8 @@ dikkatli ol.
 | `GameFX.cs` | Mono singleton | `GameFX.Instance` ilk erişimde kendini yaratır. `Impact`, `ImpactRing`, `Bloom`, `CellPop`, `LaunchPuff`, `Win`, `Firework`, **`Confetti(center, color)`** (renk bitince, Win'den küçük), **`HitStop(sec)`** (`Time.timeScale=0`, unscaled bekleme, üst üste binmez; 8+ hücrelik atışta 50 ms), `Shake`, `ZoomPunch`, `Flash`.
 | `GameAudio.cs` | Mono singleton | **Ses hub'ı**, `GameFX`'in ses ikizi: `GameAudio.Play(Sfx, pitch, volume)` ilk çağrıda kendini yaratır, sahne bağlantısı yok. `Sfx`: `Launch`, `Land`, `CellTick`, `IceCrack`, `ColorFanfare`, `Praise`, `Win`, `Lose`, `Booster`, `Warning`, `Undo`, `Pop`. Projede ses varlığı **yok**: her klip `Awake`'te ton + filtrelenmiş gürültü + zarf ile **sentezlenir** (birkaç ms); `Resources/Audio/<Sfx adı>` altında bir klip varsa o kullanılır. `PlayTick(n)` boyama dalgasında pentatonik basamak, `PlayPraise(tier)` GOOD/GREAT/AMAZING. 10 `AudioSource`'luk round-robin havuz (pitch kaynak başına). `Muted` PlayerPrefs'te (`SoundMuted`), henüz UI'ı yok. Sahnede `AudioListener` yoksa kendine ekler; üretilen klipleri `OnDestroy`'da yok eder |
 | `RoundedCubeMesh.cs` | static | Yuvarlatılmış birim küp mesh'i, `(radius, subdiv)` başına bir kez üretilip önbelleklenir. Hücre, top blokları ve tahta plakası paylaşır. **Yalnız runtime**: sahne dosyasına kaydedilen nesneler prosedürel mesh referansını kaybeder, o yüzden `GameplaySceneBuilder` dekor için primitive kullanır | **`GameFX.CurrentShakeOffset`** — kamera sarsıntısı sadece öteleme yapar; ekrandan-dünyaya ışın atarken bu offset çıkarılmalıdır (`TapLaunchController.PickRay`) |
+| `LevelOrder.cs` | static | Oynanış sırası: `Resources/Levels/*.json` adları, **sondaki sayıya göre** (level2 < level10). `Names`, `IndexOf`, `Next`, `First`, `NumberOf(name)` (editörün `EditorConstants.LevelNumberOf`'u da buna yönlenir — tek numaralama kuralı). İlk erişimde taranıp önbelleklenir; `Refresh()` |
+| `PlayerProgress.cs` | static | Kazanılan level'ler, PlayerPrefs `Won_<levelName>`. `IsWon`, `MarkWon` (anında `Save` — mobilde uygulama her an öldürülebilir), `IsUnlocked` (ilk level ya da öncekisi kazanılmış — **türetilir**), `NextToPlay`, `WonCount`, `ResetAll` |
 | `Haptics.cs` | static | `Light/Medium/Heavy`. Android'de `AndroidJavaObject` ile Vibrator (API 26+ amplitüdlü), editörde no-op |
 | `Telemetry.cs` | static | `RecordLaunch()` — atışlar arası süreyi loglar, `OnTimeBetweenLaunchesRecorded` |
 
@@ -370,7 +400,7 @@ dikkatli ol.
 |---|---|---|
 | `LevelEditorWindow.cs` | `CatapultGames/Level Editor` | **Shell** (UI Toolkit). Level durumunu, sekme geçişini ve sekmeler arası köprüleri tutar; Editor sekmesi pencerenin kendi kodudur. `CreateGUI` yalnızca `UI/LevelEditorWindow.uxml`'i klonlar ve `Q<>(name)` ile **bağlar** — statik UI için kodda `new Button` yok. **Eleman adı = sözleşme**: UXML'de bir adı değiştirip C#'ı unutursan hata almazsın, sessiz null gelir; bu yüzden her `Find<T>` null-güvenli. İki geçiş metodu kasıtlı: `RequestTab` (kullanıcı tıklaması, kaydedilmemiş iş uyarısı) / `SetActiveTab` (mekanik, kapısız). Editor sekmesi kartları: Level (ad, boyut, kamera diyagramı), Brushes (Paint/Erase/Fill/Brush/RectSelect/MultiSelect + renk + tip; stroke pointer-up'ta **tek undo adımı**, Ctrl+Z/Y), Balls, **Generate** (`LevelBuilder`, band reçetesi Produce'la ortak `LevelProduceBandSet`), AI preview (`LevelAutoSolver`, `schedule.Execute().Every()` ile sürülür, salt görsel), Status (validator + solver + son sweep'in hızlı kartı), File (kaydet/aç/çoğalt/görsel içe aktar, **tazelik satırı**: "oyun şu an baktığını mı oynuyor"). Dayanıklılık: taslak level `[SerializeField] _scratchJson` ile domain reload'dan kurtarılır; `OnDestroy` "Save / Don't save" sorar (veto yok); `IsDirty` = bellek JSON ≠ son kaydedilen JSON (LF'e normalize) |
 | `LevelEditorTab.cs` | — | `enum { Editor, Solving, Produce, Gallery }` — her değer bir UXML paneli (`tab-panel-*`) ve bir tab butonu (`tab-*`) |
-| `EditorConstants.cs` | — | Tüm yol sabitleri tek yerde: `LevelsAssetFolder`, UXML/USS yolları, `LevelFileName(n)` (= `level{n}`, **sıfır dolgusuz** — katalog sondaki sayıyla sıralar), `LevelNumberOf(name)` |
+| `EditorConstants.cs` | — | Tüm yol sabitleri tek yerde: `LevelsAssetFolder`, UXML/USS yolları, `LevelFileName(n)` (= `level{n}`, **sıfır dolgusuz** — katalog sondaki sayıyla sıralar), `LevelNumberOf(name)` (→ runtime `LevelOrder.NumberOf`) |
 | `LevelCatalog.cs` | — | `LevelCatalog.Scan()` → `Resources/Levels/*.json` (klasörle sınırlı, sayısal sıra) · `LevelCatalogBrowser` başlık çubuğundaki `◀ n / N ▶` durumu |
 | `LevelCellPalette.cs` | — | **Editördeki tek renk kaynağı**: Editor grid'i ve Gallery thumbnail'leri hücre rengini yalnız `Resolve(color, type)`'tan okur (taş gri, buz tül, joker kendi rengi). Hue'lar `GameConstants.CellColorPalette`'ten |
 | `LevelPaintTool.cs` | — | Fırça enum'u + `LevelPaintTools` tablosu (fırça → UXML buton adı; enum'a eklenip case yazılmayan fırça `ArgumentOutOfRange` ile **görünür** patlar) |
@@ -387,7 +417,8 @@ dikkatli ol.
 | `Solving/ISolverBot.cs` · `SolverRoster.cs` | — | Bot sözleşmesi + popülasyon (8 bot, her biri **farklı karar prosedürü**): `random` (sıfır hipotezi), `gate-greedy` (tavan = Save kapısının solver'ı; %100 altı **level kusuru**), `greedy-window`, `color-focus`, `impulsive`, `careless-15` (**band botu**, `SolverRoster.BandBotId`), `careless-35`, `lookahead-2` (pahalı). Skorlayıcı eklemek bot eklemek değildir |
 | `Solving/LevelBenchmark.cs` | — | Sweep koşucusu: tohum `baseSeed + level·100003 + run·7919`, koşular arasında iptal yoklaması, bot başına `BotStat` (4 sonuç toplamı = koşu sayısı), level başına `LevelResult` (band botu → `measured`, `matches`) |
 | `Solving/LevelSolvingTabController.cs` | Solving sekmesi | Kapsam (açık level / hepsi / aralık) + koşu + seed; maliyet butona basılmadan **önce** yazılır; sweep **daima tüm roster'la** koşar, bot filtresi yalnız çizimi filtreler. Level satırları (band botu win-rate çubuğu, uyuşmazlık vurgusu) → detay kartı: bot başına **yığılmış sonuç çubuğu**, band **gauge**'u, headroom, kayıp koşu çipleri, ham tablo foldout, en sonda verdict. `BuildQuickCard` Editor'ün Status kartında aynı veriyi gösterir |
-| `GameplaySceneBuilder.cs` | `CatapultGames/Build Gameplay Scene` | Oynanabilir sahneyi (`Assets/Scenes/Gameplay2.unity`) sıfırdan üretir ve tüm referansları **reflection ile** bağlar (`SetRef/SetRefArray/SetFloat/SetStr`). `CG_Grid` layer'ını kaydeder, sahneyi Build Settings'e ekler |
+| `GameplaySceneBuilder.cs` | `CatapultGames/Build Gameplay Scene` | Oynanabilir sahneyi (`Assets/Scenes/Gameplay2.unity`) sıfırdan üretir ve tüm referansları **reflection ile** bağlar (`SetRef/SetRefArray/SetFloat/SetStr`). `CG_Grid` layer'ını kaydeder, sahneyi Build Settings'e ekler. `MakeText/MakeButton/MakeCanvas/AddEventSystem/SetRef/SetStr/StretchToParent` `internal` — `MenuSceneBuilder` aynılarını kullanır |
+| `MenuSceneBuilder.cs` | `CatapultGames/Build Menu Scenes` | `Assets/Scenes/MainMenu.unity` (başlık, ilerleme etiketi, Play, Levels) ve `LevelSelect.unity` (başlık, `ScrollRect` + `GridLayoutGroup` 4 sütun, Back) sahnelerini üretip bağlar; Build Settings'i **MainMenu = index 0**, LevelSelect, sonra diğerleri olarak sıralar. Sahne adı sabitleri (`MainMenuSceneName`, `LevelSelectSceneName`) `GameplaySceneBuilder` tarafından `GameManager`'a yazılır |
 | `LevelValidator.cs` | — | Renk başına `required` (vuruş) vs **gerçek** `coverage` (`CoverageAnalyzer`) → `OK/Warning/Error`, artı joker satırı (`ColorRow.isWild`). `globalErrors` (top yok, renksiz top…) ve `globalWarnings` (< 3 hücrelik renk, komşusuz yalıtılmış hücre, **renkli taş**, **renksiz joker**). Taş ve joker hücreleri yalıtılmışlık/az-hücre uyarılarından muaf. `isValid` yalnızca Error'lara bakar |
 | `LevelAutoSolver.cs` | — | Açgözlü AI: top **sırası sabit**, her top için en çok vuruş indiren iniş noktasını seçer. Tahtayı `CoverageAnalyzer.TargetBoard` olarak tutup `BestPlacement`/`ApplyPlacement` üzerinden oynar — şekil, eşleşme, erişim ve buz maliyeti böylece oyunun kendi koduyla aynı. `Move.hit` (vuruş alan) ile `Move.filled` (dolan) ayrı: buzda ilk vuruş yalnızca çatlatır. "solved" ⇒ level kesin çözülebilir; "failed" ⇒ tasarım uyarısı (kanıt değil). Oyuncu `SelectSlot` ile sıradaki toplardan birini öne alabildiği için solver **kötümser** kaldı |
 | `ImageImportUtility.cs` | — | PNG/JPG → ızgara. Hücre bölgesinin ortalama rengini palete en yakın `CellColor`'a eşler (eşik dışıysa `None`). Doku alt-sol, ızgara üst-sol başlangıçlı olduğu için **Y çevrilir** |
@@ -398,12 +429,14 @@ dikkatli ol.
 
 | Sahne | Durum | İçerik |
 |---|---|---|
-| `Assets/Scenes/Gameplay2.unity` | **Build'de etkin (tek)** | Tek oynanış sahnesi: tap-to-target |
+| `Assets/Scenes/MainMenu.unity` | Build index **0** (açılış) | `MenuSceneBuilder` üretir. **Henüz üretilmedi** — Unity'de `CatapultGames/Build Menu Scenes` çalıştırılmalı |
+| `Assets/Scenes/LevelSelect.unity` | Build index 1 | `MenuSceneBuilder` üretir (aynı not) |
+| `Assets/Scenes/Gameplay2.unity` | Build'de etkin | Tek oynanış sahnesi: tap-to-target |
 | `Assets/Scenes/SampleScene.unity` | Build'de var, kapalı | Şablon artığı |
-| `MainMenu`, `LevelSelect` | **DOSYA YOK** | `MainMenuUI`/`LevelSelectUI`/`GameManager.GoToMainMenu` bu isimleri arıyor ama sahne dosyaları oluşturulmamış. Menü akışı istenirse önce bu sahneler yaratılmalı |
 
-> Dosya adı hâlâ `Gameplay2` — tek sahne kaldığı için ileride `Gameplay.unity`'ye
-> yeniden adlandırılabilir (sahne `.meta` GUID'i korunduğu sürece Build Settings bozulmaz).
+> Dosya adı hâlâ `Gameplay2` — ileride `Gameplay.unity`'ye yeniden adlandırılabilir (sahne
+> `.meta` GUID'i korunduğu sürece Build Settings bozulmaz); menülerin yüklediği ad
+> `GameplaySceneBuilder.SceneName` sabitinden gelir, birlikte değiştirilmeli.
 
 ### Sahne hiyerarşisi (`GameplaySceneBuilder`'ın ürettiği)
 
@@ -424,7 +457,7 @@ BallLauncher
 EventSystem
 BoosterSystem         (_queue, _grid, _gameManager)
 UICanvas              (ResultScreenUI + UndoButtonUI + BoosterBarUI)
-├─ ResultPanel → TitleText, SubText, RetryBtn, MenuBtn, Keep GoingBtn (kapalı başlar)
+├─ ResultPanel → TitleText, SubText, RetryBtn, MenuBtn, Keep GoingBtn, Next LevelBtn (kapalı başlar)
 ├─ UndoBtn                                        (kapalı başlar; UndoButtonUI açar)
 ├─ RainbowBtn / RecolorBtn / BombBtn → Label, Count  sol alt sütun, x 0.03–0.21, y 0.10'dan yukarı
 ├─ WarningLabel                                   dead-end uyarısı (üst-orta, y 0.70–0.77, raycast kapalı, alfa 0)
@@ -527,7 +560,7 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
     bitirebilecek toplardır; purge onları çöpe atardı.
 16. **Undo skoru da geri alır** (`GameManager.RevertLastAward`). Yoksa "boya → geri al →
     aynı yeri boya" sınırsız puan üretir. Aynı sebeple `LevelLoader.Apply`
-    `ResetScore()` çağırır: level seçici sahneyi yeniden yüklemiyor.
+    `GameManager.BeginRun()` çağırır: level seçici sahneyi yeniden yüklemiyor.
 17. **`CellColor.Any` hiçbir zaman hücre rengi olmaz.** Yalnızca booster'ın ürettiği top
     rengidir. `ColorMatches` onu her hedefle eşler, `CoverageAnalyzer` onu her rengin
     tavanına ekler — ikisi de "Any bir hücre olamaz" varsayımıyla yazıldı. Level JSON'u
@@ -570,9 +603,8 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   **Not:** `level1`'in siyah şeridi tam olarak `Line` damgasının işi — aynı 5 top
   `Line` olsaydı tavan 18 yerine 31 olurdu (gereken 24). Tek sıralık şeritleri kare
   damgayla boyatmak yerine şekli değiştirmek, düzeltmenin en ucuz yolu.
-- **Skor kalıcı değil.** Level bitince skor sonuç ekranında görünüp gider; kayıt
-  (`PlayerPrefs`) ve yıldız eşiği Faz 4'ün işi (F4-1 / F4-2). Yıldızlar "artan top
-  oranına" bakacak, skora değil — ikisi ayrı ölçüler.
+- **Skor kalıcı değil.** Level bitince skor sonuç ekranında görünüp gider; yalnızca
+  "kazanıldı" bilgisi kaydedilir (`PlayerProgress`). En iyi skor tutulmuyor, yıldız yok.
 - **Özel hücreler yalnız `level5`'te var** (sol sütunda 10 joker, 2026-08-12). Buz ve taş
   hiçbir elle yazılmış level'de kullanılmıyor; `LevelBuilder` Normal+ bandlarda üretiyor.
 - **Casual sadeleştirme, paket 1 (2026-09-15, `feature/casual-simplify`).** Üçlü tepsi,
@@ -619,7 +651,10 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
   (`GameConstants` + `CoverageAnalyzer` + `LevelAutoSolver` + `LevelValidator` gerçek
   dosyaları, sahte `UnityEngine` tipleriyle derlenir). Kalıcı bir test assembly'si
   eklenirse ilk taşınacak şey bu.
-- `MainMenu` ve `LevelSelect` sahneleri kodda referanslı ama **mevcut değil**.
+- **Faz 4 (2026-10-04):** menü akışı, ilerleme kaydı ve Next Level kodda hazır; `MainMenu` /
+  `LevelSelect` sahne dosyaları Unity'de `Build Menu Scenes` ile **üretilmedi**, yerleşim
+  görülmedi. Yıldız sistemi BACKLOG'da vardı, istenmediği için **yapılmadı**. İlerlemeyi
+  sıfırlayan bir ayar ekranı yok (`PlayerProgress.ResetAll` hazır).
 - `Assets/_Recovery/0.unity` ve `Assets/TutorialInfo/` (URP şablon artığı) kullanılmıyor.
 - `applicationIdentifier` hâlâ şablon varsayılanı (`com.UnityTechnologies...`).
 - Otomatik test yok (`com.unity.test-framework` kurulu ama test assembly'si yok).

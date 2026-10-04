@@ -295,11 +295,11 @@ namespace CatapultGames
         {
             // Resources.LoadAll works on every platform (incl. Android) and reads
             // the same folder the Level Editor saves into.
-            var assets = Resources.LoadAll<TextAsset>("Levels");
-            _names = new string[assets.Length];
-            for (int i = 0; i < assets.Length; i++)
-                _names[i] = assets[i].name;
-            System.Array.Sort(_names);
+            // Numeric order (level2 before level10), shared with the menus.
+            LevelOrder.Refresh();
+            _names = new string[LevelOrder.Names.Count];
+            for (int i = 0; i < _names.Length; i++)
+                _names[i] = LevelOrder.Names[i];
             Debug.Log($"[LevelPickerHUD] {_names.Length} level(s) found");
         }
     }
