@@ -20,6 +20,13 @@ namespace CatapultGames.Editor
     // a card and the board it opens never disagree about what a cell is.
     public sealed class LevelGridElement : VisualElement
     {
+        public event Action<int, int, int> CellPressed;     // x, y, button
+        public event Action<int, int>      CellDragged;     // x, y (only when the cell changes)
+        public event Action                StrokeCommitted; // pointer up after a press
+        public event Action<int, int>      CellHovered;     // (-1,-1) when the pointer leaves
+
+        public int CellSize => _cellPx;
+
         private const string RootClass    = "cg-grid";
         private const string RowClass     = "cg-grid__row";
         private const string CellClass    = "cg-grid__cell";
@@ -32,21 +39,13 @@ namespace CatapultGames.Editor
         private const string FxHit        = "cg-grid__fx--hit";
         private const string FxLand       = "cg-grid__fx--land";
         private const string RectClass    = "cg-grid__rect";
-
         private const int Gap = 1;
         private const int GlyphMinPx = 22;
-
-        public event Action<int, int, int> CellPressed;     // x, y, button
-        public event Action<int, int>      CellDragged;     // x, y (only when the cell changes)
-        public event Action                StrokeCommitted; // pointer up after a press
-        public event Action<int, int>      CellHovered;     // (-1,-1) when the pointer leaves
-
         private LevelData _level;
         private int _cellPx = 32;
         private int _w, _h;
         private VisualElement[] _cells = Array.Empty<VisualElement>();
         private readonly VisualElement _rect;
-
         private bool _pressed;
         private int  _lastX = -1, _lastY = -1;
         private int  _hoverX = -1, _hoverY = -1;
@@ -58,13 +57,12 @@ namespace CatapultGames.Editor
         private int  _simLandX = -1, _simLandY = -1;
         private bool _simActive;
 
-        public int CellSize => _cellPx;
-
         public LevelGridElement()
         {
             AddToClassList(RootClass);
             var sheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(EditorConstants.LevelGridStylePath);
-            if (sheet != null) styleSheets.Add(sheet);
+            if (sheet != null)
+                styleSheets.Add(sheet);
 
             _rect = new VisualElement { pickingMode = PickingMode.Ignore };
             _rect.AddToClassList(RectClass);
@@ -77,20 +75,22 @@ namespace CatapultGames.Editor
             RegisterCallback<PointerCaptureOutEvent>(_ => EndStroke());
         }
 
-        // ── Data in ───────────────────────────────────────────────────────
         public void SetLevel(LevelData level)
         {
             _level = level;
             int w = level?.grid?.width  ?? 0;
             int h = level?.grid?.height ?? 0;
-            if (w != _w || h != _h) Rebuild(w, h);
-            else Refresh();
+            if (w != _w || h != _h)
+                Rebuild(w, h);
+            else
+                Refresh();
         }
 
         public void SetCellSize(int px)
         {
             px = Mathf.Clamp(px, 10, 96);
-            if (px == _cellPx) return;
+            if (px == _cellPx)
+                return;
             _cellPx = px;
             Rebuild(_w, _h);
         }
@@ -106,7 +106,8 @@ namespace CatapultGames.Editor
 
         public void RefreshCell(int x, int y)
         {
-            if (x < 0 || y < 0 || x >= _w || y >= _h || _level == null) return;
+            if (x < 0 || y < 0 || x >= _w || y >= _h || _level == null)
+                return;
             var ve   = _cells[y * _w + x];
             var cell = LevelEditOps.Cell(_level, x, y);
             CellColor color = cell?.outlineColor ?? CellColor.None;
@@ -142,7 +143,8 @@ namespace CatapultGames.Editor
             string text = _cellPx >= GlyphMinPx ? LevelCellPalette.TypeGlyph(type) : "";
             if (text.Length == 0)
             {
-                if (glyph != null) glyph.style.display = DisplayStyle.None;
+                if (glyph != null)
+                    glyph.style.display = DisplayStyle.None;
             }
             else
             {
@@ -161,14 +163,17 @@ namespace CatapultGames.Editor
             ApplyFx(x, y);
         }
 
-        // ── Overlays ──────────────────────────────────────────────────────
         public void SetSelection(IEnumerable<(int, int)> cells)
         {
             var old = new List<(int, int)>(_selected);
             _selected.Clear();
-            if (cells != null) foreach (var c in cells) _selected.Add(c);
-            foreach (var c in old)      ApplyFx(c.Item1, c.Item2);
-            foreach (var c in _selected) ApplyFx(c.Item1, c.Item2);
+            if (cells != null)
+                foreach (var c in cells)
+                    _selected.Add(c);
+            foreach (var c in old)
+                ApplyFx(c.Item1, c.Item2);
+            foreach (var c in _selected)
+                ApplyFx(c.Item1, c.Item2);
         }
 
         public void SetPlayback(bool active, IEnumerable<(int, int)> filled, IEnumerable<(int, int)> hit, int landX, int landY)
@@ -178,8 +183,12 @@ namespace CatapultGames.Editor
             _simHit.Clear();
             if (active)
             {
-                if (filled != null) foreach (var c in filled) _simFilled.Add(c);
-                if (hit    != null) foreach (var c in hit)    _simHit.Add(c);
+                if (filled != null)
+                    foreach (var c in filled)
+                        _simFilled.Add(c);
+                if (hit    != null)
+                    foreach (var c in hit)
+                        _simHit.Add(c);
             }
             _simLandX = active ? landX : -1;
             _simLandY = active ? landY : -1;
@@ -202,7 +211,8 @@ namespace CatapultGames.Editor
 
         private void ApplyFx(int x, int y)
         {
-            if (x < 0 || y < 0 || x >= _w || y >= _h) return;
+            if (x < 0 || y < 0 || x >= _w || y >= _h)
+                return;
             var ve = _cells[y * _w + x];
             bool sel   = _selected.Contains((x, y));
             bool hover = x == _hoverX && y == _hoverY;
@@ -212,7 +222,8 @@ namespace CatapultGames.Editor
             var fx = ve.Q<VisualElement>(className: FxClass);
             if (!(sel || hover || hit || land))
             {
-                if (fx != null) fx.style.display = DisplayStyle.None;
+                if (fx != null)
+                    fx.style.display = DisplayStyle.None;
                 return;
             }
             if (fx == null)
@@ -228,7 +239,6 @@ namespace CatapultGames.Editor
             fx.EnableInClassList(FxLand,     land);
         }
 
-        // ── Build ─────────────────────────────────────────────────────────
         private void Rebuild(int w, int h)
         {
             Clear();
@@ -260,7 +270,6 @@ namespace CatapultGames.Editor
             Refresh();
         }
 
-        // ── Pointer → cell ────────────────────────────────────────────────
         private bool TryCellAt(Vector2 local, out int x, out int y)
         {
             int step = _cellPx + Gap;
@@ -271,7 +280,8 @@ namespace CatapultGames.Editor
 
         private void OnPointerDown(PointerDownEvent evt)
         {
-            if (!TryCellAt(evt.localPosition, out int x, out int y)) return;
+            if (!TryCellAt(evt.localPosition, out int x, out int y))
+                return;
             _pressed = true;
             _lastX = x; _lastY = y;
             this.CapturePointer(evt.pointerId);
@@ -283,26 +293,31 @@ namespace CatapultGames.Editor
         {
             bool inside = TryCellAt(evt.localPosition, out int x, out int y);
             SetHover(inside ? x : -1, inside ? y : -1);
-            if (!_pressed || !inside) return;
-            if (x == _lastX && y == _lastY) return;
+            if (!_pressed || !inside)
+                return;
+            if (x == _lastX && y == _lastY)
+                return;
             _lastX = x; _lastY = y;
             CellDragged?.Invoke(x, y);
         }
 
         private void OnPointerUp(PointerUpEvent evt)
         {
-            if (this.HasPointerCapture(evt.pointerId)) this.ReleasePointer(evt.pointerId);
+            if (this.HasPointerCapture(evt.pointerId))
+                this.ReleasePointer(evt.pointerId);
             EndStroke();
         }
 
         private void OnPointerLeave(PointerLeaveEvent evt)
         {
-            if (!_pressed) SetHover(-1, -1);
+            if (!_pressed)
+                SetHover(-1, -1);
         }
 
         private void EndStroke()
         {
-            if (!_pressed) return;
+            if (!_pressed)
+                return;
             _pressed = false;
             _lastX = _lastY = -1;
             StrokeCommitted?.Invoke();
@@ -310,7 +325,8 @@ namespace CatapultGames.Editor
 
         private void SetHover(int x, int y)
         {
-            if (x == _hoverX && y == _hoverY) return;
+            if (x == _hoverX && y == _hoverY)
+                return;
             int ox = _hoverX, oy = _hoverY;
             _hoverX = x; _hoverY = y;
             ApplyFx(ox, oy);

@@ -58,26 +58,6 @@ namespace CatapultGames.Editor
             level.cells = newCells;
         }
 
-        // ─── Helpers ──────────────────────────────────────────────────────
-
-        private static Color AverageColor(Color[] pixels)
-        {
-            if (pixels == null || pixels.Length == 0) return Color.clear;
-
-            float r = 0, g = 0, b = 0;
-            // Skip fully-transparent pixels so alpha cutouts don't skew the average.
-            int count = 0;
-            foreach (var p in pixels)
-            {
-                if (p.a < 0.1f) continue;
-                r += p.r; g += p.g; b += p.b;
-                count++;
-            }
-
-            if (count == 0) return Color.clear;
-            return new Color(r / count, g / count, b / count);
-        }
-
         // Returns the best-matching CellColor, or None if every palette entry is
         // farther than threshold.  Distance is Euclidean in normalised RGB [0,1].
         // Max possible distance = sqrt(3) ≈ 1.732.
@@ -102,6 +82,27 @@ namespace CatapultGames.Editor
             }
 
             return bestDist <= threshold ? best : CellColor.None;
+        }
+
+        private static Color AverageColor(Color[] pixels)
+        {
+            if (pixels == null || pixels.Length == 0)
+                return Color.clear;
+
+            float r = 0, g = 0, b = 0;
+            // Skip fully-transparent pixels so alpha cutouts don't skew the average.
+            int count = 0;
+            foreach (var p in pixels)
+            {
+                if (p.a < 0.1f)
+                    continue;
+                r += p.r; g += p.g; b += p.b;
+                count++;
+            }
+
+            if (count == 0)
+                return Color.clear;
+            return new Color(r / count, g / count, b / count);
         }
     }
 }

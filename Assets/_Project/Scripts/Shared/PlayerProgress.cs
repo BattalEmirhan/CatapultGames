@@ -18,7 +18,8 @@ namespace CatapultGames
 
         public static void MarkWon(string levelName)
         {
-            if (string.IsNullOrEmpty(levelName) || IsWon(levelName)) return;
+            if (string.IsNullOrEmpty(levelName) || IsWon(levelName))
+                return;
             PlayerPrefs.SetInt(WonKeyPrefix + levelName, 1);
             PlayerPrefs.Save();   // a mobile app can be killed at any moment after a win
         }
@@ -26,7 +27,8 @@ namespace CatapultGames
         public static bool IsUnlocked(string levelName)
         {
             int i = LevelOrder.IndexOf(levelName);
-            if (i < 0) return false;
+            if (i < 0)
+                return false;
             return i == 0 || IsWon(LevelOrder.Names[i - 1]);
         }
 
@@ -36,21 +38,25 @@ namespace CatapultGames
         {
             var names = LevelOrder.Names;
             for (int i = 0; i < names.Count; i++)
-                if (!IsWon(names[i])) return names[i];
+                if (!IsWon(names[i]))
+                    return names[i];
             return names.Count > 0 ? names[names.Count - 1] : null;
         }
 
         public static int WonCount()
         {
             int n = 0;
-            foreach (var name in LevelOrder.Names) if (IsWon(name)) n++;
+            foreach (var name in LevelOrder.Names)
+                if (IsWon(name))
+                    n++;
             return n;
         }
 
         // Dev / settings use: forget every level's result.
         public static void ResetAll()
         {
-            foreach (var name in LevelOrder.Names) PlayerPrefs.DeleteKey(WonKeyPrefix + name);
+            foreach (var name in LevelOrder.Names)
+                PlayerPrefs.DeleteKey(WonKeyPrefix + name);
             PlayerPrefs.Save();
         }
     }

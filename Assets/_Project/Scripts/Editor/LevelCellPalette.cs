@@ -25,11 +25,14 @@ namespace CatapultGames.Editor
         // Joker keeps its colour — a joker still fills to that colour.
         public static Color Resolve(CellColor color, CellType type)
         {
-            if (type == CellType.Stone)      return Stone;
-            if (color == CellColor.None)     return EmptyCell;
+            if (type == CellType.Stone)
+                return Stone;
+            if (color == CellColor.None)
+                return EmptyCell;
 
             Color c = GameConstants.GetColorF(color);
-            if (type == CellType.Ice)        return Color.Lerp(c, IceTint, 0.35f);
+            if (type == CellType.Ice)
+                return Color.Lerp(c, IceTint, 0.35f);
             return c;
         }
 

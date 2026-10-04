@@ -17,11 +17,9 @@ namespace CatapultGames.Editor
     public sealed class LevelProduceTabController
     {
         private static readonly string[] BandNames = { "Easy", "Normal", "Hard", "Very Hard" };
-
         private readonly VisualElement _root;
         private readonly LevelProduceBandSet _bands;
         private readonly Action _onCatalogProduced;
-
         private IntegerField _from, _to, _seed, _attempts;
         private Toggle _overwrite;
         private Label _summary, _schedule, _bandSummary, _reportHeader;
@@ -36,6 +34,7 @@ namespace CatapultGames.Editor
             "band-width", "band-height", "band-colors", "band-min-cells",
             "band-ice", "band-stone", "band-joker", "band-slack", "band-shuffle"
         };
+
         private static readonly string[] BandToggleNames =
         {
             "band-shape-square", "band-shape-l", "band-shape-line",
@@ -48,8 +47,6 @@ namespace CatapultGames.Editor
             _bands = bands;
             _onCatalogProduced = onCatalogProduced;
         }
-
-        private T Find<T>(string name) where T : VisualElement => _root.Q<T>(name);
 
         public void Bind()
         {
@@ -64,7 +61,8 @@ namespace CatapultGames.Editor
             _summary  = Find<Label>("produce-summary");
             _schedule = Find<Label>("produce-schedule");
             var run = Find<Button>("produce-run");
-            if (run != null) run.clicked += RunProduce;
+            if (run != null)
+                run.clicked += RunProduce;
 
             _bandDd = Find<DropdownField>("band-select");
             if (_bandDd != null)
@@ -75,28 +73,37 @@ namespace CatapultGames.Editor
             }
             _bandSummary = Find<Label>("band-summary");
             var reset = Find<Button>("band-reset");
-            if (reset != null) reset.clicked += () => { _bands.Reset(_editedBand); RefreshBandUI(); };
+            if (reset != null)
+                reset.clicked += () => { _bands.Reset(_editedBand); RefreshBandUI(); };
 
             foreach (var name in BandIntFieldNames)
             {
                 var n = name;
                 var f = Find<IntegerField>(n);
-                f?.RegisterValueChangedCallback(e => { if (!_syncing) OnBandIntChanged(n, e.newValue); });
+                f?.RegisterValueChangedCallback(e => {
+                    if (!_syncing)
+                        OnBandIntChanged(n, e.newValue);
+                });
             }
             foreach (var name in BandToggleNames)
             {
                 var n = name;
                 var t = Find<Toggle>(n);
-                t?.RegisterValueChangedCallback(e => { if (!_syncing) OnBandToggleChanged(n, e.newValue); });
+                t?.RegisterValueChangedCallback(e => {
+                    if (!_syncing)
+                        OnBandToggleChanged(n, e.newValue);
+                });
             }
             Find<Slider>("band-fill")?.RegisterValueChangedCallback(e =>
             {
-                if (_syncing) return;
+                if (_syncing)
+                    return;
                 var s = _bands.For(_editedBand); s.fillRatio = e.newValue; _bands.Set(_editedBand, s); RefreshBandSummary();
             });
             Find<SliderInt>("band-maxpower")?.RegisterValueChangedCallback(e =>
             {
-                if (_syncing) return;
+                if (_syncing)
+                    return;
                 var s = _bands.For(_editedBand); s.maxPower = e.newValue; _bands.Set(_editedBand, s); RefreshBandSummary();
             });
 
@@ -109,7 +116,36 @@ namespace CatapultGames.Editor
 
         public void Activate() => RefreshSummary();
 
-        // ── Band recipe editing ───────────────────────────────────────────
+        public void RefreshBandUI()
+        {
+            var s = _bands.For(_editedBand);
+            _syncing = true;
+            try
+            {
+                Find<IntegerField>("band-width")?.SetValueWithoutNotify(s.width);
+                Find<IntegerField>("band-height")?.SetValueWithoutNotify(s.height);
+                Find<IntegerField>("band-colors")?.SetValueWithoutNotify(s.colorCount);
+                Find<IntegerField>("band-min-cells")?.SetValueWithoutNotify(s.minCellsPerColor);
+                Find<IntegerField>("band-ice")?.SetValueWithoutNotify(s.iceCount);
+                Find<IntegerField>("band-stone")?.SetValueWithoutNotify(s.stoneCount);
+                Find<IntegerField>("band-joker")?.SetValueWithoutNotify(s.jokerCount);
+                Find<IntegerField>("band-slack")?.SetValueWithoutNotify(s.slackBalls);
+                Find<IntegerField>("band-shuffle")?.SetValueWithoutNotify(s.shuffleWindow);
+                Find<Slider>("band-fill")?.SetValueWithoutNotify(s.fillRatio);
+                Find<SliderInt>("band-maxpower")?.SetValueWithoutNotify(s.maxPower);
+                Find<Toggle>("band-shape-square")?.SetValueWithoutNotify(s.allowSquare);
+                Find<Toggle>("band-shape-l")?.SetValueWithoutNotify(s.allowL);
+                Find<Toggle>("band-shape-line")?.SetValueWithoutNotify(s.allowLine);
+                Find<Toggle>("band-shape-column")?.SetValueWithoutNotify(s.allowColumn);
+                Find<Toggle>("band-shape-plus")?.SetValueWithoutNotify(s.allowPlus);
+                Find<Toggle>("band-shape-diagonal")?.SetValueWithoutNotify(s.allowDiagonal);
+            }
+            finally { _syncing = false; }
+            RefreshBandSummary();
+        }
+
+        private T Find<T>(string name) where T : VisualElement => _root.Q<T>(name);
+
         // Clamp rules and "which band" are the two things worth seeing here;
         // Clamped() is the single place the ranges live.
         private void OnBandIntChanged(string name, int value)
@@ -149,41 +185,12 @@ namespace CatapultGames.Editor
             RefreshBandUI();   // Clamped() may have re-enabled Square
         }
 
-        public void RefreshBandUI()
-        {
-            var s = _bands.For(_editedBand);
-            _syncing = true;
-            try
-            {
-                Find<IntegerField>("band-width")?.SetValueWithoutNotify(s.width);
-                Find<IntegerField>("band-height")?.SetValueWithoutNotify(s.height);
-                Find<IntegerField>("band-colors")?.SetValueWithoutNotify(s.colorCount);
-                Find<IntegerField>("band-min-cells")?.SetValueWithoutNotify(s.minCellsPerColor);
-                Find<IntegerField>("band-ice")?.SetValueWithoutNotify(s.iceCount);
-                Find<IntegerField>("band-stone")?.SetValueWithoutNotify(s.stoneCount);
-                Find<IntegerField>("band-joker")?.SetValueWithoutNotify(s.jokerCount);
-                Find<IntegerField>("band-slack")?.SetValueWithoutNotify(s.slackBalls);
-                Find<IntegerField>("band-shuffle")?.SetValueWithoutNotify(s.shuffleWindow);
-                Find<Slider>("band-fill")?.SetValueWithoutNotify(s.fillRatio);
-                Find<SliderInt>("band-maxpower")?.SetValueWithoutNotify(s.maxPower);
-                Find<Toggle>("band-shape-square")?.SetValueWithoutNotify(s.allowSquare);
-                Find<Toggle>("band-shape-l")?.SetValueWithoutNotify(s.allowL);
-                Find<Toggle>("band-shape-line")?.SetValueWithoutNotify(s.allowLine);
-                Find<Toggle>("band-shape-column")?.SetValueWithoutNotify(s.allowColumn);
-                Find<Toggle>("band-shape-plus")?.SetValueWithoutNotify(s.allowPlus);
-                Find<Toggle>("band-shape-diagonal")?.SetValueWithoutNotify(s.allowDiagonal);
-            }
-            finally { _syncing = false; }
-            RefreshBandSummary();
-        }
-
         private void RefreshBandSummary()
         {
             if (_bandSummary != null)
                 _bandSummary.text = $"{LevelDifficultySchedule.Label(_editedBand)}: {_bands.For(_editedBand).Summary()}";
         }
 
-        // ── Range summary ─────────────────────────────────────────────────
         private LevelProduceRequest Request() => new LevelProduceRequest
         {
             from      = _from?.value ?? 1,
@@ -211,17 +218,22 @@ namespace CatapultGames.Editor
                 for (int n = req.from + 1; n <= req.to + 1; n++)
                 {
                     var b = n <= req.to ? LevelDifficultySchedule.For(n) : (LevelDifficulty)(-1);
-                    if (n <= req.to && b == runBand) continue;
-                    if (sb.Length > 0) sb.Append(" · ");
+                    if (n <= req.to && b == runBand)
+                        continue;
+                    if (sb.Length > 0)
+                        sb.Append(" · ");
                     sb.Append(runStart == n - 1 ? $"{runStart}" : $"{runStart}–{n - 1}").Append(' ').Append(LevelDifficultySchedule.Label(runBand));
                     runStart = n; runBand = b;
-                    if (sb.Length > 400) { sb.Append(" …"); break; }
+                    if (sb.Length > 400)
+                    {
+                        sb.Append(" …");
+                        break;
+                    }
                 }
                 _schedule.text = sb.ToString();
             }
         }
 
-        // ── Run ───────────────────────────────────────────────────────────
         private void RunProduce()
         {
             var req = Request().Normalized();
@@ -253,12 +265,13 @@ namespace CatapultGames.Editor
 
         private void RenderReport(LevelProduceReport report)
         {
-            if (_report == null) return;
+            if (_report == null)
+                return;
             _report.Clear();
             if (_reportHeader != null)
                 _reportHeader.text = $"Report — {report.written} written · {report.skipped} skipped · {report.failed} failed{(report.cancelled ? " · cancelled" : "")}";
 
-            foreach (var row in report.rows)
+            foreach (LevelProduceRow row in report.rows)
             {
                 var r = new VisualElement();
                 r.AddToClassList("cg-report-row");

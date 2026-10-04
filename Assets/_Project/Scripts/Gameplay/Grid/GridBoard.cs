@@ -7,21 +7,26 @@ namespace CatapultGames
     // void. Dark (2026-10-04, as before the light-board pass) so the coloured
     // cubes are the brightest things on screen.
     // Call Rebuild() from LevelLoader.Apply() after BuildGrid().
-    public class GridBoard : MonoBehaviour
+    public sealed class GridBoard : MonoBehaviour
     {
         private static readonly Color PlateColor = new Color(0.06f, 0.07f, 0.12f);
         private const float PlateH = 0.22f;
-
         private Transform _plate;
         private Material  _mat;
 
-        // ── Public ────────────────────────────────────────────────────────
+        private void OnDestroy()
+        {
+            if (_mat)
+                Destroy(_mat);
+        }
+
         public void Rebuild(GridConfig grid)
         {
             if (!_plate)
             {
                 int gridLayer = LayerMask.NameToLayer("CG_Grid");
-                if (gridLayer < 0) gridLayer = 0;
+                if (gridLayer < 0)
+                    gridLayer = 0;
 
                 var go = new GameObject("BoardPlate") { layer = gridLayer };
                 go.transform.SetParent(transform, false);
@@ -33,7 +38,8 @@ namespace CatapultGames
 
                 var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
                 _mat = new Material(shader) { color = PlateColor };
-                if (_mat.HasProperty("_Smoothness")) _mat.SetFloat("_Smoothness", 0.15f);
+                if (_mat.HasProperty("_Smoothness"))
+                    _mat.SetFloat("_Smoothness", 0.15f);
                 mr.sharedMaterial = _mat;
                 _plate = go.transform;
             }
@@ -46,11 +52,6 @@ namespace CatapultGames
             // Top face at Y = 0 (the cells' floor), body hanging below it.
             _plate.localPosition = new Vector3(midX, -PlateH * 0.5f, midZ);
             _plate.localScale    = new Vector3(grid.width * cs + pad, PlateH, grid.height * cs + pad);
-        }
-
-        private void OnDestroy()
-        {
-            if (_mat) Destroy(_mat);
         }
     }
 }

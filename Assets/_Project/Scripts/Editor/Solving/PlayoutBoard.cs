@@ -3,24 +3,6 @@ using UnityEngine;
 
 namespace CatapultGames.Editor
 {
-    // How one simulated run ended. Finite on purpose: the four sum to the run
-    // count, and each maps to a designer action (see the Solving tab legend).
-    public enum PlayoutOutcome
-    {
-        Won        = 0,   // every target filled
-        OutOfBalls = 1,   // queue empty, targets left — the level is too tight (or the bot too weak)
-        DeadEnd    = 2,   // balls left but proven unable to finish (CoverageAnalyzer) — the game only
-                          // warns here (undo, boosters); a bot has neither, so for it this is a loss
-        Unplayable = 3    // nothing to paint, or no balls, before the first shot
-    }
-
-    public struct SolverMove
-    {
-        public int slot;    // which of the selectable queue slots to throw (0 = front)
-        public int landX;
-        public int landY;
-    }
-
     // Headless board: the game's rule engine without the scene. Every rule is
     // the runtime's own —
     //   · stamp / match / reach / ice cost  → CoverageAnalyzer (GameConstants)
@@ -36,16 +18,7 @@ namespace CatapultGames.Editor
     // rescue, the undo button, scoring, and the physical arc (landing is exact).
     public sealed class PlayoutBoard
     {
-        // Mirrors BallQueueView._selectableSlots' default. If that changes, the
-        // simulator's freedom must change with it.
-        public const int SelectableSlots = 3;
-
-        private readonly CoverageAnalyzer.TargetBoard _board;
-        private readonly List<BallData> _queue;
-        private int _shots;
-        private int _wasted;
-
-        public CoverageAnalyzer.TargetBoard Board => _board;   // read it, never write it — use Apply
+        public TargetBoard Board => _board;   // read it, never write it — use Apply
         public IReadOnlyList<BallData> Queue => _queue;
         public int Width  => _board.width;
         public int Height => _board.height;
@@ -55,7 +28,15 @@ namespace CatapultGames.Editor
         public int RemainingCells => _board.TargetCellCount();
         public int SelectableCount => Mathf.Min(SelectableSlots, _queue.Count);
 
-        private PlayoutBoard(CoverageAnalyzer.TargetBoard board, List<BallData> queue, int shots, int wasted)
+        // Mirrors BallQueueView._selectableSlots' default. If that changes, the
+        // simulator's freedom must change with it.
+        public const int SelectableSlots = 3;
+        private readonly TargetBoard _board;
+        private readonly List<BallData> _queue;
+        private int _shots;
+        private int _wasted;
+
+        private PlayoutBoard(TargetBoard board, List<BallData> queue, int shots, int wasted)
         {
             _board  = board;
             _queue  = queue;
@@ -65,7 +46,7 @@ namespace CatapultGames.Editor
 
         public static PlayoutBoard From(LevelData level)
         {
-            var board = CoverageAnalyzer.BuildTargets(level);
+            TargetBoard board = CoverageAnalyzer.BuildTargets(level);
             var queue = new List<BallData>();
             if (level?.balls != null)
                 foreach (var b in level.balls)
@@ -77,25 +58,26 @@ namespace CatapultGames.Editor
         // Deep copy for private exploration by look-ahead bots.
         public PlayoutBoard Clone()
         {
-            var b = new CoverageAnalyzer.TargetBoard(_board.width, _board.height);
+            TargetBoard b = new TargetBoard(_board.width, _board.height);
             System.Array.Copy(_board.colors, b.colors, b.colors.Length);
             System.Array.Copy(_board.hits,   b.hits,   b.hits.Length);
             System.Array.Copy(_board.wild,   b.wild,   b.wild.Length);
             System.Array.Copy(_board.stone,  b.stone,  b.stone.Length);
             var q = new List<BallData>(_queue.Count);
-            foreach (var ball in _queue) q.Add(new BallData(ball.color, ball.powerLevel, ball.shape));
+            foreach (var ball in _queue)
+                q.Add(new BallData(ball.color, ball.powerLevel, ball.shape));
             return new PlayoutBoard(b, q, _shots, _wasted);
         }
 
         public BallData Peek(int slot) => slot >= 0 && slot < _queue.Count ? _queue[slot] : null;
-
         public bool IsStone(int x, int y) => _board.InBounds(x, y) && _board.stone[_board.Index(x, y)];
 
         // Hits a throw would land, by the game's rules. No side effects.
         public int Measure(int slot, int landX, int landY)
         {
             var ball = Peek(slot);
-            if (ball == null || !_board.InBounds(landX, landY)) return 0;
+            if (ball == null || !_board.InBounds(landX, landY))
+                return 0;
             return CoverageAnalyzer.CountPlacement(_board, ball, landX, landY);
         }
 
@@ -112,17 +94,32 @@ namespace CatapultGames.Editor
         {
             int slot = Mathf.Clamp(m.slot, 0, SelectableCount - 1);
             var ball = Peek(slot);
-            if (ball == null) return 0;
+            if (ball == null)
+                return 0;
             _queue.RemoveAt(slot);
             _shots++;
 
             int hits = _board.InBounds(m.landX, m.landY)
                 ? CoverageAnalyzer.ApplyPlacement(_board, ball, m.landX, m.landY)
                 : 0;
-            if (hits == 0) _wasted++;
+            if (hits == 0)
+                _wasted++;
 
             PurgeCompletedColors();
             return hits;
+        }
+
+        // Result if the run is over, null while it continues. Checked after
+        // every move exactly like GameManager.OnBallLanded.
+        public PlayoutOutcome? Evaluate()
+        {
+            if (RemainingHits == 0)
+                return _shots == 0 ? PlayoutOutcome.Unplayable : PlayoutOutcome.Won;
+            if (_queue.Count == 0)
+                return _shots == 0 ? PlayoutOutcome.Unplayable : PlayoutOutcome.OutOfBalls;
+            if (CoverageAnalyzer.AnyImpossible(CoverageAnalyzer.Analyze(_board, _queue)))
+                return PlayoutOutcome.DeadEnd;
+            return null;
         }
 
         // Same rule as GameManager.PurgeCompletedColors: a finished colour's
@@ -130,32 +127,25 @@ namespace CatapultGames.Editor
         // because then any colour can still be the one that finishes the level.
         private void PurgeCompletedColors()
         {
-            if (HasUnfilledWild()) return;
+            if (HasUnfilledWild())
+                return;
             _queue.RemoveAll(b => !ColorStillNeeded(b.color));
         }
 
         private bool HasUnfilledWild()
         {
             for (int i = 0; i < _board.hits.Length; i++)
-                if (_board.hits[i] > 0 && _board.wild[i]) return true;
+                if (_board.hits[i] > 0 && _board.wild[i])
+                    return true;
             return false;
         }
 
         private bool ColorStillNeeded(CellColor c)
         {
             for (int i = 0; i < _board.hits.Length; i++)
-                if (_board.hits[i] > 0 && (_board.wild[i] || _board.colors[i] == c)) return true;
+                if (_board.hits[i] > 0 && (_board.wild[i] || _board.colors[i] == c))
+                    return true;
             return false;
-        }
-
-        // Result if the run is over, null while it continues. Checked after
-        // every move exactly like GameManager.OnBallLanded.
-        public PlayoutOutcome? Evaluate()
-        {
-            if (RemainingHits == 0) return _shots == 0 ? PlayoutOutcome.Unplayable : PlayoutOutcome.Won;
-            if (_queue.Count == 0)  return _shots == 0 ? PlayoutOutcome.Unplayable : PlayoutOutcome.OutOfBalls;
-            if (CoverageAnalyzer.AnyImpossible(CoverageAnalyzer.Analyze(_board, _queue))) return PlayoutOutcome.DeadEnd;
-            return null;
         }
     }
 }

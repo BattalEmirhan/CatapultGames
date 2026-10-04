@@ -6,13 +6,16 @@ namespace CatapultGames
     // Resizes the rect every frame (if changed) to match the device safe area
     // so child UI elements avoid notches, home indicators, and rounded corners.
     [RequireComponent(typeof(RectTransform))]
-    public class SafeAreaFitter : MonoBehaviour
+    public sealed class SafeAreaFitter : MonoBehaviour
     {
         private RectTransform _rt;
         private Rect          _lastSafe;
 
         private void Awake() { _rt = GetComponent<RectTransform>(); Apply(); }
-        private void Update() { if (Screen.safeArea != _lastSafe) Apply(); }
+        private void Update() {
+            if (Screen.safeArea != _lastSafe)
+                Apply();
+        }
 
         private void Apply()
         {

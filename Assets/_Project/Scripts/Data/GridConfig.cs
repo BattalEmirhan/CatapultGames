@@ -3,7 +3,7 @@ using System;
 namespace CatapultGames
 {
     [Serializable]
-    public class GridConfig
+    public sealed class GridConfig
     {
         public int width    = 8;
         public int height   = 8;

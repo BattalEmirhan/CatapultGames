@@ -15,40 +15,33 @@ namespace CatapultGames.Editor
     // given in the constructor. Knows nothing about the other tabs.
     public sealed class LevelSolvingTabController
     {
-        private enum Scope { OpenLevel = 0, AllLevels = 1, Range = 2 }
-        private enum SortMode { EasiestFirst = 0, HardestFirst = 1, NumberAsc = 2, NumberDesc = 3 }
+        private List<LevelCatalogEntry> Catalog => _catalog ??= LevelCatalog.Scan();
 
         private static readonly string[] ScopeNames = { "Open level", "All levels", "Range" };
         private static readonly string[] SortNames  = { "Easiest first", "Hardest first", "Number ↑", "Number ↓" };
-
         private const string HiddenClass = "cg-hidden";
         private const int MaxVisibleChips = 8;
-
         private readonly VisualElement _root;
         private readonly Func<LevelData> _openLevel;
         private readonly Func<string>    _openLevelName;
-        private readonly Action<IReadOnlyList<LevelBenchmark.LevelResult>> _onSweepFinished;
-
+        private readonly Action<IReadOnlyList<BenchmarkLevelResult>> _onSweepFinished;
         private DropdownField _scopeDd, _sortDd;
         private IntegerField  _from, _to, _runs, _seed;
         private Label _cost, _summary, _detailHeader, _notSim;
         private VisualElement _botsRow, _levels, _detailCard, _detail, _rosterCard;
-
         private List<LevelCatalogEntry> _catalog;   // lazily read
-        private List<LevelBenchmark.LevelResult> _results = new List<LevelBenchmark.LevelResult>();
+        private List<BenchmarkLevelResult> _results = new List<BenchmarkLevelResult>();
         private readonly HashSet<string> _hiddenBots = new HashSet<string>();
         private string _selectedLevel;
 
         public LevelSolvingTabController(VisualElement root, Func<LevelData> openLevel, Func<string> openLevelName,
-                                         Action<IReadOnlyList<LevelBenchmark.LevelResult>> onSweepFinished)
+                                         Action<IReadOnlyList<BenchmarkLevelResult>> onSweepFinished)
         {
             _root            = root;
             _openLevel       = openLevel;
             _openLevelName   = openLevelName;
             _onSweepFinished = onSweepFinished;
         }
-
-        private T Find<T>(string name) where T : VisualElement => _root.Q<T>(name);
 
         public void Bind()
         {
@@ -69,7 +62,8 @@ namespace CatapultGames.Editor
 
             _cost = Find<Label>("solve-cost");
             var run = Find<Button>("solve-run");
-            if (run != null) run.clicked += RunSweep;
+            if (run != null)
+                run.clicked += RunSweep;
 
             _summary   = Find<Label>("solve-summary");
             _sortDd    = Find<DropdownField>("solve-sort");
@@ -102,39 +96,61 @@ namespace CatapultGames.Editor
             RefreshCost();
         }
 
-        // ── Scope / cost ──────────────────────────────────────────────────
-        private List<LevelCatalogEntry> Catalog => _catalog ??= LevelCatalog.Scan();
+        // Only the band bot's outcome bar + the verdict: the quick card the
+        // Editor tab shows. Same data, same builders, so the two cannot disagree.
+        public static VisualElement BuildQuickCard(BenchmarkLevelResult r)
+        {
+            var box = new VisualElement();
+            box.style.marginTop = 6;
+            if (r?.bandStat == null)
+                return box;
+            box.Add(SectionLabel($"LAST SWEEP — {SolverRoster.Find(r.bandStat.botId)?.DisplayName?.ToUpperInvariant()}, {r.bandStat.runs} RUNS"));
+            box.Add(OutcomeRow(r.bandStat));
+            box.Add(Legend());
+            box.Add(Verdict(r));
+            box.Add(Note("Gauge, headroom and lost runs are in the Solving tab."));
+            return box;
+        }
+
+        private T Find<T>(string name) where T : VisualElement => _root.Q<T>(name);
 
         private List<(string name, LevelData level)> GatherLevels()
         {
             var list = new List<(string, LevelData)>();
-            var scope = (Scope)Mathf.Clamp(_scopeDd?.index ?? 0, 0, 2);
-            if (scope == Scope.OpenLevel)
+            SolvingScope scope = (SolvingScope)Mathf.Clamp(_scopeDd?.index ?? 0, 0, 2);
+            if (scope == SolvingScope.OpenLevel)
             {
                 var l = _openLevel?.Invoke();
-                if (l != null) list.Add((_openLevelName?.Invoke() ?? "scratch", l));
+                if (l != null)
+                    list.Add((_openLevelName?.Invoke() ?? "scratch", l));
                 return list;
             }
             int from = Mathf.Min(_from?.value ?? 1, _to?.value ?? 1);
             int to   = Mathf.Max(_from?.value ?? 1, _to?.value ?? 1);
             foreach (var e in Catalog)
             {
-                if (scope == Scope.Range && (e.number < from || e.number > to)) continue;
+                if (scope == SolvingScope.Range && (e.number < from || e.number > to))
+                    continue;
                 var l = LevelCatalog.Load(e);
-                if (l != null) list.Add((e.name, l));
+                if (l != null)
+                    list.Add((e.name, l));
             }
             return list;
         }
 
         private int CountLevels()
         {
-            var scope = (Scope)Mathf.Clamp(_scopeDd?.index ?? 0, 0, 2);
-            if (scope == Scope.OpenLevel) return _openLevel?.Invoke() != null ? 1 : 0;
-            if (scope == Scope.AllLevels) return Catalog.Count;
+            SolvingScope scope = (SolvingScope)Mathf.Clamp(_scopeDd?.index ?? 0, 0, 2);
+            if (scope == SolvingScope.OpenLevel)
+                return _openLevel?.Invoke() != null ? 1 : 0;
+            if (scope == SolvingScope.AllLevels)
+                return Catalog.Count;
             int from = Mathf.Min(_from?.value ?? 1, _to?.value ?? 1);
             int to   = Mathf.Max(_from?.value ?? 1, _to?.value ?? 1);
             int n = 0;
-            foreach (var e in Catalog) if (e.number >= from && e.number <= to) n++;
+            foreach (var e in Catalog)
+                if (e.number >= from && e.number <= to)
+                    n++;
             return n;
         }
 
@@ -142,7 +158,7 @@ namespace CatapultGames.Editor
         // BEFORE the button is pressed.
         private void RefreshCost()
         {
-            bool range = ((Scope)Mathf.Clamp(_scopeDd?.index ?? 0, 0, 2)) == Scope.Range;
+            bool range = ((SolvingScope)Mathf.Clamp(_scopeDd?.index ?? 0, 0, 2)) == SolvingScope.Range;
             _from?.EnableInClassList(HiddenClass, !range);
             _to?.EnableInClassList(HiddenClass, !range);
 
@@ -151,12 +167,14 @@ namespace CatapultGames.Editor
             int bots   = SolverRoster.All.Count;
             int games  = LevelBenchmark.Cost(levels, bots, runs);
             bool expensive = false;
-            foreach (var b in SolverRoster.All) if (b.IsExpensive) expensive = true;
+            foreach (var b in SolverRoster.All)
+                if (b.IsExpensive)
+                    expensive = true;
             string warn = expensive ? "  ·  includes a look-ahead bot — large boards take a while" : "";
-            if (_cost != null) _cost.text = $"{levels} level × {bots} bots × {runs} runs = {games} games (editor is blocked while it runs){warn}";
+            if (_cost != null)
+                _cost.text = $"{levels} level × {bots} bots × {runs} runs = {games} games (editor is blocked while it runs){warn}";
         }
 
-        // ── Run ───────────────────────────────────────────────────────────
         private void RunSweep()
         {
             var levels = GatherLevels();
@@ -168,7 +186,7 @@ namespace CatapultGames.Editor
             int runs = Mathf.Clamp(_runs?.value ?? 30, 1, 1000);
             int seed = _seed?.value ?? 7;
 
-            List<LevelBenchmark.LevelResult> results;
+            List<BenchmarkLevelResult> results;
             try
             {
                 results = LevelBenchmark.RunSweep(levels, SolverRoster.All, runs, seed,
@@ -181,7 +199,8 @@ namespace CatapultGames.Editor
 
             if (results == null)
             {
-                if (_summary != null) _summary.text = "Sweep cancelled.";
+                if (_summary != null)
+                    _summary.text = "Sweep cancelled.";
                 return;
             }
 
@@ -192,10 +211,10 @@ namespace CatapultGames.Editor
             _onSweepFinished?.Invoke(results);
         }
 
-        // ── Bot filter (filters the DRAWING, never the sweep) ──────────────
         private void BuildBotFilter()
         {
-            if (_botsRow == null) return;
+            if (_botsRow == null)
+                return;
             _botsRow.Clear();
             foreach (var bot in SolverRoster.All)
             {
@@ -204,7 +223,10 @@ namespace CatapultGames.Editor
                 t.AddToClassList("cg-botchip");
                 t.RegisterValueChangedCallback(e =>
                 {
-                    if (e.newValue) _hiddenBots.Remove(id); else _hiddenBots.Add(id);
+                    if (e.newValue)
+                        _hiddenBots.Remove(id);
+                    else
+                        _hiddenBots.Add(id);
                     RenderDetail();
                 });
                 _botsRow.Add(t);
@@ -213,7 +235,8 @@ namespace CatapultGames.Editor
 
         private void BuildRoster()
         {
-            if (_rosterCard == null) return;
+            if (_rosterCard == null)
+                return;
             _rosterCard.Clear();
             foreach (var bot in SolverRoster.All)
             {
@@ -227,36 +250,38 @@ namespace CatapultGames.Editor
                                "These are known gaps — read a win-rate anomaly with them in mind.";
         }
 
-        // ── Level rows ────────────────────────────────────────────────────
         private void RenderLevels()
         {
-            if (_levels == null) return;
+            if (_levels == null)
+                return;
             _levels.Clear();
 
-            var sorted = new List<LevelBenchmark.LevelResult>(_results);
-            switch ((SortMode)Mathf.Clamp(_sortDd?.index ?? 0, 0, 3))
+            var sorted = new List<BenchmarkLevelResult>(_results);
+            switch ((SolvingSortMode)Mathf.Clamp(_sortDd?.index ?? 0, 0, 3))
             {
-                case SortMode.EasiestFirst: sorted.Sort((a, b) => b.bandWinRate.CompareTo(a.bandWinRate)); break;
-                case SortMode.HardestFirst: sorted.Sort((a, b) => a.bandWinRate.CompareTo(b.bandWinRate)); break;
-                case SortMode.NumberAsc:    sorted.Sort((a, b) => a.number.CompareTo(b.number)); break;
-                case SortMode.NumberDesc:   sorted.Sort((a, b) => b.number.CompareTo(a.number)); break;
+                case SolvingSortMode.EasiestFirst: sorted.Sort((a, b) => b.bandWinRate.CompareTo(a.bandWinRate)); break;
+                case SolvingSortMode.HardestFirst: sorted.Sort((a, b) => a.bandWinRate.CompareTo(b.bandWinRate)); break;
+                case SolvingSortMode.NumberAsc:    sorted.Sort((a, b) => a.number.CompareTo(b.number)); break;
+                case SolvingSortMode.NumberDesc:   sorted.Sort((a, b) => b.number.CompareTo(a.number)); break;
             }
 
             int mismatches = 0, defects = 0;
-            foreach (var r in _results)
+            foreach (BenchmarkLevelResult r in _results)
             {
-                if (!r.matches) mismatches++;
-                var gate = r.Stat("gate-greedy");
-                if (gate != null && gate.WinRate < 1f) defects++;
+                if (!r.matches)
+                    mismatches++;
+                BotStat gate = r.Stat("gate-greedy");
+                if (gate != null && gate.WinRate < 1f)
+                    defects++;
             }
             if (_summary != null)
                 _summary.text = _results.Count == 0 ? "No sweep yet."
                     : $"{_results.Count} level(s) · {mismatches} not at their authored band" +
                       (defects > 0 ? $" · ⚠ {defects} where the gate solver lost (level defect)" : "");
 
-            foreach (var r in sorted)
+            foreach (BenchmarkLevelResult r in sorted)
             {
-                var res = r;
+                BenchmarkLevelResult res = r;
                 var row = new VisualElement();
                 row.AddToClassList("cg-lvrow");
                 row.EnableInClassList("cg-lvrow--mismatch", !r.matches);
@@ -278,16 +303,18 @@ namespace CatapultGames.Editor
             }
         }
 
-        // ── Detail card (the Bot Playouts card of the visual spec) ─────────
         private void RenderDetail()
         {
-            if (_detail == null || _detailCard == null) return;
-            var r = _results.Find(x => x.name == _selectedLevel);
+            if (_detail == null || _detailCard == null)
+                return;
+            BenchmarkLevelResult r = _results.Find(x => x.name == _selectedLevel);
             _detailCard.EnableInClassList(HiddenClass, r == null);
-            if (r == null) return;
+            if (r == null)
+                return;
 
             _detail.Clear();
-            if (_detailHeader != null) _detailHeader.text = $"Bot playouts — {r.name}";
+            if (_detailHeader != null)
+                _detailHeader.text = $"Bot playouts — {r.name}";
 
             // Status line
             _detail.Add(Note($"{r.name} · {r.targets} targets · {r.balls} balls · target band {LevelDifficultySchedule.Label(r.authored)} · band bot {SolverRoster.Find(SolverRoster.BandBotId)?.DisplayName}"));
@@ -296,11 +323,13 @@ namespace CatapultGames.Editor
             _detail.Add(SectionLabel("OUTCOME PER RUN"));
             var head = new VisualElement(); head.AddToClassList("cg-outhead");
             head.Add(Fig("", "cg-outhead__name")); head.Add(Fig("", "cg-outhead__bar"));
-            foreach (var h in new[] { "Won", "Out of balls", "Dead end", "Unplayable" }) head.Add(Fig(h, "cg-outhead__fig"));
+            foreach (var h in new[] { "Won", "Out of balls", "Dead end", "Unplayable" })
+                head.Add(Fig(h, "cg-outhead__fig"));
             _detail.Add(head);
-            foreach (var stat in r.bots)
+            foreach (BotStat stat in r.bots)
             {
-                if (_hiddenBots.Contains(stat.botId)) continue;
+                if (_hiddenBots.Contains(stat.botId))
+                    continue;
                 _detail.Add(OutcomeRow(stat));
             }
             _detail.Add(Legend());
@@ -331,7 +360,7 @@ namespace CatapultGames.Editor
             var fold = new Foldout { text = "Raw numbers", value = false };
             fold.AddToClassList("cg-subfoldout");
             fold.Add(RawRow("bot", "won", "out of balls", "dead end", "unplayable", "avg shots", "avg spare", "avg wasted"));
-            foreach (var s in r.bots)
+            foreach (BotStat s in r.bots)
                 fold.Add(RawRow(SolverRoster.Find(s.botId)?.DisplayName ?? s.botId,
                     Pct(s.WinRate), Pct(s.OutOfBallsRate), Pct(s.DeadEndRate), Pct(s.UnplayableRate),
                     s.avgShots.ToString("0.0"), s.avgBallsLeft.ToString("0.0"), s.avgWasted.ToString("0.0")));
@@ -341,22 +370,6 @@ namespace CatapultGames.Editor
             _detail.Add(Verdict(r));
         }
 
-        // Only the band bot's outcome bar + the verdict: the quick card the
-        // Editor tab shows. Same data, same builders, so the two cannot disagree.
-        public static VisualElement BuildQuickCard(LevelBenchmark.LevelResult r)
-        {
-            var box = new VisualElement();
-            box.style.marginTop = 6;
-            if (r?.bandStat == null) return box;
-            box.Add(SectionLabel($"LAST SWEEP — {SolverRoster.Find(r.bandStat.botId)?.DisplayName?.ToUpperInvariant()}, {r.bandStat.runs} RUNS"));
-            box.Add(OutcomeRow(r.bandStat));
-            box.Add(Legend());
-            box.Add(Verdict(r));
-            box.Add(Note("Gauge, headroom and lost runs are in the Solving tab."));
-            return box;
-        }
-
-        // ── Builders ──────────────────────────────────────────────────────
         private static string Pct(float v) => $"{v * 100f:0}%";
 
         private static Label Note(string text)
@@ -374,7 +387,7 @@ namespace CatapultGames.Editor
             var l = new Label(text); l.AddToClassList(cls); return l;
         }
 
-        private static VisualElement OutcomeRow(LevelBenchmark.BotStat stat)
+        private static VisualElement OutcomeRow(BotStat stat)
         {
             var row = new VisualElement();
             row.AddToClassList("cg-outrow");
@@ -435,7 +448,7 @@ namespace CatapultGames.Editor
             return legend;
         }
 
-        private static VisualElement Gauge(LevelBenchmark.LevelResult r)
+        private static VisualElement Gauge(BenchmarkLevelResult r)
         {
             var g = new VisualElement(); g.AddToClassList("cg-gauge");
             float[] th = { LevelDifficultySchedule.HardAbove, LevelDifficultySchedule.NormalAbove, LevelDifficultySchedule.EasyAbove, LevelDifficultySchedule.VeryEasyAbove };
@@ -508,15 +521,17 @@ namespace CatapultGames.Editor
             return row;
         }
 
-        private static VisualElement Chips(LevelBenchmark.BotStat stat)
+        private static VisualElement Chips(BotStat stat)
         {
             var chips = new VisualElement(); chips.AddToClassList("cg-chips");
             int shown = 0, lost = 0;
-            foreach (var d in stat.details)
+            foreach (BenchmarkRunResult d in stat.details)
             {
-                if (d.outcome == PlayoutOutcome.Won) continue;
+                if (d.outcome == PlayoutOutcome.Won)
+                    continue;
                 lost++;
-                if (shown >= MaxVisibleChips) continue;
+                if (shown >= MaxVisibleChips)
+                    continue;
                 var chip = new VisualElement(); chip.AddToClassList("cg-chip");
                 var sw = new VisualElement(); sw.AddToClassList("cg-chip__swatch");
                 sw.AddToClassList(d.outcome == PlayoutOutcome.DeadEnd ? "cg-outrow__seg--deadend" : d.outcome == PlayoutOutcome.OutOfBalls ? "cg-outrow__seg--outof" : "cg-outrow__seg--unplay");
@@ -539,13 +554,14 @@ namespace CatapultGames.Editor
         private static VisualElement RawRow(params string[] cells)
         {
             var row = new VisualElement(); row.AddToClassList("cg-raw");
-            foreach (var c in cells) row.Add(new Label(c));
+            foreach (var c in cells)
+                row.Add(new Label(c));
             return row;
         }
 
-        private static Label Verdict(LevelBenchmark.LevelResult r)
+        private static Label Verdict(BenchmarkLevelResult r)
         {
-            var gate = r.Stat("gate-greedy");
+            BotStat gate = r.Stat("gate-greedy");
             string text;
             string cls;
             if (gate != null && gate.WinRate < 1f)

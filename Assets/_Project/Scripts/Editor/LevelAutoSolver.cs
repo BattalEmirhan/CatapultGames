@@ -25,43 +25,13 @@ namespace CatapultGames.Editor
     // evidence than it used to be.
     public static class LevelAutoSolver
     {
-        public struct Move
+        public static AutoSolverResult Solve(LevelData level)
         {
-            public bool          wasted;       // true when the ball painted nothing
-            public int           landX, landY; // chosen landing cell (-1 when wasted)
-            public CellColor     color;
-            public int           power;
-            public Vector2Int[]  hit;          // cells this move put paint into
-            public Vector2Int[]  filled;       // the subset that finished (Ice needs two)
-        }
-
-        // A (colour, power) group of leftover balls.
-        public struct BallCount
-        {
-            public CellColor color;
-            public int       power;   // 1..3
-            public int       count;
-        }
-
-        public struct Result
-        {
-            public List<Move> moves;
-            public bool       solved;
-            public int        totalColored;   // cells that still needed paint at the start
-            public int        remaining;      // still empty when the plan ends
-            public int        ballsUsed;      // balls that actually painted something
-            public int        totalBalls;
-            public BallCount[] leftover;      // balls never thrown (set only when solved)
-            public int        leftoverTotal;  // sum of leftover counts
-        }
-
-        public static Result Solve(LevelData level)
-        {
-            var moves = new List<Move>();
+            var moves = new List<AutoSolverMove>();
 
             // Authored-filled cells are already absent from the board, so progress
             // starts at zero and "solved" means every remaining target was filled.
-            var board      = CoverageAnalyzer.BuildTargets(level);
+            TargetBoard board      = CoverageAnalyzer.BuildTargets(level);
             int totalCells = board.TargetCellCount();
             int completed  = 0;
 
@@ -74,10 +44,15 @@ namespace CatapultGames.Editor
 
             for (int bi = 0; bi < balls.Length; bi++)
             {
-                if (completed >= totalCells) { stopIndex = bi; break; }   // solved — stop
+                if (completed >= totalCells)
+                {
+                    stopIndex = bi;
+                    break;
+                }   // solved — stop
 
                 var ball = balls[bi];
-                if (ball == null) continue;
+                if (ball == null)
+                    continue;
                 int power = Mathf.Clamp(ball.powerLevel, 1, 3);
 
                 // Landing cell that lands the most hits, by the game's own rules.
@@ -85,7 +60,7 @@ namespace CatapultGames.Editor
 
                 if (gain == 0)
                 {
-                    moves.Add(new Move { wasted = true, landX = -1, landY = -1,
+                    moves.Add(new AutoSolverMove { wasted = true, landX = -1, landY = -1,
                                          color  = ball.color, power = power,
                                          hit    = System.Array.Empty<Vector2Int>(),
                                          filled = System.Array.Empty<Vector2Int>() });
@@ -98,7 +73,7 @@ namespace CatapultGames.Editor
 
                 completed += fillBuf.Count;
                 ballsUsed++;
-                moves.Add(new Move
+                moves.Add(new AutoSolverMove
                 {
                     wasted = false,
                     landX  = lx, landY = ly,
@@ -119,7 +94,8 @@ namespace CatapultGames.Editor
                 for (int bi = stopIndex; bi < balls.Length; bi++)
                 {
                     var b = balls[bi];
-                    if (b == null) continue;
+                    if (b == null)
+                        continue;
                     var key = (b.color, Mathf.Clamp(b.powerLevel, 1, 3));
                     leftCounts.TryGetValue(key, out int n);
                     leftCounts[key] = n + 1;
@@ -127,16 +103,16 @@ namespace CatapultGames.Editor
                 }
             }
 
-            var leftover = new List<BallCount>(leftCounts.Count);
+            var leftover = new List<AutoSolverBallCount>(leftCounts.Count);
             foreach (var kv in leftCounts)
-                leftover.Add(new BallCount { color = kv.Key.Item1, power = kv.Key.Item2, count = kv.Value });
+                leftover.Add(new AutoSolverBallCount { color = kv.Key.Item1, power = kv.Key.Item2, count = kv.Value });
             leftover.Sort((a, b) =>
             {
                 int byColor = ((int)a.color).CompareTo((int)b.color);
                 return byColor != 0 ? byColor : a.power.CompareTo(b.power);
             });
 
-            return new Result
+            return new AutoSolverResult
             {
                 moves         = moves,
                 solved        = solved,

@@ -9,7 +9,6 @@ namespace CatapultGames
     // Stops when the trajectory crosses Y = 0 (the grid plane).
     public static class TrajectorySimulator
     {
-
         // Returns list of world-space sample points along the arc.
         // landingPos is the interpolated Y=0 crossing point.
         public static List<Vector3> Simulate(
@@ -32,7 +31,8 @@ namespace CatapultGames
                 pos   += vel      * timeStep;
 
                 // Only check for ground hit once the ball is coming back down
-                if (vel.y < 0f) descending = true;
+                if (vel.y < 0f)
+                    descending = true;
 
                 if (descending && pos.y <= 0f && prevY > 0f)
                 {
@@ -54,9 +54,12 @@ namespace CatapultGames
         // Sample a world position at normalized time t ∈ [0,1] along a path.
         public static Vector3 SamplePath(List<Vector3> path, float t)
         {
-            if (path.Count == 0) return Vector3.zero;
-            if (path.Count == 1 || t <= 0f) return path[0];
-            if (t >= 1f) return path[path.Count - 1];
+            if (path.Count == 0)
+                return Vector3.zero;
+            if (path.Count == 1 || t <= 0f)
+                return path[0];
+            if (t >= 1f)
+                return path[path.Count - 1];
 
             float scaled = t * (path.Count - 1);
             int   idx    = Mathf.FloorToInt(scaled);

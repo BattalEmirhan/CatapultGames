@@ -3,7 +3,7 @@ using System;
 namespace CatapultGames
 {
     [Serializable]
-    public class CellData
+    public sealed class CellData
     {
         public int gridX;
         public int gridY;

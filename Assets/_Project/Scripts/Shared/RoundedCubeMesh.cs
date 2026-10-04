@@ -25,7 +25,8 @@ namespace CatapultGames
             radius = Mathf.Clamp(radius, 0.001f, 0.49f);
             subdivisions = Mathf.Clamp(subdivisions, 1, 12);
             var key = (Mathf.RoundToInt(radius * 1000f), subdivisions);
-            if (_cache.TryGetValue(key, out var cached) && cached != null) return cached;
+            if (_cache.TryGetValue(key, out var cached) && cached != null)
+                return cached;
 
             var mesh = Build(radius, subdivisions);
             mesh.name = $"RoundedCube_r{radius:0.###}_s{subdivisions}";

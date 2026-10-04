@@ -26,15 +26,15 @@ ve görsel olarak güçlendiriliyor**. İş dört pakete bölündü; **dördü d
 
 **Paket 3'ün kalanı:**
 - `GameManager`: `IsDeadEnd → EndGame(DeadEnd)` kaldırıldı, yerine `CheckDeadEnd()` geldi.
-  İlk `Impossible` satır, opsiyonel `_warningLabel` üzerinde renkli bir uyarı gösterir
+  İlk `Impossible` satır, opsiyonel `warningLabel` üzerinde renkli bir uyarı gösterir
   ("Navy can't be finished / Undo or use a booster"): 2.5 sn, unscaled zaman, Shake +
   Haptics + ses. Aynı dead-end tekrar uyarılmaz; çözülebilir olunca, undo'da ve
   `ResetScore`'da sıfırlanır. Kayıp yalnızca `OutOfBalls`'ta.
 - `ResultScreenUI.Reason.DeadEnd` ve metinleri silindi (artık ulaşılmıyordu).
 - `GameConstants.GetColorDisplayName`: Black→"Navy", White→"Yellow" (enum adları legacy).
 - `GameplaySceneBuilder` (KURAL 3): `BoosterSystem` GO, canvas'ta `BoosterBarUI` + 3 buton
-  (sol alt sütun, x 0.03–0.21, y 0.10'dan yukarı) + "×N" sayaçlar, `LevelLoader._boosters`,
-  `WarningLabel` (üst-orta, y 0.70–0.77) → `GameManager._warningLabel`, kameraya `AudioListener`.
+  (sol alt sütun, x 0.03–0.21, y 0.10'dan yukarı) + "×N" sayaçlar, `LevelLoader.boosters`,
+  `WarningLabel` (üst-orta, y 0.70–0.77) → `GameManager.warningLabel`, kameraya `AudioListener`.
 - Temizlik: kullanılmayan `GridRenderer.IsBlocking` silindi; `CoverageAnalyzer`
   yorumlarındaki taş gölgesi ifadeleri düzeltildi; `BoosterBarUI` kare başına string
   üretmeyi bıraktı.

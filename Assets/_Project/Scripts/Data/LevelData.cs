@@ -3,7 +3,7 @@ using System;
 namespace CatapultGames
 {
     [Serializable]
-    public class LevelData
+    public sealed class LevelData
     {
         public LevelMetadata metadata = new LevelMetadata();
         public GridConfig    grid     = new GridConfig();

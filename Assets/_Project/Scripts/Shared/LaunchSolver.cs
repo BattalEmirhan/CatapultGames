@@ -17,7 +17,8 @@ namespace CatapultGames
         public static Vector3 SolveToCell(GridRenderer grid, Vector3 origin,
                                           int gx, int gy, float launchAngleDeg)
         {
-            if (grid == null) return Vector3.zero;
+            if (grid == null)
+                return Vector3.zero;
             return SolveToPoint(origin, grid.GridToWorld(gx, gy), launchAngleDeg);
         }
 
@@ -27,7 +28,8 @@ namespace CatapultGames
         {
             Vector2 horiz = new Vector2(target.x - origin.x, target.z - origin.z);
             float R = horiz.magnitude;
-            if (R < 0.001f) return Vector3.zero;
+            if (R < 0.001f)
+                return Vector3.zero;
 
             Vector2 dir   = horiz / R;
             float   theta = launchAngleDeg * Mathf.Deg2Rad;
@@ -37,7 +39,8 @@ namespace CatapultGames
             float   tanT  = Mathf.Tan(theta);
 
             float denom = 2f * cosT * cosT * (R * tanT - dy);
-            if (denom <= 0.0001f) return Vector3.zero;  // unreachable at this angle
+            if (denom <= 0.0001f)
+                return Vector3.zero;  // unreachable at this angle
 
             float v = Mathf.Sqrt(Gravity * R * R / denom);
             Vector3 launchDir = new Vector3(dir.x * cosT, sinT, dir.y * cosT);

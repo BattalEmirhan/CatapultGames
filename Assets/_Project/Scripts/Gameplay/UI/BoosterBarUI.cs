@@ -9,18 +9,18 @@ namespace CatapultGames
     // booster and queue events and once per frame for the game-over gate, which
     // is cheap (three buttons) and keeps it free of GameManager events.
     //
-    // Wire up in Inspector: _boosters, _queue, and one Button + TMP count label
+    // Wire up in Inspector: boosters, queue, and one Button + TMP count label
     // per booster (the scene builder creates them).
-    public class BoosterBarUI : MonoBehaviour
+    public sealed class BoosterBarUI : MonoBehaviour
     {
-        [SerializeField] private BoosterSystem _boosters;
-        [SerializeField] private BallQueue     _queue;
-        [SerializeField] private Button          _rainbowButton;
-        [SerializeField] private Button          _recolorButton;
-        [SerializeField] private Button          _bombButton;
-        [SerializeField] private TextMeshProUGUI _rainbowCount;
-        [SerializeField] private TextMeshProUGUI _recolorCount;
-        [SerializeField] private TextMeshProUGUI _bombCount;
+        [SerializeField] private BoosterSystem boosters;
+        [SerializeField] private BallQueue     queue;
+        [SerializeField] private Button          rainbowButton;
+        [SerializeField] private Button          recolorButton;
+        [SerializeField] private Button          bombButton;
+        [SerializeField] private TextMeshProUGUI rainbowCount;
+        [SerializeField] private TextMeshProUGUI recolorCount;
+        [SerializeField] private TextMeshProUGUI bombCount;
 
         // Last count drawn per booster — the bar refreshes every frame, and a fresh
         // "×N" string each time would be garbage for nothing.
@@ -28,43 +28,49 @@ namespace CatapultGames
 
         private void Awake()
         {
-            _rainbowButton?.onClick.AddListener(() => _boosters?.Use(BoosterType.Rainbow));
-            _recolorButton?.onClick.AddListener(() => _boosters?.Use(BoosterType.Recolor));
-            _bombButton?.onClick.AddListener(() => _boosters?.Use(BoosterType.Bomb));
+            rainbowButton?.onClick.AddListener(() => boosters?.Use(BoosterType.Rainbow));
+            recolorButton?.onClick.AddListener(() => boosters?.Use(BoosterType.Recolor));
+            bombButton?.onClick.AddListener(() => boosters?.Use(BoosterType.Bomb));
         }
 
         private void OnEnable()
         {
-            if (_boosters != null) _boosters.OnChanged += Refresh;
-            if (_queue    != null) _queue.OnChanged    += Refresh;
+            if (boosters != null)
+                boosters.OnChanged += Refresh;
+            if (queue    != null)
+                queue.OnChanged    += Refresh;
             Refresh();
-        }
-
-        private void OnDisable()
-        {
-            if (_boosters != null) _boosters.OnChanged -= Refresh;
-            if (_queue    != null) _queue.OnChanged    -= Refresh;
         }
 
         private void Update() => Refresh();   // game-over gate has no event of its own
 
+        private void OnDisable()
+        {
+            if (boosters != null)
+                boosters.OnChanged -= Refresh;
+            if (queue    != null)
+                queue.OnChanged    -= Refresh;
+        }
+
         private void Refresh()
         {
-            if (_boosters == null) return;
-            Apply(_rainbowButton, _rainbowCount, BoosterType.Rainbow);
-            Apply(_recolorButton, _recolorCount, BoosterType.Recolor);
-            Apply(_bombButton,    _bombCount,    BoosterType.Bomb);
+            if (boosters == null)
+                return;
+            Apply(rainbowButton, rainbowCount, BoosterType.Rainbow);
+            Apply(recolorButton, recolorCount, BoosterType.Recolor);
+            Apply(bombButton,    bombCount,    BoosterType.Bomb);
         }
 
         private void Apply(Button button, TextMeshProUGUI label, BoosterType type)
         {
-            int count = _boosters.Count(type);
+            int count = boosters.Count(type);
             if (label != null && _shownCounts[(int)type] != count)
             {
                 _shownCounts[(int)type] = count;
                 label.text = $"×{count}";
             }
-            if (button != null) button.interactable = _boosters.CanUse(type);
+            if (button != null)
+                button.interactable = boosters.CanUse(type);
         }
     }
 }

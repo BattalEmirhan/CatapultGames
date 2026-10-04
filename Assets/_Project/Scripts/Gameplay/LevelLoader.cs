@@ -9,22 +9,22 @@ namespace CatapultGames
     // one and only place levels live (the Level Editor saves straight into it).
     //
     // PlayerPrefs key "SelectedLevel" stores the level name (file name w/o ext).
-    // If the key is missing, _defaultLevelName is used.
-    public class LevelLoader : MonoBehaviour
+    // If the key is missing, defaultLevelName is used.
+    public sealed class LevelLoader : MonoBehaviour
     {
-        [SerializeField] private GridRenderer         _grid;
-        [SerializeField] private BallQueue            _queue;
-        [SerializeField] private GridCameraController _cam;
-        [SerializeField] private GridBoard            _board;        // optional
-        [SerializeField] private ProgressHUD          _progressHUD;  // optional
-        [SerializeField] private LevelPickerHUD       _levelPicker;  // optional
-        [SerializeField] private LaunchAreaAnchor     _launchAnchor; // optional — pins balls to screen bottom
-        [SerializeField] private GameManager          _gameManager;  // optional — score reset on load
-        [SerializeField] private BoosterSystem        _boosters;     // optional — booster counts per level
-        [SerializeField] private TutorialHint         _tutorial;     // optional — first-run tutorial + level hint
+        [SerializeField] private GridRenderer         grid;
+        [SerializeField] private BallQueue            queue;
+        [SerializeField] private GridCameraController cam;
+        [SerializeField] private GridBoard            board;        // optional
+        [SerializeField] private ProgressHUD          progressHUD;  // optional
+        [SerializeField] private LevelPickerHUD       levelPicker;  // optional
+        [SerializeField] private LaunchAreaAnchor     launchAnchor; // optional — pins balls to screen bottom
+        [SerializeField] private GameManager          gameManager;  // optional — score reset on load
+        [SerializeField] private BoosterSystem        boosters;     // optional — booster counts per level
+        [SerializeField] private TutorialHint         tutorial;     // optional — first-run tutorial + level hint
 
         [Header("Fallback")]
-        [SerializeField] private string _defaultLevelName = "Level_01";
+        [SerializeField] private string defaultLevelName = "Level_01";
 
         private const string SelectedLevelKey = "SelectedLevel";
 
@@ -32,15 +32,13 @@ namespace CatapultGames
         // harness. GameManager keys progress and "next level" on it.
         private string _currentLevelName;
 
-        // ── Lifecycle ─────────────────────────────────────────────────────
         private void Start()
         {
-            string name = PlayerPrefs.GetString(SelectedLevelKey, _defaultLevelName);
-            if (string.IsNullOrEmpty(name)) name = _defaultLevelName;
+            string name = PlayerPrefs.GetString(SelectedLevelKey, defaultLevelName);
+            if (string.IsNullOrEmpty(name))
+                name = defaultLevelName;
             LoadByName(name);
         }
-
-        // ── Public ────────────────────────────────────────────────────────
 
         // Load by name (file name without extension) from Resources/Levels/
         public void LoadByName(string levelName)
@@ -52,7 +50,11 @@ namespace CatapultGames
             if (ta == null)
             {
                 var all = Resources.LoadAll<TextAsset>("Levels");
-                if (all.Length > 0) { ta = all[0]; levelName = ta.name; }
+                if (all.Length > 0)
+                {
+                    ta = all[0];
+                    levelName = ta.name;
+                }
             }
 
             if (ta == null)
@@ -74,45 +76,30 @@ namespace CatapultGames
             _currentLevelName = levelName;
             Apply(data);
             _currentLevelName = null;
-            _levelPicker?.SetCurrent(levelName);
+            levelPicker?.SetCurrent(levelName);
         }
 
         // Load from a pre-parsed LevelData (e.g. from a test harness)
         public void Apply(LevelData data)
         {
-            if (data == null) return;
-            _grid.BuildGrid(data);
-            _board?.Rebuild(data.grid);
-            if (_cam) _cam.FitToGrid(data.grid, data.camera);
+            if (data == null)
+                return;
+            grid.BuildGrid(data);
+            board?.Rebuild(data.grid);
+            if (cam)
+                cam.FitToGrid(data.grid, data.camera);
             // Pin the launch area to the screen bottom BEFORE loading balls, so the
             // queue rebuilds at the final (anchored) waypoint positions.
-            _launchAnchor?.Reanchor();
-            _queue.Load(SanitizeBalls(data.balls));
-            _progressHUD?.Bind(_grid);
+            launchAnchor?.Reanchor();
+            queue.Load(SanitizeBalls(data.balls));
+            progressHUD?.Bind(grid);
             // A level switch is a new run: the picker HUD loads in place rather than
             // reloading the scene, so score, rescue offer and game-over state would
             // otherwise carry over.
-            _gameManager?.BeginRun(_currentLevelName);
-            _boosters?.ResetForLevel();
-            _tutorial?.BeginLevel(_currentLevelName, data.metadata?.hint);
+            gameManager?.BeginRun(_currentLevelName);
+            boosters?.ResetForLevel();
+            tutorial?.BeginLevel(_currentLevelName, data.metadata?.hint);
         }
-
-        // Strip null entries and clamp powerLevel to 1-3 so bad JSON never crashes gameplay.
-        private static BallData[] SanitizeBalls(BallData[] raw)
-        {
-            if (raw == null || raw.Length == 0) return System.Array.Empty<BallData>();
-            var result = new System.Collections.Generic.List<BallData>(raw.Length);
-            foreach (var b in raw)
-            {
-                if (b == null) continue;
-                if (b.powerLevel < 1 || b.powerLevel > 3)
-                    b.powerLevel = Mathf.Clamp(b.powerLevel, 1, 3);
-                result.Add(b);
-            }
-            return result.ToArray();
-        }
-
-        // ── Helpers ───────────────────────────────────────────────────────
 
         // Set which level will be loaded when the Gameplay scene starts.
         public static void SelectLevel(string levelName) =>
@@ -120,5 +107,22 @@ namespace CatapultGames
 
         public static void ClearSelection() =>
             PlayerPrefs.DeleteKey(SelectedLevelKey);
+
+        // Strip null entries and clamp powerLevel to 1-3 so bad JSON never crashes gameplay.
+        private static BallData[] SanitizeBalls(BallData[] raw)
+        {
+            if (raw == null || raw.Length == 0)
+                return System.Array.Empty<BallData>();
+            var result = new System.Collections.Generic.List<BallData>(raw.Length);
+            foreach (var b in raw)
+            {
+                if (b == null)
+                    continue;
+                if (b.powerLevel < 1 || b.powerLevel > 3)
+                    b.powerLevel = Mathf.Clamp(b.powerLevel, 1, 3);
+                result.Add(b);
+            }
+            return result.ToArray();
+        }
     }
 }

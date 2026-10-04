@@ -19,7 +19,8 @@ namespace CatapultGames
 
         private static void EnsureInit()
         {
-            if (_init) return;
+            if (_init)
+                return;
             _init = true;
             try
             {
@@ -30,14 +31,21 @@ namespace CatapultGames
                 using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
                     _vibrator = activity.Call<AndroidJavaObject>("getSystemService", "vibrator");
             }
-            catch { _vibrator = null; }
+            catch
+            {
+                _vibrator = null;
+            }
         }
 
         // ms = duration, amplitude = 1..255 (ignored < API 26).
         private static void Buzz(long ms, int amplitude)
         {
             EnsureInit();
-            if (_vibrator == null) { Handheld.Vibrate(); return; }   // also triggers VIBRATE permission
+            if (_vibrator == null)
+            {
+                Handheld.Vibrate();   // also triggers VIBRATE permission
+                return;
+            }
             try
             {
                 if (_apiLevel >= 26)
@@ -48,9 +56,7 @@ namespace CatapultGames
                         _vibrator.Call("vibrate", effect);
                 }
                 else
-                {
                     _vibrator.Call("vibrate", ms);
-                }
             }
             catch { /* device without a usable vibrator — ignore */ }
         }
@@ -59,7 +65,8 @@ namespace CatapultGames
         // Tiny tick — e.g. a single grid cube starting to rise.
         public static void Light()
         {
-            if (!Enabled) return;
+            if (!Enabled)
+                return;
 #if UNITY_ANDROID && !UNITY_EDITOR
             Buzz(10, 70);
 #endif
@@ -68,7 +75,8 @@ namespace CatapultGames
         // Medium pulse.
         public static void Medium()
         {
-            if (!Enabled) return;
+            if (!Enabled)
+                return;
 #if UNITY_ANDROID && !UNITY_EDITOR
             Buzz(25, 140);
 #endif
@@ -77,7 +85,8 @@ namespace CatapultGames
         // Stronger pulse — e.g. the whole paint wave finishing.
         public static void Heavy()
         {
-            if (!Enabled) return;
+            if (!Enabled)
+                return;
 #if UNITY_ANDROID && !UNITY_EDITOR
             Buzz(50, 220);
 #endif

@@ -9,29 +9,30 @@ namespace CatapultGames
     //
     // Attach to a GameObject with a LineRenderer.
     // Wire up in Inspector:
-    //   _queue        — BallQueue (to know current ball color)
-    //   _grid         — GridRenderer (for highlight + PaintingSystem.Preview)
-    //   _launchOrigin — Transform at catapult ball position (arc start point)
+    //   queue        — BallQueue (to know current ball color)
+    //   grid         — GridRenderer (for highlight + PaintingSystem.Preview)
+    //   launchOrigin — Transform at catapult ball position (arc start point)
     [RequireComponent(typeof(LineRenderer))]
-    public class AimPreview : MonoBehaviour
+    public sealed class AimPreview : MonoBehaviour
     {
-        [SerializeField] private BallQueue    _queue;
-        [SerializeField] private GridRenderer _grid;
-        [SerializeField] private Transform    _launchOrigin;
+        [SerializeField] private BallQueue    queue;
+        [SerializeField] private GridRenderer grid;
+        [SerializeField] private Transform    launchOrigin;
 
         [Header("Aim line look")]
         [Tooltip("Tint of the flowing aim dots (valid shot).")]
-        [SerializeField] private Color _lineColor = new Color(0.35f, 0.95f, 1f);
+        [SerializeField] private Color lineColor = new Color(0.35f, 0.95f, 1f);
+
         [Tooltip("How fast the dots flow toward the target (world units/sec).")]
-        [SerializeField] private float _flowSpeed = 1.6f;
+        [SerializeField] private float flowSpeed = 1.6f;
 
         [Header("Dotted aim (flowing dots)")]
         [Tooltip("ON: a stream of round dots travels along the arc toward the target " +
                  "(guaranteed flow). OFF: the breathing dashed LineRenderer instead.")]
-        [SerializeField] private bool  _useDots      = true;
-        [SerializeField] private float _dotSpacing    = 0.55f;  // world units between dots
-        [SerializeField] private float _dotStartScale = 0.22f;  // dot size near the catapult
-        [SerializeField] private float _dotEndScale    = 0.10f;  // dot size at the landing
+        [SerializeField] private bool  useDots      = true;
+        [SerializeField] private float dotSpacing    = 0.55f;  // world units between dots
+        [SerializeField] private float dotStartScale = 0.22f;  // dot size near the catapult
+        [SerializeField] private float dotEndScale    = 0.10f;  // dot size at the landing
 
         private LineRenderer _lr;
 
@@ -52,16 +53,15 @@ namespace CatapultGames
         private Material                 _dotMat;
         private MaterialPropertyBlock    _mpb;
         private Transform                _dotRoot;
+
         // Reused so aiming (every frame while the finger is down) doesn't allocate.
         private readonly System.Collections.Generic.HashSet<Vector2Int> _paintedLookup = new();
-
         private System.Collections.Generic.List<Vector3> _arcPoints;
         private bool                     _arcValid;
         private bool                     _dotsActive;
         private float                    _phase;
         private const int                MaxDots = 64;
 
-        // ── Lifecycle ─────────────────────────────────────────────────────
         private void Awake()
         {
             _lr = GetComponent<LineRenderer>();
@@ -69,6 +69,104 @@ namespace CatapultGames
             _lr.enabled       = false;
             StyleLine();
         }
+
+        private void OnEnable()
+        {
+            if (queue != null)
+                queue.OnChanged += RefreshActiveColor;
+            RefreshActiveColor();
+        }
+
+        // Animate while a preview is visible.
+        private void Update()
+        {
+            if (useDots)
+            {
+                if (!_dotsActive)
+                    return;
+                // March the dots toward the target; wrap by spacing for a seamless loop.
+                _phase += flowSpeed * Time.deltaTime;
+                if (dotSpacing > 0.001f)
+                    _phase %= dotSpacing;
+                DrawDots();
+                return;
+            }
+
+            if (_lr == null || !_lr.enabled)
+                return;
+
+            // Flow the dashes (bonus: only if the shader honours texture offset).
+            if (_lineMat != null)
+            {
+                _scroll -= flowSpeed * Time.deltaTime;
+                _lineMat.mainTextureOffset = new Vector2(_scroll, 0f);
+            }
+
+            // Gentle breathing on the width — guaranteed liveliness.
+            _lr.widthMultiplier = BaseWidth * (1f + 0.12f * Mathf.Sin(Time.time * 7f));
+        }
+
+        private void OnDisable()
+        {
+            if (queue != null)
+                queue.OnChanged -= RefreshActiveColor;
+            if (grid  != null)
+                grid.SetActiveColor(CellColor.None);
+            ClearPreview();
+        }
+
+        private void OnDestroy()
+        {
+            if (_lineMat)
+                Destroy(_lineMat);
+            if (_lineTex)
+                Destroy(_lineTex);
+            if (_dotMat)
+                Destroy(_dotMat);
+        }
+
+        // Draw the arc + landing highlight for a launch velocity, as called by
+        // TapLaunchController while the player holds a target cell.
+        public void ShowArc(Vector3 velocity) =>
+            ShowArc(launchOrigin ? launchOrigin.position : transform.position, velocity);
+
+        // Origin is the selected tray ball's position (BallQueueView.CurrentLaunchOrigin);
+        // it must be the same point BallLauncher.Launch is given or the arc lies.
+        public void ShowArc(Vector3 origin, Vector3 velocity)
+        {
+            if (velocity == Vector3.zero)
+            {
+                ClearPreview();
+                return;
+            }
+
+            // The incoming velocity already targets an exact cell centre
+            // (LaunchSolver.SolveToCell), so the arc is simulated as-is — same
+            // resolution as BallLauncher, therefore preview == reality.
+            var arc = TrajectorySimulator.Simulate(
+                origin, velocity, GameConstants.TrajectorySteps,
+                GameConstants.TrajectoryTimeStep, out Vector3 landPos);
+
+            int gx = 0, gy = 0;
+            bool inGrid = grid != null && grid.WorldToGrid(landPos, out gx, out gy);
+
+            if (useDots)
+            {
+                // Store the path; Update() places + flows the dots each frame.
+                _arcPoints  = arc;
+                _arcValid   = inGrid;
+                _dotsActive = true;
+                if (_lr)
+                    _lr.enabled = false;
+            }
+            else
+                DrawArc(arc, inGrid);
+
+            HighlightLanding(inGrid, gx, gy);
+        }
+
+        // Hide the arc + clear cell highlights.
+        public void Hide() => ClearPreview();
 
         // Builds the flowing-dots look: soft round dots tiled along the arc,
         // billboarded to the camera, tapering toward the landing, scrolling toward
@@ -96,8 +194,8 @@ namespace CatapultGames
                 new[]
                 {
                     new GradientColorKey(Color.white, 0f),
-                    new GradientColorKey(_lineColor, 0.45f),
-                    new GradientColorKey(_lineColor, 1f),
+                    new GradientColorKey(lineColor, 0.45f),
+                    new GradientColorKey(lineColor, 1f),
                 },
                 new[]
                 {
@@ -111,33 +209,6 @@ namespace CatapultGames
             _invalidGradient.SetKeys(
                 new[] { new GradientColorKey(red, 0f), new GradientColorKey(red, 1f) },
                 new[] { new GradientAlphaKey(0.9f, 0f), new GradientAlphaKey(0.4f, 1f) });
-        }
-
-        // Animate while a preview is visible.
-        private void Update()
-        {
-            if (_useDots)
-            {
-                if (!_dotsActive) return;
-                // March the dots toward the target; wrap by spacing for a seamless loop.
-                _phase += _flowSpeed * Time.deltaTime;
-                if (_dotSpacing > 0.001f) _phase %= _dotSpacing;
-                DrawDots();
-                return;
-            }
-
-            // ── Line mode ─────────────────────────────────────────────────
-            if (_lr == null || !_lr.enabled) return;
-
-            // Flow the dashes (bonus: only if the shader honours texture offset).
-            if (_lineMat != null)
-            {
-                _scroll -= _flowSpeed * Time.deltaTime;
-                _lineMat.mainTextureOffset = new Vector2(_scroll, 0f);
-            }
-
-            // Gentle breathing on the width — guaranteed liveliness.
-            _lr.widthMultiplier = BaseWidth * (1f + 0.12f * Mathf.Sin(Time.time * 7f));
         }
 
         // Soft round dot on a transparent tile — repeats into a row of dots.
@@ -162,81 +233,16 @@ namespace CatapultGames
             return tex;
         }
 
-        private void OnDestroy()
-        {
-            if (_lineMat) Destroy(_lineMat);
-            if (_lineTex) Destroy(_lineTex);
-            if (_dotMat)  Destroy(_dotMat);
-        }
-
-        private void OnEnable()
-        {
-            if (_queue != null) _queue.OnChanged += RefreshActiveColor;
-            RefreshActiveColor();
-        }
-
-        private void OnDisable()
-        {
-            if (_queue != null) _queue.OnChanged -= RefreshActiveColor;
-            if (_grid  != null) _grid.SetActiveColor(CellColor.None);
-            ClearPreview();
-        }
-
         // Tell the board which colour is loaded, so the cells this ball can paint
         // read brighter and sit a step higher. Driven off the queue rather than
         // polled — the queue already announces every change it makes.
         private void RefreshActiveColor()
         {
-            if (_grid == null) return;
-            _grid.SetActiveColor(_queue?.Current?.color ?? CellColor.None);
-        }
-
-        // ── Public preview API ────────────────────────────────────────────
-        // Draw the arc + landing highlight for a launch velocity, as called by
-        // TapLaunchController while the player holds a target cell.
-        public void ShowArc(Vector3 velocity) =>
-            ShowArc(_launchOrigin ? _launchOrigin.position : transform.position, velocity);
-
-        // Origin is the selected tray ball's position (BallQueueView.CurrentLaunchOrigin);
-        // it must be the same point BallLauncher.Launch is given or the arc lies.
-        public void ShowArc(Vector3 origin, Vector3 velocity)
-        {
-            if (velocity == Vector3.zero)
-            {
-                ClearPreview();
+            if (grid == null)
                 return;
-            }
-
-            // The incoming velocity already targets an exact cell centre
-            // (LaunchSolver.SolveToCell), so the arc is simulated as-is — same
-            // resolution as BallLauncher, therefore preview == reality.
-            var arc = TrajectorySimulator.Simulate(
-                origin, velocity, GameConstants.TrajectorySteps,
-                GameConstants.TrajectoryTimeStep, out Vector3 landPos);
-
-            int gx = 0, gy = 0;
-            bool inGrid = _grid != null && _grid.WorldToGrid(landPos, out gx, out gy);
-
-            if (_useDots)
-            {
-                // Store the path; Update() places + flows the dots each frame.
-                _arcPoints  = arc;
-                _arcValid   = inGrid;
-                _dotsActive = true;
-                if (_lr) _lr.enabled = false;
-            }
-            else
-            {
-                DrawArc(arc, inGrid);
-            }
-
-            HighlightLanding(inGrid, gx, gy);
+            grid.SetActiveColor(queue?.Current?.color ?? CellColor.None);
         }
 
-        // Hide the arc + clear cell highlights.
-        public void Hide() => ClearPreview();
-
-        // ── Visuals ──────────────────────────────────────────────────────
         private void DrawArc(System.Collections.Generic.List<Vector3> points, bool valid)
         {
             _lr.enabled       = true;
@@ -247,18 +253,26 @@ namespace CatapultGames
             _lr.colorGradient = valid ? _validGradient : _invalidGradient;
         }
 
-        // ── Dotted mode ───────────────────────────────────────────────────
-        // Walks the stored arc once, dropping a pooled dot every _dotSpacing units
+        // Walks the stored arc once, dropping a pooled dot every dotSpacing units
         // starting at _phase (which Update() scrolls), tapering size + colour toward
         // the landing. Spare dots are deactivated.
         private void DrawDots()
         {
             var pts = _arcPoints;
-            if (pts == null || pts.Count < 2) { HideDots(); return; }
+            if (pts == null || pts.Count < 2)
+            {
+                HideDots();
+                return;
+            }
 
             float total = 0f;
-            for (int i = 1; i < pts.Count; i++) total += Vector3.Distance(pts[i - 1], pts[i]);
-            if (total < 0.01f || _dotSpacing < 0.01f) { HideDots(); return; }
+            for (int i = 1; i < pts.Count; i++)
+                total += Vector3.Distance(pts[i - 1], pts[i]);
+            if (total < 0.01f || dotSpacing < 0.01f)
+            {
+                HideDots();
+                return;
+            }
 
             Color red = new Color(1f, 0.32f, 0.30f);
 
@@ -267,7 +281,7 @@ namespace CatapultGames
             float segStart = 0f;
             float segLen   = Vector3.Distance(pts[0], pts[1]);
 
-            for (float dist = _phase; dist <= total && used < MaxDots; dist += _dotSpacing)
+            for (float dist = _phase; dist <= total && used < MaxDots; dist += dotSpacing)
             {
                 while (seg < pts.Count - 1 && dist > segStart + segLen)
                 {
@@ -280,24 +294,27 @@ namespace CatapultGames
                 Vector3 pos = Vector3.Lerp(pts[seg - 1], pts[seg], f);
                 float   t   = dist / total;
 
-                float scale = Mathf.Lerp(_dotStartScale, _dotEndScale, t);
+                float scale = Mathf.Lerp(dotStartScale, dotEndScale, t);
                 Color c = _arcValid
-                    ? Color.Lerp(Color.white, _lineColor, Mathf.SmoothStep(0f, 1f, t * 1.6f))
+                    ? Color.Lerp(Color.white, lineColor, Mathf.SmoothStep(0f, 1f, t * 1.6f))
                     : red;
 
                 PlaceDot(used++, pos, scale, c);
             }
 
             for (int i = used; i < _dots.Count; i++)
-                if (_dots[i]) _dots[i].gameObject.SetActive(false);
+                if (_dots[i])
+                    _dots[i].gameObject.SetActive(false);
         }
 
         private void PlaceDot(int i, Vector3 pos, float scale, Color color)
         {
-            while (_dots.Count <= i) CreateDot();
+            while (_dots.Count <= i)
+                CreateDot();
 
             var tr = _dots[i];
-            if (!tr.gameObject.activeSelf) tr.gameObject.SetActive(true);
+            if (!tr.gameObject.activeSelf)
+                tr.gameObject.SetActive(true);
             tr.position   = pos;
             tr.localScale = Vector3.one * scale;
 
@@ -340,28 +357,32 @@ namespace CatapultGames
         private void HideDots()
         {
             foreach (var d in _dots)
-                if (d && d.gameObject.activeSelf) d.gameObject.SetActive(false);
+                if (d && d.gameObject.activeSelf)
+                    d.gameObject.SetActive(false);
         }
 
         private void HighlightLanding(bool inGrid, int gx, int gy)
         {
-            if (_grid == null) return;
-            _grid.ClearHighlights();
-            if (!inGrid) return;   // off-grid shot: no landing highlight (and won't fire)
+            if (grid == null)
+                return;
+            grid.ClearHighlights();
+            if (!inGrid)
+                return;   // off-grid shot: no landing highlight (and won't fire)
 
             // Mark the landing cell itself.
-            _grid.SetHighlight(gx, gy, true);
+            grid.SetHighlight(gx, gy, true);
 
             // Ghost-raise every cell this ball would actually paint, in its real
             // fill colour — so the player reads the painted footprint (and how many
             // cells it covers) directly, before firing.
-            var current = _queue?.Current;
-            if (current == null) return;
+            var current = queue?.Current;
+            if (current == null)
+                return;
 
             _paintedLookup.Clear();
-            foreach (var c in PaintingSystem.Preview(_grid, gx, gy, current))
+            foreach (var c in PaintingSystem.Preview(grid, gx, gy, current))
             {
-                _grid.SetPreview(c.x, c.y, true);
+                grid.SetPreview(c.x, c.y, true);
                 _paintedLookup.Add(c);
             }
 
@@ -369,18 +390,22 @@ namespace CatapultGames
             // paint. Showing only the paying cells hides where the stamp actually
             // sits; with the whole footprint drawn, the aimed cell always reads as
             // the centre of it (GameConstants.GetPaintOffset).
-            foreach (var c in GameConstants.GetPaintedCells(gx, gy, current, _grid.Width, _grid.Height))
+            foreach (var c in GameConstants.GetPaintedCells(gx, gy, current, grid.Width, grid.Height))
             {
-                if (c.x == gx && c.y == gy) continue;       // the landing cell owns the highlight
-                if (_paintedLookup.Contains(c)) continue;   // already a paint ghost
-                _grid.SetFootprint(c.x, c.y, true);
+                if (c.x == gx && c.y == gy)
+                    continue;       // the landing cell owns the highlight
+                if (_paintedLookup.Contains(c))
+                    continue;   // already a paint ghost
+                grid.SetFootprint(c.x, c.y, true);
             }
         }
 
         private void ClearPreview()
         {
-            if (_lr)   _lr.enabled = false;
-            if (_grid) _grid.ClearHighlights();
+            if (_lr)
+                _lr.enabled = false;
+            if (grid)
+                grid.ClearHighlights();
             _dotsActive = false;
             HideDots();
         }

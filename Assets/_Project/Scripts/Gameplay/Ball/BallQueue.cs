@@ -6,21 +6,19 @@ namespace CatapultGames
 {
     // Task 11 — Ordered ball queue with auto-advance.
     // Pure logic — no visuals. Attach to any persistent GameObject.
-    public class BallQueue : MonoBehaviour
+    public sealed class BallQueue : MonoBehaviour
     {
-        private readonly List<BallData> _balls = new();
-        private int _index;
-
-        // ── Events ────────────────────────────────────────────────────────
         public event Action<BallData>  OnBallConsumed;   // fired before advancing
         public event Action            OnChanged;        // fired after any state change
         public event Action            OnEmpty;          // fired when last ball consumed
         public event Action<CellColor, int> OnColorCleared; // (color, count removed) when leftovers are purged
 
-        // ── State ─────────────────────────────────────────────────────────
         public bool     IsEmpty   => _index >= _balls.Count;
         public int      Remaining => Mathf.Max(0, _balls.Count - _index);
         public BallData Current   => IsEmpty ? null : _balls[_index];
+
+        private readonly List<BallData> _balls = new();
+        private int _index;
 
         // Peek ahead: offset=0 → current, 1 → next, etc.
         public BallData Peek(int offset)
@@ -34,10 +32,12 @@ namespace CatapultGames
         // allocating. BallData instances are shared, not copied — read only.
         public void CopyRemaining(List<BallData> into)
         {
-            if (into == null) return;
+            if (into == null)
+                return;
             into.Clear();
             for (int i = _index; i < _balls.Count; i++)
-                if (_balls[i] != null) into.Add(_balls[i]);
+                if (_balls[i] != null)
+                    into.Add(_balls[i]);
         }
 
         // Bring a queued ball to the front so it becomes Current — the player picking
@@ -50,13 +50,16 @@ namespace CatapultGames
         // reordering rather than as a second "which ball" concept.
         public bool SelectSlot(int offset)
         {
-            if (offset <= 0) return false;          // slot 0 is already the current ball
+            if (offset <= 0)
+                return false;          // slot 0 is already the current ball
 
             int i = _index + offset;
-            if (i < 0 || i >= _balls.Count) return false;
+            if (i < 0 || i >= _balls.Count)
+                return false;
 
             var ball = _balls[i];
-            if (ball == null) return false;
+            if (ball == null)
+                return false;
 
             _balls.RemoveAt(i);
             _balls.Insert(_index, ball);
@@ -68,24 +71,12 @@ namespace CatapultGames
         // reference is the same, so listeners that compare references (the tray)
         // need an explicit nudge to look again.
         public void NotifyCurrentChanged() => OnChanged?.Invoke();
+        public BallQueueSnapshot Capture() => new BallQueueSnapshot(_balls.ToArray(), _index);
 
-        // ── Undo support ──────────────────────────────────────────────────
-        // A whole-queue snapshot rather than a "put the ball back" call, because
-        // undoing one shot can also have to undo a RemoveColor purge that the shot
-        // triggered. Restoring the entire state covers both without special cases.
-        public readonly struct Snapshot
+        public void Restore(BallQueueSnapshot snapshot)
         {
-            internal readonly BallData[] balls;
-            internal readonly int        index;
-            internal Snapshot(BallData[] balls, int index) { this.balls = balls; this.index = index; }
-            public bool IsValid => balls != null;
-        }
-
-        public Snapshot Capture() => new Snapshot(_balls.ToArray(), _index);
-
-        public void Restore(Snapshot snapshot)
-        {
-            if (!snapshot.IsValid) return;
+            if (!snapshot.IsValid)
+                return;
             _balls.Clear();
             _balls.AddRange(snapshot.balls);
             _index = Mathf.Clamp(snapshot.index, 0, _balls.Count);
@@ -96,20 +87,23 @@ namespace CatapultGames
         // back of the queue, so the authored order plays out first.
         public void Append(IEnumerable<BallData> extra)
         {
-            if (extra == null) return;
+            if (extra == null)
+                return;
 
             int before = _balls.Count;
             foreach (var b in extra)
-                if (b != null) _balls.Add(b);
+                if (b != null)
+                    _balls.Add(b);
 
-            if (_balls.Count != before) OnChanged?.Invoke();
+            if (_balls.Count != before)
+                OnChanged?.Invoke();
         }
 
-        // ── API ───────────────────────────────────────────────────────────
         public void Load(BallData[] balls)
         {
             _balls.Clear();
-            if (balls != null) _balls.AddRange(balls);
+            if (balls != null)
+                _balls.AddRange(balls);
             _index = 0;
             OnChanged?.Invoke();
         }
@@ -117,12 +111,14 @@ namespace CatapultGames
         // Advance to next ball; returns the one that was consumed.
         public BallData Consume()
         {
-            if (IsEmpty) return null;
+            if (IsEmpty)
+                return null;
             var ball = _balls[_index];
             OnBallConsumed?.Invoke(ball);
             _index++;
             OnChanged?.Invoke();
-            if (IsEmpty) OnEmpty?.Invoke();
+            if (IsEmpty)
+                OnEmpty?.Invoke();
             return ball;
         }
 
@@ -149,7 +145,8 @@ namespace CatapultGames
                 // visible waypoints (no on-screen visual of their own).
                 OnColorCleared?.Invoke(color, removed);
                 OnChanged?.Invoke();
-                if (IsEmpty) OnEmpty?.Invoke();
+                if (IsEmpty)
+                    OnEmpty?.Invoke();
             }
             return removed;
         }

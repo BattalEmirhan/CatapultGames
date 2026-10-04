@@ -15,32 +15,32 @@ namespace CatapultGames
     //   locked   → grey, not tappable (the level before it is not won yet)
     //
     // Inspector:
-    //   _buttonContainer — ScrollRect content with a GridLayoutGroup
-    //   _backButton      — returns to MainMenu
-    public class LevelSelectUI : MonoBehaviour
+    //   buttonContainer — ScrollRect content with a GridLayoutGroup
+    //   backButton      — returns to MainMenu
+    public sealed class LevelSelectUI : MonoBehaviour
     {
-        [SerializeField] private Transform _buttonContainer;
-        [SerializeField] private Button    _backButton;
+        [SerializeField] private Transform buttonContainer;
+        [SerializeField] private Button    backButton;
 
         [Header("Scene names")]
-        [SerializeField] private string _gameplayScene = "Gameplay2";
-        [SerializeField] private string _mainMenuScene = "MainMenu";
+        [SerializeField] private string gameplayScene = "Gameplay2";
+        [SerializeField] private string mainMenuScene = "MainMenu";
 
         private static readonly Color WonColor    = new Color(0.34f, 0.80f, 0.60f);
         private static readonly Color OpenColor   = new Color(0.34f, 0.62f, 0.95f);
         private static readonly Color LockedColor = new Color(0.62f, 0.64f, 0.70f);
 
-        // ── Lifecycle ─────────────────────────────────────────────────────
         private void Start()
         {
-            if (_backButton) _backButton.onClick.AddListener(OnBack);
+            if (backButton)
+                backButton.onClick.AddListener(OnBack);
             PopulateList();
         }
 
-        // ── Build level list ──────────────────────────────────────────────
         private void PopulateList()
         {
-            if (_buttonContainer == null) return;
+            if (buttonContainer == null)
+                return;
 
             foreach (var name in LevelOrder.Names)
                 SpawnButton(name);
@@ -52,14 +52,15 @@ namespace CatapultGames
             bool unlocked = PlayerProgress.IsUnlocked(levelName);
 
             var go = new GameObject(levelName, typeof(RectTransform));
-            go.transform.SetParent(_buttonContainer, false);
+            go.transform.SetParent(buttonContainer, false);
 
             var img   = go.AddComponent<Image>();
             img.color = won ? WonColor : unlocked ? OpenColor : LockedColor;
 
             var button = go.AddComponent<Button>();
             button.interactable = unlocked;
-            if (unlocked) button.onClick.AddListener(() => LoadLevel(levelName));
+            if (unlocked)
+                button.onClick.AddListener(() => LoadLevel(levelName));
 
             var labelGo = new GameObject("Label", typeof(RectTransform));
             labelGo.transform.SetParent(go.transform, false);
@@ -77,14 +78,13 @@ namespace CatapultGames
             label.raycastTarget = false;
         }
 
-        // ── Handlers ──────────────────────────────────────────────────────
         private void LoadLevel(string levelName)
         {
             LevelLoader.SelectLevel(levelName);
-            SceneManager.LoadScene(_gameplayScene);
+            SceneManager.LoadScene(gameplayScene);
         }
 
         private void OnBack() =>
-            SceneManager.LoadScene(_mainMenuScene);
+            SceneManager.LoadScene(mainMenuScene);
     }
 }

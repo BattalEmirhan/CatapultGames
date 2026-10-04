@@ -17,12 +17,11 @@ namespace CatapultGames
     //
     // Subscribe to GridRenderer.OnGridChanged at runtime.
     [RequireComponent(typeof(RectTransform))]
-    public class ProgressHUD : MonoBehaviour
+    public sealed class ProgressHUD : MonoBehaviour
     {
-        [SerializeField] private TextMeshProUGUI _label;   // the running total
-        [SerializeField] private GridRenderer    _grid;
+        [SerializeField] private TextMeshProUGUI label;   // the running total
+        [SerializeField] private GridRenderer    grid;
 
-        // ── Layout (reference-resolution pixels; the CanvasScaler does the rest) ──
         private const float RowHeight  = 46f;
         private const float BarsTop    = -170f;  // clears the total label's band above
         private const float SwatchSize = 26f;
@@ -30,16 +29,7 @@ namespace CatapultGames
         private const float BarRight   = 96f;    // room for the "12/34" readout
         private const float BarHeight  = 14f;
         private const float PanelWidth = 420f;
-
-        private sealed class Row
-        {
-            public CellColor       color;
-            public RectTransform   fill;
-            public TextMeshProUGUI count;
-        }
-
-        private readonly List<Row> _rows = new();
-
+        private readonly List<ProgressHudRow> _rows = new();
         private bool      _configured;
         private int       _prevFilled = -1;     // total filled last refresh (for the pop)
         private Vector3   _labelRest  = Vector3.one;
@@ -59,94 +49,114 @@ namespace CatapultGames
             rt.offsetMin = rt.offsetMax = Vector2.zero;
         }
 
-        private void OnEnable()  { if (_grid) _grid.OnGridChanged += MarkDirty; }
-        private void OnDisable() { if (_grid) _grid.OnGridChanged -= MarkDirty; }
+        private void OnEnable()  {
+            if (grid)
+                grid.OnGridChanged += MarkDirty;
+        }
         private void Start() => Refresh();
-
-        // Coalesce many same-frame grid changes (a paint wave fills cells one by one)
-        // into a single rebuild per frame instead of one full rebuild + alloc per cell.
-        private void MarkDirty() => _dirty = true;
 
         private void LateUpdate()
         {
-            if (!_dirty) return;
+            if (!_dirty)
+                return;
             _dirty = false;
             Refresh();
         }
 
-        private void ConfigureLabel()
-        {
-            if (_configured || _label == null) return;
-#pragma warning disable CS0618 // enableWordWrapping is obsolete but still works across TMP versions
-            _label.enableWordWrapping = false;
-#pragma warning restore CS0618
-            _label.overflowMode = TextOverflowModes.Overflow;
-            _label.alignment    = TextAlignmentOptions.TopLeft;
-            _labelRest          = _label.rectTransform.localScale;
-            _configured = true;
+        private void OnDisable() {
+            if (grid)
+                grid.OnGridChanged -= MarkDirty;
         }
 
         // Called by LevelLoader.Apply so the count resets for each new level
         public void Bind(GridRenderer grid)
         {
-            if (_grid) _grid.OnGridChanged -= MarkDirty;
-            _grid = grid;
-            if (_grid) _grid.OnGridChanged += MarkDirty;
+            if (this.grid)
+                this.grid.OnGridChanged -= MarkDirty;
+            this.grid = grid;
+            if (this.grid)
+                this.grid.OnGridChanged += MarkDirty;
             _prevFilled = -1;   // fresh baseline — don't pop on level load
             Refresh();
         }
 
-        // ── Refresh ───────────────────────────────────────────────────────
+        // Coalesce many same-frame grid changes (a paint wave fills cells one by one)
+        // into a single rebuild per frame instead of one full rebuild + alloc per cell.
+        private void MarkDirty() => _dirty = true;
+
+        private void ConfigureLabel()
+        {
+            if (_configured || label == null)
+                return;
+#pragma warning disable CS0618 // enableWordWrapping is obsolete but still works across TMP versions
+            label.enableWordWrapping = false;
+#pragma warning restore CS0618
+            label.overflowMode = TextOverflowModes.Overflow;
+            label.alignment    = TextAlignmentOptions.TopLeft;
+            _labelRest          = label.rectTransform.localScale;
+            _configured = true;
+        }
+
         private void Refresh()
         {
-            if (_grid == null) return;
+            if (grid == null)
+                return;
             ConfigureLabel();
 
-            var progress = _grid.CountByColor();
+            var progress = grid.CountByColor();
             EnsureRows(progress);
 
             int totalFilled = 0, totalCells = 0;
             for (int i = 0; i < progress.Count && i < _rows.Count; i++)
             {
-                var p = progress[i];
+                ColorProgress p = progress[i];
                 totalFilled += p.filled;
                 totalCells  += p.total;
 
-                var row = _rows[i];
+                ProgressHudRow row = _rows[i];
                 float ratio = p.total > 0 ? (float)p.filled / p.total : 0f;
 
                 // Width by anchor, so the fill tracks the bar at any screen size.
-                if (row.fill != null) row.fill.anchorMax = new Vector2(Mathf.Clamp01(ratio), 1f);
-                if (row.count != null) row.count.text = $"{p.filled}/{p.total}";
+                if (row.fill != null)
+                    row.fill.anchorMax = new Vector2(Mathf.Clamp01(ratio), 1f);
+                if (row.count != null)
+                    row.count.text = $"{p.filled}/{p.total}";
             }
 
-            if (_label != null)
-                _label.text = totalCells > 0 ? $"{totalFilled} / {totalCells}" : string.Empty;
+            if (label != null)
+                label.text = totalCells > 0 ? $"{totalFilled} / {totalCells}" : string.Empty;
 
             // Pop the counter whenever progress goes up.
-            if (_prevFilled >= 0 && totalFilled > _prevFilled && isActiveAndEnabled && _label != null)
+            if (_prevFilled >= 0 && totalFilled > _prevFilled && isActiveAndEnabled && label != null)
             {
-                if (_punch != null) StopCoroutine(_punch);
+                if (_punch != null)
+                    StopCoroutine(_punch);
                 _punch = StartCoroutine(PunchLabel());
             }
             _prevFilled = totalFilled;
         }
 
-        // ── Row construction ──────────────────────────────────────────────
         // CountByColor returns colours in enum order, so a level's row order is
         // stable and only the SET of colours can change (a colour is never removed
         // mid-level). Rebuild only then.
-        private void EnsureRows(List<GridRenderer.ColorProgress> progress)
+        private void EnsureRows(List<ColorProgress> progress)
         {
             bool same = _rows.Count == progress.Count;
             if (same)
                 for (int i = 0; i < progress.Count; i++)
-                    if (_rows[i].color != progress[i].color) { same = false; break; }
+                    if (_rows[i].color != progress[i].color)
+                    {
+                        same = false;
+                        break;
+                    }
 
-            if (same) return;
+            if (same)
+                return;
 
-            if (_barsRoot == null) _barsRoot = MakeRect("ProgressBars", (RectTransform)transform);
-            for (int i = _barsRoot.childCount - 1; i >= 0; i--) Destroy(_barsRoot.GetChild(i).gameObject);
+            if (_barsRoot == null)
+                _barsRoot = MakeRect("ProgressBars", (RectTransform)transform);
+            for (int i = _barsRoot.childCount - 1; i >= 0; i--)
+                Destroy(_barsRoot.GetChild(i).gameObject);
             _rows.Clear();
 
             _barsRoot.anchorMin        = new Vector2(0f, 1f);
@@ -159,7 +169,7 @@ namespace CatapultGames
                 _rows.Add(BuildRow(progress[i].color, i));
         }
 
-        private Row BuildRow(CellColor color, int index)
+        private ProgressHudRow BuildRow(CellColor color, int index)
         {
             Color tint = Legible(GameConstants.GetColor(color));
 
@@ -212,7 +222,7 @@ namespace CatapultGames
             tmp.enableWordWrapping = false;
 #pragma warning restore CS0618
 
-            return new Row { color = color, fill = fill, count = tmp };
+            return new ProgressHudRow { color = color, fill = fill, count = tmp };
         }
 
         private static RectTransform MakeRect(string name, RectTransform parent)
@@ -235,7 +245,7 @@ namespace CatapultGames
         private IEnumerator PunchLabel()
         {
             const float dur = 0.10f; // faster pop
-            var rt = _label.rectTransform;
+            var rt = label.rectTransform;
             float t = 0f;
             while (t < dur)
             {

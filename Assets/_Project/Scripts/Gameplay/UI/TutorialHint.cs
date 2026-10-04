@@ -19,97 +19,156 @@ namespace CatapultGames
     // half-way, so an interrupted first session sees it again.
     //
     // Hint banner: LevelMetadata.hint, faded in when a level starts and out after
-    // _hintDuration or on the first throw, whichever is first.
+    // hintDuration or on the first throw, whichever is first.
     //
     // LevelLoader calls BeginLevel after every load. Wire up in Inspector (the scene
     // builder does): references below, plus the pointer / caption / banner UI.
-    public class TutorialHint : MonoBehaviour
+    public sealed class TutorialHint : MonoBehaviour
     {
-        [SerializeField] private Camera        _camera;
-        [SerializeField] private GridRenderer  _grid;
-        [SerializeField] private BallQueue     _queue;
-        [SerializeField] private BallQueueView _queueView;
-        [SerializeField] private BallLauncher  _launcher;
-        [SerializeField] private GameManager   _gameManager;
+        public static bool IsDone => PlayerPrefs.GetInt(DoneKey, 0) == 1;
+
+        [SerializeField] private Camera        camera;
+        [SerializeField] private GridRenderer  grid;
+        [SerializeField] private BallQueue     queue;
+        [SerializeField] private BallQueueView queueView;
+        [SerializeField] private BallLauncher  launcher;
+        [SerializeField] private GameManager   gameManager;
 
         [Header("Pointer")]
-        [SerializeField] private RectTransform   _pointer;       // disc Image, never a raycast target
-        [SerializeField] private Image           _pointerRing;   // child of the pointer
-        [SerializeField] private CanvasGroup     _captionGroup;
-        [SerializeField] private TextMeshProUGUI _caption;
-        [SerializeField] private float           _tapPeriod = 1.3f;
+        [SerializeField] private RectTransform   pointer;       // disc Image, never a raycast target
+        [SerializeField] private Image           pointerRing;   // child of the pointer
+        [SerializeField] private CanvasGroup     captionGroup;
+        [SerializeField] private TextMeshProUGUI caption;
+        [SerializeField] private float           tapPeriod = 1.3f;
 
         [Header("Level hint banner")]
-        [SerializeField] private CanvasGroup     _hintGroup;
-        [SerializeField] private TextMeshProUGUI _hintLabel;
-        [SerializeField] private float           _hintDuration = 4f;
+        [SerializeField] private CanvasGroup     hintGroup;
+        [SerializeField] private TextMeshProUGUI hintLabel;
+        [SerializeField] private float           hintDuration = 4f;
 
         private const string DoneKey = "TutorialDone";
-
-        private enum Step { None, TapCell, WaitForBoard, PickBall }
-
-        private Step      _step;
+        private TutorialStep      _step;
         private int       _cellX, _cellY;   // TapCell target
         private int       _slot = -1;       // PickBall target
         private Coroutine _hint;
         private Image     _pointerImage;
 
-        public static bool IsDone => PlayerPrefs.GetInt(DoneKey, 0) == 1;
-
-        // Dev / settings use: show the tutorial again on the next first-level start.
-        public static void ResetDone() => PlayerPrefs.DeleteKey(DoneKey);
-
-        // ── Lifecycle ─────────────────────────────────────────────────────
         private void Awake()
         {
             // Runtime-made sprites: a scene file cannot keep a reference to them.
-            if (_pointer) _pointerImage = _pointer.GetComponent<Image>();
-            if (_pointerImage) { _pointerImage.sprite = UiSprites.Disc(); _pointerImage.raycastTarget = false; }
-            if (_pointerRing)  { _pointerRing.sprite  = UiSprites.Ring(); _pointerRing.raycastTarget  = false; }
+            if (pointer)
+                _pointerImage = pointer.GetComponent<Image>();
+            if (_pointerImage)
+            {
+                _pointerImage.sprite = UiSprites.Disc();
+                _pointerImage.raycastTarget = false;
+            }
+            if (pointerRing)
+            {
+                pointerRing.sprite  = UiSprites.Ring();
+                pointerRing.raycastTarget  = false;
+            }
             // Purely informative: none of it may swallow the tap it is asking for.
-            foreach (var g in new[] { _captionGroup, _hintGroup })
-                if (g) { g.blocksRaycasts = false; g.interactable = false; }
+            foreach (var g in new[] { captionGroup, hintGroup })
+                if (g)
+                {
+                    g.blocksRaycasts = false;
+                    g.interactable = false;
+                }
             HidePointer();
-            SetAlpha(_hintGroup, 0f);
+            SetAlpha(hintGroup, 0f);
         }
 
         private void OnEnable()
         {
-            if (_queue)     _queue.OnBallConsumed    += OnBallConsumed;
-            if (_queue)     _queue.OnChanged         += OnQueueChanged;
-            if (_queueView) _queueView.OnSlotSelected += OnSlotSelected;
+            if (queue)
+                queue.OnBallConsumed    += OnBallConsumed;
+            if (queue)
+                queue.OnChanged         += OnQueueChanged;
+            if (queueView)
+                queueView.OnSlotSelected += OnSlotSelected;
+        }
+
+        private void Update()
+        {
+            if (_step == TutorialStep.None)
+                return;
+
+            if (gameManager != null && gameManager.IsOver)
+            {
+                Finish();
+                return;
+            }
+
+            if (_step == TutorialStep.WaitForBoard)
+            {
+                if (launcher != null && launcher.IsBusy)
+                    return;
+                if (!FindOtherSlot())
+                {
+                    Finish();
+                    return;
+                }
+                _step = TutorialStep.PickBall;
+                ShowCaption("Tap a ball to pick it");
+                return;
+            }
+
+            Vector3 world;
+            if (_step == TutorialStep.TapCell)
+                world = grid.GridToWorld(_cellX, _cellY);
+            else if (!queueView.TryGetSlotBall(_slot, out _, out world))
+            {
+                Finish();
+                return;
+            }
+
+            AnimatePointer(world);
         }
 
         private void OnDisable()
         {
-            if (_queue)     _queue.OnBallConsumed    -= OnBallConsumed;
-            if (_queue)     _queue.OnChanged         -= OnQueueChanged;
-            if (_queueView) _queueView.OnSlotSelected -= OnSlotSelected;
+            if (queue)
+                queue.OnBallConsumed    -= OnBallConsumed;
+            if (queue)
+                queue.OnChanged         -= OnQueueChanged;
+            if (queueView)
+                queueView.OnSlotSelected -= OnSlotSelected;
         }
 
-        // ── Entry point ───────────────────────────────────────────────────
+        // Dev / settings use: show the tutorial again on the next first-level start.
+        public static void ResetDone() => PlayerPrefs.DeleteKey(DoneKey);
+
         public void BeginLevel(string levelName, string hint)
         {
-            _step = Step.None;
+            _step = TutorialStep.None;
             HidePointer();
 
-            if (_hint != null) { StopCoroutine(_hint); _hint = null; }
-            SetAlpha(_hintGroup, 0f);
-            if (!string.IsNullOrWhiteSpace(hint) && _hintGroup && _hintLabel)
+            if (_hint != null)
             {
-                _hintLabel.text = hint.Trim();
+                StopCoroutine(_hint);
+                _hint = null;
+            }
+            SetAlpha(hintGroup, 0f);
+            if (!string.IsNullOrWhiteSpace(hint) && hintGroup && hintLabel)
+            {
+                hintLabel.text = hint.Trim();
                 _hint = StartCoroutine(ShowHint());
             }
 
             bool firstLevel = levelName != null && levelName == LevelOrder.First;
-            if (firstLevel && !IsDone) StartTapCell();
+            if (firstLevel && !IsDone)
+                StartTapCell();
         }
 
-        // ── Steps ─────────────────────────────────────────────────────────
         private void StartTapCell()
         {
-            if (!AimAtBestCell()) { Finish(); return; }
-            _step = Step.TapCell;
+            if (!AimAtBestCell())
+            {
+                Finish();
+                return;
+            }
+            _step = TutorialStep.TapCell;
             ShowCaption("Tap a square to throw");
         }
 
@@ -117,9 +176,10 @@ namespace CatapultGames
         // tutorial asks for is also a good one.
         private bool AimAtBestCell()
         {
-            var ball = _queue != null ? _queue.Current : null;
-            if (ball == null || _grid == null) return false;
-            int gain = CoverageAnalyzer.BestPlacement(CoverageAnalyzer.BuildTargets(_grid), ball,
+            var ball = queue != null ? queue.Current : null;
+            if (ball == null || grid == null)
+                return false;
+            int gain = CoverageAnalyzer.BestPlacement(CoverageAnalyzer.BuildTargets(grid), ball,
                                                       out _cellX, out _cellY);
             return gain > 0;
         }
@@ -129,16 +189,24 @@ namespace CatapultGames
         private bool FindOtherSlot()
         {
             _slot = -1;
-            if (_queueView == null || _queue == null || _queue.Current == null) return false;
+            if (queueView == null || queue == null || queue.Current == null)
+                return false;
 
-            var current = _queue.Current.color;
+            var current = queue.Current.color;
             int fallback = -1;
-            for (int s = 0; s < _queueView.SlotCount; s++)
+            for (int s = 0; s < queueView.SlotCount; s++)
             {
-                if (s == _queueView.SelectedSlot) continue;
-                if (!_queueView.TryGetSlotBall(s, out var ball, out _)) continue;
-                if (ball.color != current) { _slot = s; return true; }
-                if (fallback < 0) fallback = s;
+                if (s == queueView.SelectedSlot)
+                    continue;
+                if (!queueView.TryGetSlotBall(s, out var ball, out _))
+                    continue;
+                if (ball.color != current)
+                {
+                    _slot = s;
+                    return true;
+                }
+                if (fallback < 0)
+                    fallback = s;
             }
             _slot = fallback;
             return _slot >= 0;
@@ -146,63 +214,50 @@ namespace CatapultGames
 
         private void Finish()
         {
-            _step = Step.None;
+            _step = TutorialStep.None;
             HidePointer();
             PlayerPrefs.SetInt(DoneKey, 1);
             PlayerPrefs.Save();
         }
 
-        // ── Events ────────────────────────────────────────────────────────
         private void OnBallConsumed(BallData _)
         {
             // The first throw is the player getting on with it: the banner has done its job.
-            if (_hint != null) { StopCoroutine(_hint); _hint = StartCoroutine(FadeOut(_hintGroup, 0.3f)); }
+            if (_hint != null)
+            {
+                StopCoroutine(_hint);
+                _hint = StartCoroutine(FadeOut(hintGroup, 0.3f));
+            }
 
-            if (_step == Step.TapCell)       { _step = Step.WaitForBoard; HidePointer(); }
-            else if (_step == Step.PickBall) Finish();   // threw instead of picking — they've got it
+            if (_step == TutorialStep.TapCell)
+            {
+                _step = TutorialStep.WaitForBoard;
+                HidePointer();
+            }
+            else if (_step == TutorialStep.PickBall)
+                Finish();   // threw instead of picking — they've got it
         }
 
         // A booster or a pick changed the ball in hand: the best cell may have moved.
         private void OnQueueChanged()
         {
-            if (_step == Step.TapCell && !AimAtBestCell()) Finish();
+            if (_step == TutorialStep.TapCell && !AimAtBestCell())
+                Finish();
         }
 
         private void OnSlotSelected(int slot)
         {
-            if (_step == Step.PickBall) Finish();
-        }
-
-        // ── Per frame: wait for the board, then animate the fingertip ─────
-        private void Update()
-        {
-            if (_step == Step.None) return;
-
-            if (_gameManager != null && _gameManager.IsOver) { Finish(); return; }
-
-            if (_step == Step.WaitForBoard)
-            {
-                if (_launcher != null && _launcher.IsBusy) return;
-                if (!FindOtherSlot()) { Finish(); return; }
-                _step = Step.PickBall;
-                ShowCaption("Tap a ball to pick it");
-                return;
-            }
-
-            Vector3 world;
-            if (_step == Step.TapCell)
-                world = _grid.GridToWorld(_cellX, _cellY);
-            else if (!_queueView.TryGetSlotBall(_slot, out _, out world)) { Finish(); return; }
-
-            AnimatePointer(world);
+            if (_step == TutorialStep.PickBall)
+                Finish();
         }
 
         // One "tap" per period: glide in from below-right, press, ring pulse, fade.
         private void AnimatePointer(Vector3 world)
         {
-            if (_pointer == null || _camera == null) return;
-            Vector3 sp = _camera.WorldToScreenPoint(world);
-            var parent = _pointer.parent as RectTransform;
+            if (pointer == null || camera == null)
+                return;
+            Vector3 sp = camera.WorldToScreenPoint(world);
+            var parent = pointer.parent as RectTransform;
             if (sp.z <= 0f || parent == null ||
                 !RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, sp, null, out var target))
             {
@@ -210,37 +265,40 @@ namespace CatapultGames
                 return;
             }
 
-            float p = Mathf.Repeat(Time.unscaledTime, _tapPeriod) / _tapPeriod;
+            float p = Mathf.Repeat(Time.unscaledTime, tapPeriod) / tapPeriod;
 
             float glide  = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.35f, p));
             float press  = p < 0.35f ? 1f : p < 0.45f ? Mathf.Lerp(1f, 0.78f, (p - 0.35f) / 0.10f)
                                      : Mathf.Lerp(0.78f, 1f, Mathf.InverseLerp(0.45f, 0.60f, p));
             float alpha  = p < 0.10f ? p / 0.10f : p > 0.85f ? 1f - (p - 0.85f) / 0.15f : 1f;
 
-            _pointer.anchoredPosition = target + Vector2.Lerp(new Vector2(90f, -120f), Vector2.zero, glide);
-            _pointer.localScale       = Vector3.one * press;
-            if (_pointerImage) _pointerImage.color = new Color(1f, 1f, 1f, 0.9f * alpha);
+            pointer.anchoredPosition = target + Vector2.Lerp(new Vector2(90f, -120f), Vector2.zero, glide);
+            pointer.localScale       = Vector3.one * press;
+            if (_pointerImage)
+                _pointerImage.color = new Color(1f, 1f, 1f, 0.9f * alpha);
 
-            if (_pointerRing)
+            if (pointerRing)
             {
                 float ring = Mathf.InverseLerp(0.40f, 0.95f, p);
-                _pointerRing.rectTransform.localScale = Vector3.one * Mathf.Lerp(0.8f, 2.2f, ring);
-                _pointerRing.color = new Color(1f, 1f, 1f, ring > 0f && ring < 1f ? 0.85f * (1f - ring) : 0f);
+                pointerRing.rectTransform.localScale = Vector3.one * Mathf.Lerp(0.8f, 2.2f, ring);
+                pointerRing.color = new Color(1f, 1f, 1f, ring > 0f && ring < 1f ? 0.85f * (1f - ring) : 0f);
             }
         }
 
-        // ── UI helpers ────────────────────────────────────────────────────
         private void ShowCaption(string text)
         {
-            if (_caption) _caption.text = text;
-            SetAlpha(_captionGroup, 1f);
+            if (caption)
+                caption.text = text;
+            SetAlpha(captionGroup, 1f);
         }
 
         private void HidePointer()
         {
-            if (_pointerImage) _pointerImage.color = new Color(1f, 1f, 1f, 0f);
-            if (_pointerRing)  _pointerRing.color  = new Color(1f, 1f, 1f, 0f);
-            SetAlpha(_captionGroup, 0f);
+            if (_pointerImage)
+                _pointerImage.color = new Color(1f, 1f, 1f, 0f);
+            if (pointerRing)
+                pointerRing.color  = new Color(1f, 1f, 1f, 0f);
+            SetAlpha(captionGroup, 0f);
         }
 
         private IEnumerator ShowHint()
@@ -248,12 +306,12 @@ namespace CatapultGames
             const float fadeIn = 0.25f;
             for (float t = 0f; t < fadeIn; t += Time.unscaledDeltaTime)
             {
-                SetAlpha(_hintGroup, t / fadeIn);
+                SetAlpha(hintGroup, t / fadeIn);
                 yield return null;
             }
-            SetAlpha(_hintGroup, 1f);
-            yield return new WaitForSecondsRealtime(Mathf.Max(0f, _hintDuration));
-            yield return FadeOut(_hintGroup, 0.4f);
+            SetAlpha(hintGroup, 1f);
+            yield return new WaitForSecondsRealtime(Mathf.Max(0f, hintDuration));
+            yield return FadeOut(hintGroup, 0.4f);
         }
 
         private IEnumerator FadeOut(CanvasGroup group, float duration)
@@ -270,7 +328,8 @@ namespace CatapultGames
 
         private static void SetAlpha(CanvasGroup group, float a)
         {
-            if (group) group.alpha = Mathf.Clamp01(a);
+            if (group)
+                group.alpha = Mathf.Clamp01(a);
         }
     }
 }

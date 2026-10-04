@@ -15,8 +15,6 @@ namespace CatapultGames.Editor
     // second gate, and the two are meant to be read together.
     public static class LevelValidator
     {
-        public enum Severity { OK, Warning, Error }
-
         // A colour is worth calling out as "barely there" below this many cells —
         // one or two stray pixels are almost always an import artefact, and they
         // cost the player a whole ball to hunt down.
@@ -26,37 +24,17 @@ namespace CatapultGames.Editor
         // summarised, so a badly imported image cannot flood the footer.
         private const int MaxListedIsolated = 6;
 
-        public struct ColorRow
-        {
-            public CellColor color;
-            public bool      isWild;     // the Joker row — any colour pays for it
-            public int       required;   // paint hits still needed (an Ice cell counts twice)
-            public int       coverage;   // max hits balls of this color could actually land
-            public float     headroom;   // coverage / required
-            public Severity  severity;
-            public string    note;
-        }
-
-        public struct Result
-        {
-            public ColorRow[] rows;
-            public string[]   globalErrors;
-            public string[]   globalWarnings;
-            public bool       isValid;
-        }
-
-        public static Result Validate(LevelData level)
+        public static ValidationResult Validate(LevelData level)
         {
             var cells = level?.cells ?? System.Array.Empty<CellData>();
             var balls = level?.balls ?? System.Array.Empty<BallData>();
 
-            // ── per-color required vs REAL coverage ───────────────────────
             var coverage = CoverageAnalyzer.Analyze(level);
 
-            var rows = new List<ColorRow>(coverage.Count);
-            foreach (var c in coverage)
+            var rows = new List<ValidationColorRow>(coverage.Count);
+            foreach (ColorCoverage c in coverage)
             {
-                Severity sev;
+                ValidationSeverity sev;
                 string   note;
 
                 // "required" is paint HITS, not cells: an Ice cell owes two of them.
@@ -66,35 +44,36 @@ namespace CatapultGames.Editor
 
                 if (c.required == 0)
                 {
-                    sev  = Severity.Warning;
+                    sev  = ValidationSeverity.Warning;
                     note = $"{c.ballCount} balls assigned but no grid cells of this color";
                 }
                 else if (c.ballCount == 0)
                 {
-                    sev  = Severity.Error;
+                    sev  = ValidationSeverity.Error;
                     note = $"{c.required} {subject} needed — no balls assigned";
                 }
                 else if (c.Impossible)
                 {
-                    sev  = Severity.Error;
+                    sev  = ValidationSeverity.Error;
                     note = $"can land at most {c.ceiling} of {c.required} {subject} — impossible " +
                            $"({c.ballCount} balls, best-case placement)";
                 }
                 else if (c.Tight)
                 {
-                    sev  = Severity.Warning;
+                    sev  = ValidationSeverity.Warning;
                     note = $"{c.ceiling} coverage for {c.required} {subject} ({c.Headroom:0.00}x) — " +
                            "no margin for a wasted stamp";
                 }
                 else
                 {
-                    sev  = Severity.OK;
+                    sev  = ValidationSeverity.OK;
                     note = $"{c.ceiling} coverage for {c.required} {subject} ({c.Headroom:0.00}x)";
                 }
 
-                if (c.isWild) note = "any colour fills these — " + note;
+                if (c.isWild)
+                    note = "any colour fills these — " + note;
 
-                rows.Add(new ColorRow
+                rows.Add(new ValidationColorRow
                 {
                     color    = c.color,
                     isWild   = c.isWild,
@@ -106,31 +85,37 @@ namespace CatapultGames.Editor
                 });
             }
 
-            // ── global errors ─────────────────────────────────────────────
             var globalErrors = new List<string>();
             bool hasBadBall = false;
             foreach (var b in balls)
-                if (b != null && b.color == CellColor.None) hasBadBall = true;
+                if (b != null && b.color == CellColor.None)
+                    hasBadBall = true;
 
             // A Stone is scenery, not a target — a board of nothing but stone has
             // nothing to paint.
             bool hasColoredCells = false;
             foreach (var c in cells)
-                if (IsPaintTarget(c)) { hasColoredCells = true; break; }
+                if (IsPaintTarget(c))
+                {
+                    hasColoredCells = true;
+                    break;
+                }
 
-            if (!hasColoredCells)  globalErrors.Add("No colored cells in the grid.");
-            if (balls.Length == 0) globalErrors.Add("No balls in the queue.");
-            if (hasBadBall)        globalErrors.Add("One or more balls have no color assigned.");
+            if (!hasColoredCells)
+                globalErrors.Add("No colored cells in the grid.");
+            if (balls.Length == 0)
+                globalErrors.Add("No balls in the queue.");
+            if (hasBadBall)
+                globalErrors.Add("One or more balls have no color assigned.");
 
-            // ── global warnings: stray cells ──────────────────────────────
             var globalWarnings = new List<string>();
             CollectStrayCellWarnings(cells, globalWarnings);
             CollectCellTypeWarnings(cells, globalWarnings);
 
             bool isValid = globalErrors.Count == 0 &&
-                           rows.TrueForAll(r => r.severity != Severity.Error);
+                           rows.TrueForAll(r => r.severity != ValidationSeverity.Error);
 
-            return new Result
+            return new ValidationResult
             {
                 rows           = rows.ToArray(),
                 globalErrors   = globalErrors.ToArray(),
@@ -154,7 +139,8 @@ namespace CatapultGames.Editor
 
             foreach (var c in cells)
             {
-                if (!IsPaintTarget(c) || c.cellType == CellType.Joker) continue;
+                if (!IsPaintTarget(c) || c.cellType == CellType.Joker)
+                    continue;
                 byColor.TryGetValue(c.outlineColor, out int n);
                 byColor[c.outlineColor] = n + 1;
                 occupied.Add((c.gridX, c.gridY, c.outlineColor));
@@ -169,7 +155,8 @@ namespace CatapultGames.Editor
             var listed   = new List<string>();
             foreach (var c in cells)
             {
-                if (!IsPaintTarget(c) || c.cellType == CellType.Joker) continue;
+                if (!IsPaintTarget(c) || c.cellType == CellType.Joker)
+                    continue;
 
                 var col = c.outlineColor;
                 bool hasNeighbour =
@@ -178,7 +165,8 @@ namespace CatapultGames.Editor
                     occupied.Contains((c.gridX, c.gridY + 1, col)) ||
                     occupied.Contains((c.gridX, c.gridY - 1, col));
 
-                if (hasNeighbour) continue;
+                if (hasNeighbour)
+                    continue;
 
                 isolated++;
                 if (listed.Count < MaxListedIsolated)
@@ -202,7 +190,8 @@ namespace CatapultGames.Editor
 
             foreach (var c in cells)
             {
-                if (c == null) continue;
+                if (c == null)
+                    continue;
 
                 // Stone never paints, so its colour is decoration that reads as a
                 // target on the board — the classic "why won't this level finish".

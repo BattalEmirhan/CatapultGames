@@ -17,12 +17,12 @@ namespace CatapultGames.Editor
     // LevelSelect, then every other scene in its previous order.
     public static class MenuSceneBuilder
     {
-        internal const string MainMenuSceneName    = "MainMenu";
-        internal const string LevelSelectSceneName = "LevelSelect";
-
-        private const string SceneFolder     = "Assets/Scenes";
         private static string MainMenuPath    => $"{SceneFolder}/{MainMenuSceneName}.unity";
         private static string LevelSelectPath => $"{SceneFolder}/{LevelSelectSceneName}.unity";
+
+        internal const string MainMenuSceneName    = "MainMenu";
+        internal const string LevelSelectSceneName = "LevelSelect";
+        private const string SceneFolder     = "Assets/Scenes";
 
         // The same dark tone the gameplay camera falls back to, so the menus and the
         // board read as one game.
@@ -32,8 +32,10 @@ namespace CatapultGames.Editor
         [MenuItem("CatapultGames/Build Menu Scenes", priority = 21)]
         public static void Build()
         {
-            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
-            if (!Directory.Exists(SceneFolder)) Directory.CreateDirectory(SceneFolder);
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                return;
+            if (!Directory.Exists(SceneFolder))
+                Directory.CreateDirectory(SceneFolder);
 
             BuildMainMenu();
             BuildLevelSelect();
@@ -48,7 +50,6 @@ namespace CatapultGames.Editor
                 "OK");
         }
 
-        // ── MainMenu ──────────────────────────────────────────────────────
         private static void BuildMainMenu()
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -79,17 +80,16 @@ namespace CatapultGames.Editor
             select.GetComponentInChildren<TextMeshProUGUI>().fontSize = 48;
 
             var ui = canvasGo.AddComponent<MainMenuUI>();
-            GameplaySceneBuilder.SetRef(ui, "_playButton",        play);
-            GameplaySceneBuilder.SetRef(ui, "_playLabel",         playLabel);
-            GameplaySceneBuilder.SetRef(ui, "_levelSelectButton", select);
-            GameplaySceneBuilder.SetRef(ui, "_progressLabel",     progress.GetComponent<TextMeshProUGUI>());
-            GameplaySceneBuilder.SetStr(ui, "_gameplayScene",     GameplaySceneBuilder.SceneName);
-            GameplaySceneBuilder.SetStr(ui, "_levelSelectScene",  LevelSelectSceneName);
+            GameplaySceneBuilder.SetRef(ui, "playButton",        play);
+            GameplaySceneBuilder.SetRef(ui, "playLabel",         playLabel);
+            GameplaySceneBuilder.SetRef(ui, "levelSelectButton", select);
+            GameplaySceneBuilder.SetRef(ui, "progressLabel",     progress.GetComponent<TextMeshProUGUI>());
+            GameplaySceneBuilder.SetStr(ui, "gameplayScene",     GameplaySceneBuilder.SceneName);
+            GameplaySceneBuilder.SetStr(ui, "levelSelectScene",  LevelSelectSceneName);
 
             EditorSceneManager.SaveScene(scene, MainMenuPath);
         }
 
-        // ── LevelSelect ───────────────────────────────────────────────────
         // Title, a vertically scrolling grid of level tiles (LevelSelectUI fills it
         // at runtime), and a Back button.
         private static void BuildLevelSelect()
@@ -148,15 +148,14 @@ namespace CatapultGames.Editor
             back.GetComponentInChildren<TextMeshProUGUI>().fontSize = 48;
 
             var ui = canvasGo.AddComponent<LevelSelectUI>();
-            GameplaySceneBuilder.SetRef(ui, "_buttonContainer", content);
-            GameplaySceneBuilder.SetRef(ui, "_backButton",      back);
-            GameplaySceneBuilder.SetStr(ui, "_gameplayScene",   GameplaySceneBuilder.SceneName);
-            GameplaySceneBuilder.SetStr(ui, "_mainMenuScene",   MainMenuSceneName);
+            GameplaySceneBuilder.SetRef(ui, "buttonContainer", content);
+            GameplaySceneBuilder.SetRef(ui, "backButton",      back);
+            GameplaySceneBuilder.SetStr(ui, "gameplayScene",   GameplaySceneBuilder.SceneName);
+            GameplaySceneBuilder.SetStr(ui, "mainMenuScene",   MainMenuSceneName);
 
             EditorSceneManager.SaveScene(scene, LevelSelectPath);
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────
         // A plain camera only to clear the screen; the menus are all overlay UI.
         private static void MakeCamera()
         {
@@ -202,7 +201,8 @@ namespace CatapultGames.Editor
                 new EditorBuildSettingsScene(LevelSelectPath, true),
             };
             foreach (var s in EditorBuildSettings.scenes)
-                if (s.path != MainMenuPath && s.path != LevelSelectPath) ordered.Add(s);
+                if (s.path != MainMenuPath && s.path != LevelSelectPath)
+                    ordered.Add(s);
             EditorBuildSettings.scenes = ordered.ToArray();
         }
     }

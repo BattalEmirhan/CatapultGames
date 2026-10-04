@@ -9,7 +9,7 @@ namespace CatapultGames
     // Backward-compatible: levels saved before this field existed simply load with
     // these defaults (which match the values GameplaySceneBuilder used).
     [Serializable]
-    public class CameraConfig
+    public sealed class CameraConfig
     {
         // Defaults are the "flat board" framing of a casual block puzzle: steep tilt
         // so the grid reads like a 2D board, sitting in the upper two thirds with

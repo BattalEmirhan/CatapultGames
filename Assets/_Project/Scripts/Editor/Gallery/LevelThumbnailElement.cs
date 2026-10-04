@@ -28,12 +28,14 @@ namespace CatapultGames.Editor
             int n = Mathf.Max(0, _w * _h);
             _fill   = new Color[n];
             _target = new bool[n];
-            for (int i = 0; i < n; i++) _fill[i] = LevelCellPalette.EmptyCell;
+            for (int i = 0; i < n; i++)
+                _fill[i] = LevelCellPalette.EmptyCell;
 
             if (level?.cells != null)
                 foreach (var c in level.cells)
                 {
-                    if (c == null || c.gridX < 0 || c.gridY < 0 || c.gridX >= _w || c.gridY >= _h) continue;
+                    if (c == null || c.gridX < 0 || c.gridY < 0 || c.gridX >= _w || c.gridY >= _h)
+                        continue;
                     int i = c.gridY * _w + c.gridX;
                     _fill[i]   = LevelCellPalette.Resolve(c.outlineColor, c.cellType);
                     _target[i] = c.outlineColor != CellColor.None || c.cellType == CellType.Stone;
@@ -43,10 +45,12 @@ namespace CatapultGames.Editor
 
         private void OnGenerateVisualContent(MeshGenerationContext ctx)
         {
-            if (_w == 0 || _h == 0) return;
+            if (_w == 0 || _h == 0)
+                return;
             var r = contentRect;
             float cell = Mathf.Floor(Mathf.Min(r.width / _w, r.height / _h));
-            if (cell < 1f) return;
+            if (cell < 1f)
+                return;
             float ox = (r.width  - cell * _w) * 0.5f;
             float oy = (r.height - cell * _h) * 0.5f;
             float gap = cell >= 6f ? 1f : 0f;

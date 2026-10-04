@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 
@@ -15,23 +14,44 @@ namespace CatapultGames
     // player did not pick stay where they are instead of shuffling every shot.
     //
     // Wire up in Inspector:
-    //   _queue          — BallQueue
-    //   _slots          — tray slot transforms, left → right (3)
-    //   _remainingLabel — optional UI text showing "+N" balls beyond the tray
-    public class BallQueueView : MonoBehaviour
+    //   queue          — BallQueue
+    //   slots          — tray slot transforms, left → right (3)
+    //   remainingLabel — optional UI text showing "+N" balls beyond the tray
+    public sealed class BallQueueView : MonoBehaviour
     {
-        [SerializeField] private BallQueue   _queue;
-        [SerializeField] private Transform[] _slots;
-        [SerializeField] private TMP_Text    _remainingLabel;   // optional
+        // A tray ball was picked (the tap that selects, not a throw). TutorialHint
+        // waits on it; gameplay itself reads the reordered queue instead.
+        public event System.Action<int> OnSlotSelected;
+
+        // Number of tray slots — the player's freedom of choice. PlayoutBoard
+        // mirrors this as SelectableSlots; keep them equal.
+        public int SlotCount => slots?.Length ?? 0;
+        public int SelectedSlot => _selectedSlot;
+
+        // Where the selected ball sits — the arc starts here (BallLauncher /
+        // AimPreview / TapLaunchController all ask, so the shot leaves the tray).
+        public Vector3 CurrentLaunchOrigin
+        {
+            get
+            {
+                if (_selectedSlot >= 0 && _selectedSlot < SlotCount && slots[_selectedSlot])
+                    return slots[_selectedSlot].position + Vector3.up * selectedLift;
+                return transform.position;
+            }
+        }
+
+        [SerializeField] private BallQueue   queue;
+        [SerializeField] private Transform[] slots;
+        [SerializeField] private TMP_Text    remainingLabel;   // optional
 
         [Header("Look")]
-        [SerializeField] private float _slotScale      = 0.85f;
-        [SerializeField] private float _selectedScale  = 1.10f;
-        [SerializeField] private float _selectedLift   = 0.30f;
-        [SerializeField] private float _refillDuration = 0.18f;
+        [SerializeField] private float slotScale      = 0.85f;
+        [SerializeField] private float selectedScale  = 1.10f;
+        [SerializeField] private float selectedLift   = 0.30f;
+        [SerializeField] private float refillDuration = 0.18f;
 
         [Tooltip("Tap radius around a tray ball, as a fraction of screen height.")]
-        [SerializeField] private float _pickRadiusScreenFraction = 0.07f;
+        [SerializeField] private float pickRadiusScreenFraction = 0.07f;
 
         private int[]        _slotOffset;   // queue offset shown in each slot, -1 = empty
         private BallData[]   _slotData;     // which BallData instance the slot's visual shows
@@ -43,45 +63,9 @@ namespace CatapultGames
         // OnChanged does not trigger a full rebuild that would reshuffle the tray.
         private bool _expectQueueChange;
         private bool _consumePending;
-
         private Transform _ring;
         private Material  _ringMat;
 
-        // Number of tray slots — the player's freedom of choice. PlayoutBoard
-        // mirrors this as SelectableSlots; keep them equal.
-        public int SlotCount => _slots?.Length ?? 0;
-
-        public int SelectedSlot => _selectedSlot;
-
-        // A tray ball was picked (the tap that selects, not a throw). TutorialHint
-        // waits on it; gameplay itself reads the reordered queue instead.
-        public event System.Action<int> OnSlotSelected;
-
-        // The ball shown in a tray slot and where it sits, for anything that has to
-        // point at the tray (the tutorial). False for an empty slot.
-        public bool TryGetSlotBall(int slot, out BallData ball, out Vector3 position)
-        {
-            ball = null; position = default;
-            if (_slots == null || slot < 0 || slot >= SlotCount || !_slots[slot]) return false;
-            if (_slotOffset == null || _slotOffset[slot] < 0 || _slotBalls[slot] == null) return false;
-            ball     = _slotData[slot];
-            position = _slots[slot].position;
-            return ball != null;
-        }
-
-        // Where the selected ball sits — the arc starts here (BallLauncher /
-        // AimPreview / TapLaunchController all ask, so the shot leaves the tray).
-        public Vector3 CurrentLaunchOrigin
-        {
-            get
-            {
-                if (_selectedSlot >= 0 && _selectedSlot < SlotCount && _slots[_selectedSlot])
-                    return _slots[_selectedSlot].position + Vector3.up * _selectedLift;
-                return transform.position;
-            }
-        }
-
-        // ── Lifecycle ─────────────────────────────────────────────────────
         private void Awake()
         {
             int n = SlotCount;
@@ -89,46 +73,149 @@ namespace CatapultGames
             _slotData   = new BallData[n];
             _slotBalls  = new BallVisual[n];
             _slotAnims  = new Coroutine[n];
-            for (int i = 0; i < n; i++) _slotOffset[i] = -1;
+            for (int i = 0; i < n; i++)
+                _slotOffset[i] = -1;
             BuildRing();
         }
 
         private void OnEnable()
         {
-            if (_queue == null) return;
-            _queue.OnBallConsumed += OnConsumed;
-            _queue.OnChanged      += OnQueueChanged;
-            _queue.OnColorCleared += OnColorCleared;
+            if (queue == null)
+                return;
+            queue.OnBallConsumed += OnConsumed;
+            queue.OnChanged      += OnQueueChanged;
+            queue.OnColorCleared += OnColorCleared;
             Rebuild();
-        }
-
-        private void OnDisable()
-        {
-            if (_queue == null) return;
-            _queue.OnBallConsumed -= OnConsumed;
-            _queue.OnChanged      -= OnQueueChanged;
-            _queue.OnColorCleared -= OnColorCleared;
-        }
-
-        private void OnDestroy()
-        {
-            if (_ringMat) Destroy(_ringMat);
         }
 
         // Self-heal: if the selected slot has no ball while balls remain, the
         // mapping drifted (an event missed mid-animation) — rebuild it.
         private void LateUpdate()
         {
-            if (_queue == null || _queue.IsEmpty) return;
+            if (queue == null || queue.IsEmpty)
+                return;
             if (_selectedSlot < 0 || _slotOffset[_selectedSlot] != 0 || _slotBalls[_selectedSlot] == null)
                 Rebuild();
         }
 
-        // ── Queue events ──────────────────────────────────────────────────
+        private void OnDisable()
+        {
+            if (queue == null)
+                return;
+            queue.OnBallConsumed -= OnConsumed;
+            queue.OnChanged      -= OnQueueChanged;
+            queue.OnColorCleared -= OnColorCleared;
+        }
+
+        private void OnDestroy()
+        {
+            if (_ringMat)
+                Destroy(_ringMat);
+        }
+
+        // The ball shown in a tray slot and where it sits, for anything that has to
+        // point at the tray (the tutorial). False for an empty slot.
+        public bool TryGetSlotBall(int slot, out BallData ball, out Vector3 position)
+        {
+            ball = null; position = default;
+            if (slots == null || slot < 0 || slot >= SlotCount || !slots[slot])
+                return false;
+            if (_slotOffset == null || _slotOffset[slot] < 0 || _slotBalls[slot] == null)
+                return false;
+            ball     = _slotData[slot];
+            position = slots[slot].position;
+            return ball != null;
+        }
+
+        // Which tray slot, if any, is under a screen point. Screen-space distance
+        // rather than a raycast: there are no colliders anywhere by design, and a
+        // tap radius is a better touch target than a ball's silhouette anyway.
+        public bool TryPickSlot(Vector2 screenPos, Camera cam, out int slot)
+        {
+            slot = -1;
+            if (cam == null || slots == null)
+                return false;
+
+            float radius  = Screen.height * Mathf.Max(0.01f, pickRadiusScreenFraction);
+            float bestSqr = radius * radius;
+            for (int i = 0; i < SlotCount; i++)
+            {
+                if (!slots[i] || _slotBalls[i] == null)
+                    continue;
+                Vector3 sp = cam.WorldToScreenPoint(slots[i].position);
+                if (sp.z <= 0f)
+                    continue;
+                float sqr = ((Vector2)sp - screenPos).sqrMagnitude;
+                if (sqr < bestSqr)
+                {
+                    bestSqr = sqr;
+                    slot = i;
+                }
+            }
+            return slot >= 0;
+        }
+
+        // True when a screen point is over the tray band — used to cancel an aim
+        // by dragging the finger back down onto the tray.
+        public bool IsOverTray(Vector2 screenPos, Camera cam)
+        {
+            if (cam == null || SlotCount == 0)
+                return false;
+            float radius = Screen.height * Mathf.Max(0.01f, pickRadiusScreenFraction) * 1.4f;
+            for (int i = 0; i < SlotCount; i++)
+            {
+                if (!slots[i])
+                    continue;
+                Vector3 sp = cam.WorldToScreenPoint(slots[i].position);
+                if (sp.z > 0f && Mathf.Abs(sp.y - screenPos.y) < radius)
+                    return true;
+            }
+            return false;
+        }
+
+        // Make a tray slot the current ball. Reorders the queue underneath and
+        // fixes up the other slots' offsets so they keep showing the same balls.
+        public bool Select(int slot)
+        {
+            if (queue == null || slot < 0 || slot >= SlotCount)
+                return false;
+            int q = _slotOffset[slot];
+            if (q < 0)
+                return false;
+            if (q == 0)
+            {
+                _selectedSlot = slot;
+                RefreshLook();
+                OnSlotSelected?.Invoke(slot);
+                return true;
+            }
+
+            _expectQueueChange = true;
+            bool ok = queue.SelectSlot(q);
+            _expectQueueChange = false;
+            if (!ok)
+                return false;
+
+            for (int t = 0; t < SlotCount; t++)
+                if (t != slot && _slotOffset[t] >= 0 && _slotOffset[t] < q)
+                    _slotOffset[t]++;
+            _slotOffset[slot] = 0;
+            _selectedSlot     = slot;
+            RefreshLook();
+            OnSlotSelected?.Invoke(slot);
+            return true;
+        }
+
         private void OnQueueChanged()
         {
-            if (_expectQueueChange) return;          // our own SelectSlot — mapping already updated
-            if (_consumePending) { _consumePending = false; AfterConsume(); return; }
+            if (_expectQueueChange)
+                return;          // our own SelectSlot — mapping already updated
+            if (_consumePending)
+            {
+                _consumePending = false;
+                AfterConsume();
+                return;
+            }
             Rebuild();                                // Load / Restore / purge — start fresh
         }
 
@@ -138,7 +225,8 @@ namespace CatapultGames
         {
             if (_selectedSlot >= 0 && _selectedSlot < SlotCount)
             {
-                if (_slotBalls[_selectedSlot]) Destroy(_slotBalls[_selectedSlot].gameObject);
+                if (_slotBalls[_selectedSlot])
+                    Destroy(_slotBalls[_selectedSlot].gameObject);
                 _slotBalls[_selectedSlot] = null;
                 _slotData[_selectedSlot]  = null;
             }
@@ -153,25 +241,31 @@ namespace CatapultGames
             int n = SlotCount;
             for (int i = 0; i < n; i++)
             {
-                if (_slotOffset[i] == 0)     _slotOffset[i] = -1;
-                else if (_slotOffset[i] > 0) _slotOffset[i]--;
+                if (_slotOffset[i] == 0)
+                    _slotOffset[i] = -1;
+                else if (_slotOffset[i] > 0)
+                    _slotOffset[i]--;
             }
             for (int i = 0; i < n; i++)
-                if (_slotOffset[i] < 0) _slotOffset[i] = NextFreeOffset();
+                if (_slotOffset[i] < 0)
+                    _slotOffset[i] = NextFreeOffset();
             _selectedSlot = SlotWithOffset(0);
             RefreshLook();
         }
 
         private int NextFreeOffset()
         {
-            for (int q = 0; q < _queue.Remaining; q++)
-                if (SlotWithOffset(q) < 0) return q;
+            for (int q = 0; q < queue.Remaining; q++)
+                if (SlotWithOffset(q) < 0)
+                    return q;
             return -1;
         }
 
         private int SlotWithOffset(int q)
         {
-            for (int i = 0; i < SlotCount; i++) if (_slotOffset[i] == q) return i;
+            for (int i = 0; i < SlotCount; i++)
+                if (_slotOffset[i] == q)
+                    return i;
             return -1;
         }
 
@@ -184,7 +278,8 @@ namespace CatapultGames
             for (int i = 0; i < SlotCount; i++)
             {
                 var bv = _slotBalls[i];
-                if (bv == null || bv.BallColor != color) continue;
+                if (bv == null || bv.BallColor != color)
+                    continue;
                 bv.PlayFireworkAndDestroy(popped * 0.08f);
                 _slotBalls[i] = null;
                 _slotData[i]  = null;
@@ -193,84 +288,24 @@ namespace CatapultGames
 
             // Balls queued beyond the tray have no visual; spawn stand-ins so the
             // whole batch pops as one volley, from the tray's far end.
-            Vector3 spawnPos = SlotCount > 0 && _slots[SlotCount - 1] ? _slots[SlotCount - 1].position : transform.position;
+            Vector3 spawnPos = SlotCount > 0 && slots[SlotCount - 1] ? slots[SlotCount - 1].position : transform.position;
             for (int i = popped; i < removed; i++)
             {
-                var bv = BallVisual.Create(transform, color, 1, BallShape.Square, _slotScale);
+                var bv = BallVisual.Create(transform, color, 1, BallShape.Square, slotScale);
                 bv.transform.position = spawnPos;
                 bv.PlayFireworkAndDestroy(i * 0.08f);
             }
         }
 
-        // ── Selection ─────────────────────────────────────────────────────
-        // Which tray slot, if any, is under a screen point. Screen-space distance
-        // rather than a raycast: there are no colliders anywhere by design, and a
-        // tap radius is a better touch target than a ball's silhouette anyway.
-        public bool TryPickSlot(Vector2 screenPos, Camera cam, out int slot)
-        {
-            slot = -1;
-            if (cam == null || _slots == null) return false;
-
-            float radius  = Screen.height * Mathf.Max(0.01f, _pickRadiusScreenFraction);
-            float bestSqr = radius * radius;
-            for (int i = 0; i < SlotCount; i++)
-            {
-                if (!_slots[i] || _slotBalls[i] == null) continue;
-                Vector3 sp = cam.WorldToScreenPoint(_slots[i].position);
-                if (sp.z <= 0f) continue;
-                float sqr = ((Vector2)sp - screenPos).sqrMagnitude;
-                if (sqr < bestSqr) { bestSqr = sqr; slot = i; }
-            }
-            return slot >= 0;
-        }
-
-        // True when a screen point is over the tray band — used to cancel an aim
-        // by dragging the finger back down onto the tray.
-        public bool IsOverTray(Vector2 screenPos, Camera cam)
-        {
-            if (cam == null || SlotCount == 0) return false;
-            float radius = Screen.height * Mathf.Max(0.01f, _pickRadiusScreenFraction) * 1.4f;
-            for (int i = 0; i < SlotCount; i++)
-            {
-                if (!_slots[i]) continue;
-                Vector3 sp = cam.WorldToScreenPoint(_slots[i].position);
-                if (sp.z > 0f && Mathf.Abs(sp.y - screenPos.y) < radius) return true;
-            }
-            return false;
-        }
-
-        // Make a tray slot the current ball. Reorders the queue underneath and
-        // fixes up the other slots' offsets so they keep showing the same balls.
-        public bool Select(int slot)
-        {
-            if (_queue == null || slot < 0 || slot >= SlotCount) return false;
-            int q = _slotOffset[slot];
-            if (q < 0) return false;
-            if (q == 0) { _selectedSlot = slot; RefreshLook(); OnSlotSelected?.Invoke(slot); return true; }
-
-            _expectQueueChange = true;
-            bool ok = _queue.SelectSlot(q);
-            _expectQueueChange = false;
-            if (!ok) return false;
-
-            for (int t = 0; t < SlotCount; t++)
-                if (t != slot && _slotOffset[t] >= 0 && _slotOffset[t] < q) _slotOffset[t]++;
-            _slotOffset[slot] = 0;
-            _selectedSlot     = slot;
-            RefreshLook();
-            OnSlotSelected?.Invoke(slot);
-            return true;
-        }
-
-        // ── Rebuild / refresh ─────────────────────────────────────────────
         // Fresh mapping: slot i shows queue offset i. Visuals are only recreated
         // where the ball behind a slot actually changed.
         private void Rebuild()
         {
-            if (_queue == null || _slotOffset == null) return;
+            if (queue == null || _slotOffset == null)
+                return;
             for (int i = 0; i < SlotCount; i++)
-                _slotOffset[i] = i < _queue.Remaining ? i : -1;
-            _selectedSlot = _queue.IsEmpty ? -1 : 0;
+                _slotOffset[i] = i < queue.Remaining ? i : -1;
+            _selectedSlot = queue.IsEmpty ? -1 : 0;
             RefreshLook();
         }
 
@@ -279,63 +314,69 @@ namespace CatapultGames
             int shown = 0;
             for (int i = 0; i < SlotCount; i++)
             {
-                var data = _slotOffset[i] >= 0 ? _queue.Peek(_slotOffset[i]) : null;
-                if (data != null) shown++;
+                var data = _slotOffset[i] >= 0 ? queue.Peek(_slotOffset[i]) : null;
+                if (data != null)
+                    shown++;
 
                 // Recreate when the ball behind the slot changed, when the visual is
                 // missing, or when a booster mutated the ball in place (same reference,
                 // different look).
                 if (data != _slotData[i] || (data != null && (_slotBalls[i] == null || !_slotBalls[i].Matches(data))))
                 {
-                    if (_slotBalls[i]) Destroy(_slotBalls[i].gameObject);
+                    if (_slotBalls[i])
+                        Destroy(_slotBalls[i].gameObject);
                     _slotBalls[i] = null;
                     _slotData[i]  = data;
-                    if (data != null && _slots[i])
+                    if (data != null && slots[i])
                     {
-                        _slotBalls[i] = BallVisual.Create(_slots[i], data.color, data.powerLevel, data.shape, 1f);
+                        _slotBalls[i] = BallVisual.Create(slots[i], data.color, data.powerLevel, data.shape, 1f);
                         PopIn(i);
                     }
                 }
                 ApplySlotLook(i);
             }
 
-            if (_ring) _ring.gameObject.SetActive(_selectedSlot >= 0 && _slotBalls[_selectedSlot] != null);
-            if (_ring && _selectedSlot >= 0 && _slots[_selectedSlot])
-                _ring.position = _slots[_selectedSlot].position + Vector3.up * 0.02f;
+            if (_ring)
+                _ring.gameObject.SetActive(_selectedSlot >= 0 && _slotBalls[_selectedSlot] != null);
+            if (_ring && _selectedSlot >= 0 && slots[_selectedSlot])
+                _ring.position = slots[_selectedSlot].position + Vector3.up * 0.02f;
 
-            if (_remainingLabel)
+            if (remainingLabel)
             {
-                int hidden = Mathf.Max(0, _queue.Remaining - shown);
-                _remainingLabel.text = hidden > 0 ? $"+{hidden}" : "";
+                int hidden = Mathf.Max(0, queue.Remaining - shown);
+                remainingLabel.text = hidden > 0 ? $"+{hidden}" : "";
             }
         }
 
         private void ApplySlotLook(int i)
         {
             var bv = _slotBalls[i];
-            if (bv == null) return;
-            if (_slotAnims[i] != null) return;   // pop-in owns the scale until it ends
+            if (bv == null)
+                return;
+            if (_slotAnims[i] != null)
+                return;   // pop-in owns the scale until it ends
             bool sel = i == _selectedSlot;
-            bv.transform.localPosition = Vector3.up * (sel ? _selectedLift : 0f);
-            bv.transform.localScale    = Vector3.one * (sel ? _selectedScale : _slotScale);
+            bv.transform.localPosition = Vector3.up * (sel ? selectedLift : 0f);
+            bv.transform.localScale    = Vector3.one * (sel ? selectedScale : slotScale);
         }
 
         private void PopIn(int i)
         {
-            if (_slotAnims[i] != null) StopCoroutine(_slotAnims[i]);
+            if (_slotAnims[i] != null)
+                StopCoroutine(_slotAnims[i]);
             _slotAnims[i] = StartCoroutine(PopInRoutine(i));
         }
 
         private IEnumerator PopInRoutine(int i)
         {
             float t = 0f;
-            while (t < _refillDuration && _slotBalls[i])
+            while (t < refillDuration && _slotBalls[i])
             {
-                float k = t / _refillDuration;
+                float k = t / refillDuration;
                 float s = 1f + 0.35f * Mathf.Sin(k * Mathf.PI);   // overshoot then settle
                 bool sel = i == _selectedSlot;
-                _slotBalls[i].transform.localScale    = Vector3.one * (sel ? _selectedScale : _slotScale) * Mathf.Lerp(0.2f, 1f, k) * s;
-                _slotBalls[i].transform.localPosition = Vector3.up * (sel ? _selectedLift : 0f);
+                _slotBalls[i].transform.localScale    = Vector3.one * (sel ? selectedScale : slotScale) * Mathf.Lerp(0.2f, 1f, k) * s;
+                _slotBalls[i].transform.localPosition = Vector3.up * (sel ? selectedLift : 0f);
                 t += Time.deltaTime;
                 yield return null;
             }

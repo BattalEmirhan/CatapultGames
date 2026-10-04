@@ -19,18 +19,18 @@ namespace CatapultGames
     // canvas, like ResultScreenUI.
     //
     // Wire up in Inspector:
-    //   _button      — the Button itself
-    //   _gameManager — GameManager (owns the undo)
-    public class UndoButtonUI : MonoBehaviour
+    //   button      — the Button itself
+    //   gameManager — GameManager (owns the undo)
+    public sealed class UndoButtonUI : MonoBehaviour
     {
-        [SerializeField] private Button      _button;
-        [SerializeField] private GameManager _gameManager;
+        [SerializeField] private Button      button;
+        [SerializeField] private GameManager gameManager;
 
         private bool _visible = true;
 
         private void Awake()
         {
-            if (_button != null && _button.gameObject == gameObject)
+            if (button != null && button.gameObject == gameObject)
             {
                 Debug.LogError("[UndoButtonUI] Must live on a different GameObject than the " +
                                "button it hides, or it will deactivate itself and stop updating.",
@@ -39,27 +39,31 @@ namespace CatapultGames
                 return;
             }
 
-            if (_button) _button.onClick.AddListener(OnClick);
+            if (button)
+                button.onClick.AddListener(OnClick);
             Apply(false);   // nothing to undo before the first shot lands
-        }
-
-        private void OnDestroy()
-        {
-            if (_button) _button.onClick.RemoveListener(OnClick);
         }
 
         private void Update()
         {
-            Apply(_gameManager != null && _gameManager.CanUndo);
+            Apply(gameManager != null && gameManager.CanUndo);
         }
 
-        private void OnClick() => _gameManager?.UndoLastShot();
+        private void OnDestroy()
+        {
+            if (button)
+                button.onClick.RemoveListener(OnClick);
+        }
+
+        private void OnClick() => gameManager?.UndoLastShot();
 
         private void Apply(bool visible)
         {
-            if (visible == _visible) return;
+            if (visible == _visible)
+                return;
             _visible = visible;
-            if (_button) _button.gameObject.SetActive(visible);
+            if (button)
+                button.gameObject.SetActive(visible);
         }
     }
 }

@@ -1,11 +1,9 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace CatapultGames
 {
     public static class GameConstants
     {
-        // ── Gravity ───────────────────────────────────────────────────────
         // The one and only downward acceleration in the game. Two consumers read
         // it and they must never disagree, or the aim preview stops matching
         // where the ball really lands:
@@ -30,6 +28,40 @@ namespace CatapultGames
         // landing cell always matches where the ball actually lands.
         public const int   TrajectorySteps    = 96;
         public const float TrajectoryTimeStep = 0.04f;
+
+        // (2026-09-15) The "stone shadows the cells behind it" reach rule was
+        // removed with it: a Stone is now just a hole the stamp paints around.
+        // Two questions remain — shape (GetPaintedCells) and match (ColorMatches).
+
+        // One shot's payout, kept here with the painting rules because it is a rule
+        // about the same thing: how much a stamp landing well is worth. GameManager
+        // owns the running total, BallLauncher only reports the cell count.
+        public const int PointsPerCell = 10;
+
+        // Consecutive shots that painted something. Capped so a long level cannot
+        // run away with the score, and reset by the first wasted ball.
+        public const int MaxComboMultiplier = 5;
+
+        // Readability palette (2026-10-04): seven fully saturated hues spread round
+        // the colour wheel — red, green, blue, orange, yellow, cyan, magenta.
+        // Tuned by measured CIELAB distance: the closest pair (red/orange) is ΔE 52
+        // for filled cubes. The pastel set before it had pairs at ΔE 36 (sky/navy,
+        // coral/pink) and was the "can't tell them apart" problem. Empty cells show
+        // these through CellView's wash, kept light for the same reason. The enum NAMES are legacy identifiers kept for JSON compatibility;
+        // what the player sees is GetColorDisplayName. Index == (int)CellColor —
+        // never reorder.
+        public static readonly Color32[] CellColorPalette = new Color32[]
+        {
+            new Color32(  0,   0,   0,   0),  // None    (transparent)
+            new Color32(230,  25,  55, 255),  // Red     → red
+            new Color32( 35, 200,  70, 255),  // Green   → green
+            new Color32( 35,  80, 240, 255),  // Blue    → blue
+            new Color32(255, 135,   0, 255),  // Black   → orange
+            new Color32(255, 230,  20, 255),  // White   → yellow
+            new Color32(  0, 210, 235, 255),  // Pink    → cyan
+            new Color32(230,  40, 220, 255),  // Purple  → pink (magenta)
+            new Color32(250, 250, 252, 255),  // Any     → rainbow ball base (BallVisual cycles real tiles)
+        };
 
         // Square stamps are ODD-sized and CENTRED on the aimed cell:
         //   Power 1 → 1x1, Power 2 → 3x3, Power 3 → 5x5.
@@ -71,20 +103,6 @@ namespace CatapultGames
             return result;
         }
 
-        // ── Non-square stamp sizing ───────────────────────────────────────
-        // Runs (Line / Column) are odd-length so they centre on the aimed cell;
-        // Plus / Diagonal grow by arm length. Both scale with powerLevel, which is
-        // what keeps the power buttons meaningful for every shape except L.
-        private static int GetRunLength(int powerLevel) => powerLevel switch
-        {
-            1 => 3, 2 => 5, 3 => 7, _ => 1
-        };
-
-        private static int GetArmLength(int powerLevel) => powerLevel switch
-        {
-            1 => 1, 2 => 2, 3 => 3, _ => 0
-        };
-
         // Shape-aware paint footprint — the single place a stamp's shape is decided.
         // Everything downstream (PaintingSystem, AimPreview, CoverageAnalyzer,
         // LevelValidator, LevelAutoSolver) reads it through here, so a new shape only
@@ -105,6 +123,102 @@ namespace CatapultGames
                 _                  => GetPaintedCells(landX, landY, power)
             };
         }
+
+        // How many cells a ball paints at most — square area, or the L's two full grid
+        // edges (W + H - 1). Shape-aware.
+        //
+        // This is the stamp's SIZE, not what it would paint on a real board: a 4x4
+        // stamp dropped on a one-row stripe covers 4 cells, not 16. Do not use it to
+        // judge whether a level is completable — CoverageAnalyzer does that against
+        // the actual cells.
+        public static int GetPaintCellCount(BallData ball, int gridW, int gridH)
+        {
+            int power = ball?.powerLevel ?? 1;
+
+            return (ball?.shape ?? BallShape.Square) switch
+            {
+                BallShape.L        => gridW + gridH - 1,
+                BallShape.Line     => GetRunLength(power),
+                BallShape.Column   => GetRunLength(power),
+                BallShape.Plus     => 4 * GetArmLength(power) + 1,
+                BallShape.Diagonal => 4 * GetArmLength(power) + 1,
+                _                  => GetPaintSize(power) * GetPaintSize(power)
+            };
+        }
+
+        // The questions a special cell answers, all in one place so that painting
+        // (PaintingSystem, live grid), analysis (CoverageAnalyzer, arrays) and the
+        // auto-solver can never drift apart on what a cell does.
+
+        // Does this ball's colour fill that cell? Joker takes any colour, Stone
+        // takes none, a bare board cell is not a target at all, and a Rainbow
+        // ball (CellColor.Any — the booster) matches every real target.
+        public static bool ColorMatches(CellColor cellColor, CellType cellType, CellColor ballColor)
+        {
+            if (cellType == CellType.Stone)
+                return false;
+            if (cellColor == CellColor.None)
+                return false;
+            if (ballColor == CellColor.None)
+                return false;
+            if (ballColor == CellColor.Any)
+                return true;
+            return cellType == CellType.Joker || cellColor == ballColor;
+        }
+
+        // Paint hits a cell swallows before it fills. Ice takes two — the first
+        // cracks it — so it costs paint without costing an extra cell.
+        public static int GetRequiredHits(CellType cellType) =>
+            cellType == CellType.Ice ? 2 : 1;
+
+        // A dense hit pays more per cell than the same cells spread over several
+        // shots — that is the whole reward for reading the board before firing.
+        public static int GetShotMultiplier(int cellsPainted) =>
+            cellsPainted >= 8 ? 4 :
+            cellsPainted >= 4 ? 3 :
+            cellsPainted >= 2 ? 2 : 1;
+
+        public static int GetComboMultiplier(int streak) =>
+            Mathf.Clamp(streak, 1, MaxComboMultiplier);
+
+        public static Color32 GetColor(CellColor c) => CellColorPalette[(int)c];
+
+        // What the player (and the level editor) calls each colour. The enum names
+        // are legacy ids — Black is orange, Pink is cyan — so every text that names
+        // a colour reads it here.
+        public static string GetColorDisplayName(CellColor c) => c switch
+        {
+            CellColor.Red    => "Red",
+            CellColor.Green  => "Green",
+            CellColor.Blue   => "Blue",
+            CellColor.Black  => "Orange",
+            CellColor.White  => "Yellow",
+            CellColor.Pink   => "Cyan",
+            CellColor.Purple => "Pink",
+            CellColor.Any    => "Rainbow",
+            CellColor.None   => "Empty",
+            _                => "",
+        };
+
+        // Same as GetColor but as a float Color (handy for VFX / materials).
+        public static Color GetColorF(CellColor c)
+        {
+            Color32 c32 = CellColorPalette[(int)c];
+            return new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f, c32.a / 255f);
+        }
+
+        // Runs (Line / Column) are odd-length so they centre on the aimed cell;
+        // Plus / Diagonal grow by arm length. Both scale with powerLevel, which is
+        // what keeps the power buttons meaningful for every shape except L.
+        private static int GetRunLength(int powerLevel) => powerLevel switch
+        {
+            1 => 3, 2 => 5, 3 => 7, _ => 1
+        };
+
+        private static int GetArmLength(int powerLevel) => powerLevel switch
+        {
+            1 => 1, 2 => 2, 3 => 3, _ => 0
+        };
 
         // A straight run centred on the landing cell, stepping by (dx, dy).
         private static Vector2Int[] GetRunCells(int landX, int landY, int powerLevel, int dx, int dy)
@@ -164,127 +278,17 @@ namespace CatapultGames
 
             var cells = new System.Collections.Generic.List<Vector2Int>(gridW + gridH);
             // Horizontal arm: from the bend along row landY out to the far edge.
-            for (int x = landX; ; x += sx) { cells.Add(new Vector2Int(x, landY)); if (x == endX) break; }
+            for (int x = landX; ; x += sx)
+            {
+                cells.Add(new Vector2Int(x, landY));
+                if (x == endX)
+                    break;
+            }
             // Vertical arm: from the cell above/below the bend out to the far edge
             // (the bend itself is already added above).
             for (int y = landY + sy; sy > 0 ? y <= endY : y >= endY; y += sy)
                 cells.Add(new Vector2Int(landX, y));
             return cells.ToArray();
-        }
-
-        // How many cells a ball paints at most — square area, or the L's two full grid
-        // edges (W + H - 1). Shape-aware.
-        //
-        // This is the stamp's SIZE, not what it would paint on a real board: a 4x4
-        // stamp dropped on a one-row stripe covers 4 cells, not 16. Do not use it to
-        // judge whether a level is completable — CoverageAnalyzer does that against
-        // the actual cells.
-        public static int GetPaintCellCount(BallData ball, int gridW, int gridH)
-        {
-            int power = ball?.powerLevel ?? 1;
-
-            return (ball?.shape ?? BallShape.Square) switch
-            {
-                BallShape.L        => gridW + gridH - 1,
-                BallShape.Line     => GetRunLength(power),
-                BallShape.Column   => GetRunLength(power),
-                BallShape.Plus     => 4 * GetArmLength(power) + 1,
-                BallShape.Diagonal => 4 * GetArmLength(power) + 1,
-                _                  => GetPaintSize(power) * GetPaintSize(power)
-            };
-        }
-
-        // ── Cell types: match and cost ────────────────────────────────────
-        // The questions a special cell answers, all in one place so that painting
-        // (PaintingSystem, live grid), analysis (CoverageAnalyzer, arrays) and the
-        // auto-solver can never drift apart on what a cell does.
-
-        // Does this ball's colour fill that cell? Joker takes any colour, Stone
-        // takes none, a bare board cell is not a target at all, and a Rainbow
-        // ball (CellColor.Any — the booster) matches every real target.
-        public static bool ColorMatches(CellColor cellColor, CellType cellType, CellColor ballColor)
-        {
-            if (cellType == CellType.Stone)     return false;
-            if (cellColor == CellColor.None)    return false;
-            if (ballColor == CellColor.None)    return false;
-            if (ballColor == CellColor.Any)     return true;
-            return cellType == CellType.Joker || cellColor == ballColor;
-        }
-
-        // Paint hits a cell swallows before it fills. Ice takes two — the first
-        // cracks it — so it costs paint without costing an extra cell.
-        public static int GetRequiredHits(CellType cellType) =>
-            cellType == CellType.Ice ? 2 : 1;
-
-        // (2026-09-15) The "stone shadows the cells behind it" reach rule was
-        // removed with it: a Stone is now just a hole the stamp paints around.
-        // Two questions remain — shape (GetPaintedCells) and match (ColorMatches).
-
-        // ── Scoring ───────────────────────────────────────────────────────
-        // One shot's payout, kept here with the painting rules because it is a rule
-        // about the same thing: how much a stamp landing well is worth. GameManager
-        // owns the running total, BallLauncher only reports the cell count.
-        public const int PointsPerCell = 10;
-
-        // A dense hit pays more per cell than the same cells spread over several
-        // shots — that is the whole reward for reading the board before firing.
-        public static int GetShotMultiplier(int cellsPainted) =>
-            cellsPainted >= 8 ? 4 :
-            cellsPainted >= 4 ? 3 :
-            cellsPainted >= 2 ? 2 : 1;
-
-        // Consecutive shots that painted something. Capped so a long level cannot
-        // run away with the score, and reset by the first wasted ball.
-        public const int MaxComboMultiplier = 5;
-
-        public static int GetComboMultiplier(int streak) =>
-            Mathf.Clamp(streak, 1, MaxComboMultiplier);
-
-        // Readability palette (2026-10-04): seven fully saturated hues spread round
-        // the colour wheel — red, green, blue, orange, yellow, cyan, magenta.
-        // Tuned by measured CIELAB distance: the closest pair (red/orange) is ΔE 52
-        // for filled cubes. The pastel set before it had pairs at ΔE 36 (sky/navy,
-        // coral/pink) and was the "can't tell them apart" problem. Empty cells show
-        // these through CellView's wash, kept light for the same reason. The enum NAMES are legacy identifiers kept for JSON compatibility;
-        // what the player sees is GetColorDisplayName. Index == (int)CellColor —
-        // never reorder.
-        public static readonly Color32[] CellColorPalette = new Color32[]
-        {
-            new Color32(  0,   0,   0,   0),  // None    (transparent)
-            new Color32(230,  25,  55, 255),  // Red     → red
-            new Color32( 35, 200,  70, 255),  // Green   → green
-            new Color32( 35,  80, 240, 255),  // Blue    → blue
-            new Color32(255, 135,   0, 255),  // Black   → orange
-            new Color32(255, 230,  20, 255),  // White   → yellow
-            new Color32(  0, 210, 235, 255),  // Pink    → cyan
-            new Color32(230,  40, 220, 255),  // Purple  → pink (magenta)
-            new Color32(250, 250, 252, 255),  // Any     → rainbow ball base (BallVisual cycles real tiles)
-        };
-
-        public static Color32 GetColor(CellColor c) => CellColorPalette[(int)c];
-
-        // What the player (and the level editor) calls each colour. The enum names
-        // are legacy ids — Black is orange, Pink is cyan — so every text that names
-        // a colour reads it here.
-        public static string GetColorDisplayName(CellColor c) => c switch
-        {
-            CellColor.Red    => "Red",
-            CellColor.Green  => "Green",
-            CellColor.Blue   => "Blue",
-            CellColor.Black  => "Orange",
-            CellColor.White  => "Yellow",
-            CellColor.Pink   => "Cyan",
-            CellColor.Purple => "Pink",
-            CellColor.Any    => "Rainbow",
-            CellColor.None   => "Empty",
-            _                => "",
-        };
-
-        // Same as GetColor but as a float Color (handy for VFX / materials).
-        public static Color GetColorF(CellColor c)
-        {
-            Color32 c32 = CellColorPalette[(int)c];
-            return new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f, c32.a / 255f);
         }
     }
 }

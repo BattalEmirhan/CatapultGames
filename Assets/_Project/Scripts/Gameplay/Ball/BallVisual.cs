@@ -10,22 +10,17 @@ namespace CatapultGames
     // reads the shape the way they read a piece in a block puzzle. The one
     // scaling rule keeps every body about the same overall size, so a 5x5 is a
     // finer grid rather than a bigger blob.
-    public class BallVisual : MonoBehaviour
+    public sealed class BallVisual : MonoBehaviour
     {
+        // The ball's logical color — lets owners (e.g. the tray) match a visual
+        // to a CellColor without re-querying the queue.
+        public CellColor BallColor { get; private set; }
+
         private Material _bodyMat;
         private Material _trailMat;
         private Color    _color;
         private int      _power;
         private BallShape _shape;
-
-        // The ball's logical color — lets owners (e.g. the tray) match a visual
-        // to a CellColor without re-querying the queue.
-        public CellColor BallColor { get; private set; }
-
-        // Does this visual still show that ball? A booster can recolour or reshape
-        // a ball in place; the tray uses this to know it must rebuild the body.
-        public bool Matches(BallData d) =>
-            d != null && d.color == BallColor && Mathf.Clamp(d.powerLevel, 1, 3) == _power && d.shape == _shape;
 
         // Rainbow (CellColor.Any) balls tint each block with a different palette
         // hue. Seven shared materials, built once and kept for the app's life —
@@ -33,20 +28,70 @@ namespace CatapultGames
         private static Material[] _rainbowMats;
         private int _rainbowIndex;
 
-        // ── Factory ───────────────────────────────────────────────────────
+        private void OnDestroy()
+        {
+            if (_bodyMat)
+                Destroy(_bodyMat);
+            if (_trailMat)
+                Destroy(_trailMat);
+        }
+
+        // Does this visual still show that ball? A booster can recolour or reshape
+        // a ball in place; the tray uses this to know it must rebuild the body.
+        public bool Matches(BallData d) =>
+            d != null && d.color == BallColor && Mathf.Clamp(d.powerLevel, 1, 3) == _power && d.shape == _shape;
+
         public static BallVisual Create(Transform parent, CellColor color,
                                         int powerLevel, BallShape shape = BallShape.Square,
                                         float baseScale = 1f)
         {
             var go = new GameObject("BallVisual");
-            if (parent != null) go.transform.SetParent(parent, false);
+            if (parent != null)
+                go.transform.SetParent(parent, false);
             go.transform.localPosition = Vector3.zero;
             var bv = go.AddComponent<BallVisual>();
             bv.Build(color, powerLevel, shape, baseScale);
             return bv;
         }
 
-        // ── Build ─────────────────────────────────────────────────────────
+        // Adds a fading colored streak behind the ball. Call right after Create()
+        // on the flying ball (not on tray balls).
+        public void EnableTrail(float width)
+        {
+            var go = new GameObject("Trail");
+            go.transform.SetParent(transform, false);
+
+            var tr = go.AddComponent<TrailRenderer>();
+            tr.time              = 0.22f;
+            tr.startWidth        = width;
+            tr.endWidth          = 0f;
+            tr.minVertexDistance = 0.04f;
+            tr.numCapVertices    = 4;
+            tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            tr.receiveShadows    = false;
+
+            var sh = Shader.Find("Sprites/Default")
+                  ?? Shader.Find("Universal Render Pipeline/Unlit")
+                  ?? Shader.Find("Unlit/Color");
+            _trailMat        = new Material(sh);
+            tr.sharedMaterial = _trailMat;
+
+            var grad = new Gradient();
+            grad.SetKeys(
+                new[] { new GradientColorKey(_color, 0f), new GradientColorKey(_color, 1f) },
+                new[] { new GradientAlphaKey(0.7f, 0f), new GradientAlphaKey(0f, 1f) });
+            tr.colorGradient = grad;
+        }
+
+        // Detaches the ball, rockets it up toward the top of the screen, then pops
+        // it with a colored firework burst. Used when a colour is fully painted and
+        // its leftover balls are no longer needed. `delay` staggers a volley.
+        public void PlayFireworkAndDestroy(float delay = 0f)
+        {
+            transform.SetParent(null, worldPositionStays: true);
+            StartCoroutine(FireworkRoutine(delay));
+        }
+
         private void Build(CellColor color, int powerLevel, BallShape shape, float baseScale)
         {
             _color    = GameConstants.GetColorF(color);
@@ -59,7 +104,8 @@ namespace CatapultGames
             _bodyMat = new Material(litShader) { color = _color };
             if (_bodyMat.HasProperty("_Smoothness"))
                 _bodyMat.SetFloat("_Smoothness", 0.25f);   // low gloss: keep the colour readable
-            if (color == CellColor.Any) EnsureRainbowMaterials(litShader);
+            if (color == CellColor.Any)
+                EnsureRainbowMaterials(litShader);
 
             // Overall footprint of the body, whatever the shape. Runs and crosses
             // get a little more room because they are long and thin.
@@ -82,12 +128,14 @@ namespace CatapultGames
 
         private static void EnsureRainbowMaterials(Shader shader)
         {
-            if (_rainbowMats != null && _rainbowMats.Length > 0 && _rainbowMats[0] != null) return;
+            if (_rainbowMats != null && _rainbowMats.Length > 0 && _rainbowMats[0] != null)
+                return;
             _rainbowMats = new Material[7];
             for (int i = 0; i < 7; i++)
             {
                 _rainbowMats[i] = new Material(shader) { color = GameConstants.GetColorF((CellColor)(i + 1)) };
-                if (_rainbowMats[i].HasProperty("_Smoothness")) _rainbowMats[i].SetFloat("_Smoothness", 0.25f);
+                if (_rainbowMats[i].HasProperty("_Smoothness"))
+                    _rainbowMats[i].SetFloat("_Smoothness", 0.25f);
             }
         }
 
@@ -173,49 +221,10 @@ namespace CatapultGames
             AddBlock(new Vector3( 0.5f * u, 0f, -0.5f * u), u);
         }
 
-        // ── Flight trail ──────────────────────────────────────────────────
-        // Adds a fading colored streak behind the ball. Call right after Create()
-        // on the flying ball (not on tray balls).
-        public void EnableTrail(float width)
-        {
-            var go = new GameObject("Trail");
-            go.transform.SetParent(transform, false);
-
-            var tr = go.AddComponent<TrailRenderer>();
-            tr.time              = 0.22f;
-            tr.startWidth        = width;
-            tr.endWidth          = 0f;
-            tr.minVertexDistance = 0.04f;
-            tr.numCapVertices    = 4;
-            tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            tr.receiveShadows    = false;
-
-            var sh = Shader.Find("Sprites/Default")
-                  ?? Shader.Find("Universal Render Pipeline/Unlit")
-                  ?? Shader.Find("Unlit/Color");
-            _trailMat        = new Material(sh);
-            tr.sharedMaterial = _trailMat;
-
-            var grad = new Gradient();
-            grad.SetKeys(
-                new[] { new GradientColorKey(_color, 0f), new GradientColorKey(_color, 1f) },
-                new[] { new GradientAlphaKey(0.7f, 0f), new GradientAlphaKey(0f, 1f) });
-            tr.colorGradient = grad;
-        }
-
-        // ── Firework (color-cleared celebration) ─────────────────────────
-        // Detaches the ball, rockets it up toward the top of the screen, then pops
-        // it with a colored firework burst. Used when a colour is fully painted and
-        // its leftover balls are no longer needed. `delay` staggers a volley.
-        public void PlayFireworkAndDestroy(float delay = 0f)
-        {
-            transform.SetParent(null, worldPositionStays: true);
-            StartCoroutine(FireworkRoutine(delay));
-        }
-
         private IEnumerator FireworkRoutine(float delay)
         {
-            if (delay > 0f) yield return new WaitForSeconds(delay);
+            if (delay > 0f)
+                yield return new WaitForSeconds(delay);
 
             EnableTrail(0.22f);   // rocket streak
 
@@ -233,9 +242,7 @@ namespace CatapultGames
                 target          = cam.ScreenToWorldPoint(new Vector3(tx, ty, sp.z));
             }
             else
-            {
                 target = start + Vector3.up * 6f;
-            }
 
             float dur = Random.Range(0.45f, 0.65f);
             float t   = 0f;
@@ -250,14 +257,8 @@ namespace CatapultGames
             transform.position = target;
 
             GameFX.Instance.Firework(target, _color);
-            GameAudio.Play(GameAudio.Sfx.Pop, Random.Range(0.85f, 1.2f));
+            GameAudio.Play(Sfx.Pop, Random.Range(0.85f, 1.2f));
             Destroy(gameObject);
-        }
-
-        private void OnDestroy()
-        {
-            if (_bodyMat)  Destroy(_bodyMat);
-            if (_trailMat) Destroy(_trailMat);
         }
     }
 }

@@ -6,7 +6,7 @@ namespace CatapultGames
     // FitToGrid() auto-positions based on fieldOfView + tiltAngle so the user
     // only has to tweak two Inspector sliders — no manual transform dragging.
     [RequireComponent(typeof(Camera))]
-    public class GridCameraController : MonoBehaviour
+    public sealed class GridCameraController : MonoBehaviour
     {
         [Tooltip("Vertical FOV in degrees.")]
         [Range(30f, 90f)] public float fieldOfView = 60f;
@@ -24,8 +24,6 @@ namespace CatapultGames
         private Camera  _cam;
         private Vector3 _offset;   // per-level manual nudge, applied after fit
         private void Awake() => _cam = GetComponent<Camera>();
-
-        // ── Public ────────────────────────────────────────────────────────
 
         // Apply a level's per-level camera settings, then frame the grid.
         public void FitToGrid(GridConfig grid, CameraConfig camCfg)

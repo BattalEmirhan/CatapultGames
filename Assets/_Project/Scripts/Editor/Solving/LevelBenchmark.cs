@@ -12,69 +12,23 @@ namespace CatapultGames.Editor
     // and a fixed base seed replays the whole sweep exactly.
     public static class LevelBenchmark
     {
-        public sealed class RunResult
-        {
-            public int            seed;
-            public PlayoutOutcome outcome;
-            public int            shots;
-            public int            wasted;
-            public int            ballsLeft;
-            public int            cellsLeft;
-        }
-
-        public sealed class BotStat
-        {
-            public string botId;
-            public int    runs;
-            public int    won, outOfBalls, deadEnd, unplayable;
-            public float  avgShots;       // over wins
-            public float  avgBallsLeft;   // over wins — the headroom the level gives
-            public float  avgWasted;      // over all runs
-            public readonly List<RunResult> details = new List<RunResult>();
-
-            public float WinRate        => runs > 0 ? (float)won        / runs : 0f;
-            public float OutOfBallsRate => runs > 0 ? (float)outOfBalls / runs : 0f;
-            public float DeadEndRate    => runs > 0 ? (float)deadEnd    / runs : 0f;
-            public float UnplayableRate => runs > 0 ? (float)unplayable / runs : 0f;
-        }
-
-        public sealed class LevelResult
-        {
-            public string name;
-            public int    number;
-            public int    targets;
-            public int    balls;
-            public LevelDifficulty    authored;
-            public MeasuredDifficulty measured;
-            public float  bandWinRate;
-            public bool   matches;
-            public BotStat bandStat;
-            public readonly List<BotStat> bots = new List<BotStat>();
-
-            public BotStat Stat(string botId)
-            {
-                foreach (var b in bots) if (b.botId == botId) return b;
-                return null;
-            }
-        }
-
         public static int Cost(int levels, int bots, int runs) => levels * bots * runs;
 
         // Returns null when the progress callback asked to cancel. Polled between
         // RUNS, not levels — one expensive bot on one level is a unit worth
         // cancelling in.
-        public static List<LevelResult> RunSweep(IList<(string name, LevelData level)> levels,
+        public static List<BenchmarkLevelResult> RunSweep(IList<(string name, LevelData level)> levels,
                                                  IReadOnlyList<ISolverBot> roster, int runs, int baseSeed,
                                                  Func<float, string, bool> onProgress)
         {
-            var results = new List<LevelResult>(levels.Count);
+            var results = new List<BenchmarkLevelResult>(levels.Count);
             int total = Cost(levels.Count, roster.Count, runs);
             int done  = 0;
 
             for (int li = 0; li < levels.Count; li++)
             {
                 var (name, level) = levels[li];
-                var res = new LevelResult
+                BenchmarkLevelResult res = new BenchmarkLevelResult
                 {
                     name     = name,
                     number   = EditorConstants.LevelNumberOf(name),
@@ -85,13 +39,13 @@ namespace CatapultGames.Editor
 
                 foreach (var bot in roster)
                 {
-                    var stat = new BotStat { botId = bot.Id, runs = runs };
+                    BotStat stat = new BotStat { botId = bot.Id, runs = runs };
                     float shotsSum = 0, leftSum = 0, wastedSum = 0;
 
                     for (int run = 0; run < runs; run++)
                     {
                         int seed = baseSeed + li * 100003 + run * 7919;
-                        var rr = PlayOne(level, bot, seed);
+                        BenchmarkRunResult rr = PlayOne(level, bot, seed);
                         stat.details.Add(rr);
                         switch (rr.outcome)
                         {
@@ -124,7 +78,7 @@ namespace CatapultGames.Editor
 
         // One full game: bot throws until the board says the run is over. The
         // queue is finite so the loop always terminates.
-        public static RunResult PlayOne(LevelData level, ISolverBot bot, int seed)
+        public static BenchmarkRunResult PlayOne(LevelData level, ISolverBot bot, int seed)
         {
             var rng   = new System.Random(seed);
             var board = PlayoutBoard.From(level);
@@ -140,7 +94,7 @@ namespace CatapultGames.Editor
                 outcome = board.Evaluate();
             }
 
-            return new RunResult
+            return new BenchmarkRunResult
             {
                 seed      = seed,
                 outcome   = outcome ?? PlayoutOutcome.OutOfBalls,

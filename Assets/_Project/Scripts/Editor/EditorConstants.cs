@@ -8,17 +8,6 @@ namespace CatapultGames.Editor
     // levels folder or renaming the layout asset is a one-line change.
     public static class EditorConstants
     {
-        // Levels live where the runtime loads them from (Resources/Levels) —
-        // there is no separate authoring format and no export step. See
-        // ARCHITECTURE.md § 9.
-        public const string LevelsAssetFolder = "Assets/Resources/Levels";
-        public const string LevelExtension    = ".json";
-
-        public const string EditorRoot           = "Assets/_Project/Scripts/Editor";
-        public const string LevelEditorLayoutPath = EditorRoot + "/UI/LevelEditorWindow.uxml";
-        public const string LevelEditorStylePath  = EditorRoot + "/UI/LevelEditorWindow.uss";
-        public const string LevelGridStylePath    = EditorRoot + "/UI/LevelGridElement.uss";
-
         // Absolute path of the levels folder, created on first use so a fresh
         // checkout can save without a manual mkdir.
         public static string LevelsAbsoluteFolder
@@ -26,10 +15,21 @@ namespace CatapultGames.Editor
             get
             {
                 string dir = Path.Combine(Application.dataPath, "Resources", "Levels");
-                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                if (!Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
                 return dir;
             }
         }
+
+        // Levels live where the runtime loads them from (Resources/Levels) —
+        // there is no separate authoring format and no export step. See
+        // ARCHITECTURE.md § 9.
+        public const string LevelsAssetFolder = "Assets/Resources/Levels";
+        public const string LevelExtension    = ".json";
+        public const string EditorRoot           = "Assets/_Project/Scripts/Editor";
+        public const string LevelEditorLayoutPath = EditorRoot + "/UI/LevelEditorWindow.uxml";
+        public const string LevelEditorStylePath  = EditorRoot + "/UI/LevelEditorWindow.uss";
+        public const string LevelGridStylePath    = EditorRoot + "/UI/LevelGridElement.uss";
 
         // File name for level number n. Deliberately NOT zero-padded: the shipped
         // levels are already level1…level5, LevelLoader defaults to "level1", and

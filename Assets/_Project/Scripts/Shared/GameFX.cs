@@ -10,9 +10,8 @@ namespace CatapultGames
     // short-lived ParticleSystem configured in code that destroys itself when done.
     //
     // Also owns a lightweight camera shake driven off Camera.main.
-    public class GameFX : MonoBehaviour
+    public sealed class GameFX : MonoBehaviour
     {
-        private static GameFX _instance;
         public static GameFX Instance
         {
             get
@@ -28,30 +27,39 @@ namespace CatapultGames
             }
         }
 
-        private Material  _particleMat;
-        private Texture2D _particleTex;
-        private Material  _ringMat;       // shared by every shockwave ring (was 1 Material/ring)
-
-        private Transform _camT;
-        private Vector3   _camRest;
-        private Coroutine _shake;
-
         // Current camera shake displacement in WORLD space (Vector3.zero when not
         // shaking). Screen→world picking subtracts this so the aim stays put while
         // the view shakes. See TapLaunchController.
         public  Vector3 ShakeOffset { get; private set; }
+
         // Reads the offset without forcing the singleton to spawn (picking runs every
         // frame; we don't want a stray GameFX created just to read zero).
         public static Vector3 CurrentShakeOffset =>
             _instance != null ? _instance.ShakeOffset : Vector3.zero;
 
+        private static GameFX _instance;
+        private Material  _particleMat;
+        private Texture2D _particleTex;
+        private Material  _ringMat;       // shared by every shockwave ring (was 1 Material/ring)
+        private Transform _camT;
+        private Vector3   _camRest;
+        private Coroutine _shake;
         private Coroutine _zoom;
         private float     _camRestFov;
 
-        // ── Lifecycle ─────────────────────────────────────────────────────
+        // Freezes the game clock for a blink so a big hit lands with weight.
+        // Unscaled time, so the freeze itself is not frozen; never stacks — a
+        // second call while paused just re-arms the release.
+        private Coroutine _hitStop;
+        private float     _timeScaleBefore = 1f;
+
         private void Awake()
         {
-            if (_instance != null && _instance != this) { Destroy(gameObject); return; }
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
             _instance    = this;
             _particleTex = BuildSoftCircle();
             _particleMat = BuildParticleMaterial(_particleTex);
@@ -59,13 +67,15 @@ namespace CatapultGames
 
         private void OnDestroy()
         {
-            if (_instance == this) _instance = null;
-            if (_particleMat) Destroy(_particleMat);
-            if (_particleTex) Destroy(_particleTex);
-            if (_ringMat)     Destroy(_ringMat);
+            if (_instance == this)
+                _instance = null;
+            if (_particleMat)
+                Destroy(_particleMat);
+            if (_particleTex)
+                Destroy(_particleTex);
+            if (_ringMat)
+                Destroy(_ringMat);
         }
-
-        // ── Public effects ────────────────────────────────────────────────
 
         // Colored splash + small shake when a ball lands and paints.
         public void Impact(Vector3 pos, Color color)
@@ -114,56 +124,6 @@ namespace CatapultGames
         public void ImpactRing(Vector3 pos, Color color, float scale = 1f)
         {
             StartCoroutine(RingRoutine(pos + Vector3.up * 0.05f, color, Mathf.Clamp(scale, 0.6f, 2.2f)));
-        }
-
-        private IEnumerator RingRoutine(Vector3 center, Color color, float scale)
-        {
-            const int seg = 48;
-            var go = new GameObject("FX_Ring");
-            var lr = go.AddComponent<LineRenderer>();
-            lr.useWorldSpace     = true;
-            lr.loop              = true;
-            lr.positionCount     = seg;
-            lr.numCornerVertices = 2;
-            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            lr.sortingOrder      = 60;
-
-            if (_ringMat == null)
-            {
-                var sh = Shader.Find("Sprites/Default")
-                      ?? Shader.Find("Universal Render Pipeline/Unlit")
-                      ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
-                _ringMat = new Material(sh);
-            }
-            lr.sharedMaterial = _ringMat;
-
-            float dur = 0.30f;   // quicker shockwave (was 0.42)
-            float r0  = 0.15f * scale, r1 = 2.3f * scale;
-            float w0  = 0.20f * scale;
-            float t   = 0f;
-
-            while (t < dur)
-            {
-                float p = t / dur;
-                float r = Mathf.Lerp(r0, r1, Mathf.Sqrt(p));   // fast burst out, easing
-                float w = Mathf.Lerp(w0, 0f, p);
-                lr.startWidth = lr.endWidth = w;
-
-                Color c = Color.Lerp(Color.white, color, 0.5f);
-                c.a = 1f - p;
-                lr.startColor = lr.endColor = c;
-
-                for (int i = 0; i < seg; i++)
-                {
-                    float a = (i / (float)seg) * Mathf.PI * 2f;
-                    lr.SetPosition(i, center + new Vector3(Mathf.Cos(a) * r, 0f, Mathf.Sin(a) * r));
-                }
-
-                t += Time.deltaTime;
-                yield return null;
-            }
-
-            Destroy(go);   // _ringMat is shared — don't destroy it here
         }
 
         // Small color burst when an individual cell flips to "filled".
@@ -221,26 +181,13 @@ namespace CatapultGames
             ps.Play();
         }
 
-        // ── Hit-stop ──────────────────────────────────────────────────────
-        // Freezes the game clock for a blink so a big hit lands with weight.
-        // Unscaled time, so the freeze itself is not frozen; never stacks — a
-        // second call while paused just re-arms the release.
-        private Coroutine _hitStop;
-        private float     _timeScaleBefore = 1f;
-
         public void HitStop(float seconds)
         {
-            if (_hitStop != null) StopCoroutine(_hitStop);
-            else _timeScaleBefore = Time.timeScale;
+            if (_hitStop != null)
+                StopCoroutine(_hitStop);
+            else
+                _timeScaleBefore = Time.timeScale;
             _hitStop = StartCoroutine(HitStopRoutine(Mathf.Clamp(seconds, 0.01f, 0.25f)));
-        }
-
-        private IEnumerator HitStopRoutine(float seconds)
-        {
-            Time.timeScale = 0f;
-            yield return new WaitForSecondsRealtime(seconds);
-            Time.timeScale = _timeScaleBefore;
-            _hitStop = null;
         }
 
         // Celebration confetti rain on win.
@@ -296,22 +243,103 @@ namespace CatapultGames
             Shake(0.05f, 0.07f);
         }
 
-        // ── Camera shake ──────────────────────────────────────────────────
         public void Shake(float intensity, float duration)
         {
             if (_camT == null)
             {
                 var cam = Camera.main;
-                if (cam == null) return;
+                if (cam == null)
+                    return;
                 _camT = cam.transform;
             }
 
             // Capture the resting pose only when no shake is currently running,
             // so overlapping shakes don't accumulate drift.
-            if (_shake == null) _camRest = _camT.localPosition;
-            else                StopCoroutine(_shake);
+            if (_shake == null)
+                _camRest = _camT.localPosition;
+            else
+                StopCoroutine(_shake);
 
             _shake = StartCoroutine(ShakeRoutine(intensity, duration));
+        }
+
+        // Brief dolly-in on the main (perspective) camera, then back to rest.
+        public void ZoomPunch(float degrees)
+        {
+            var cam = Camera.main;
+            if (cam == null || cam.orthographic)
+                return;
+
+            if (_zoom == null)
+                _camRestFov = cam.fieldOfView;
+            else
+                StopCoroutine(_zoom);
+
+            _zoom = StartCoroutine(ZoomRoutine(cam, degrees));
+        }
+
+        // Spawns a self-destructing overlay canvas that flashes then fades out.
+        public void Flash(Color color, float maxAlpha = 0.5f, float duration = 0.35f)
+        {
+            StartCoroutine(FlashRoutine(color, maxAlpha, duration));
+        }
+
+        private IEnumerator RingRoutine(Vector3 center, Color color, float scale)
+        {
+            const int seg = 48;
+            var go = new GameObject("FX_Ring");
+            var lr = go.AddComponent<LineRenderer>();
+            lr.useWorldSpace     = true;
+            lr.loop              = true;
+            lr.positionCount     = seg;
+            lr.numCornerVertices = 2;
+            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            lr.sortingOrder      = 60;
+
+            if (_ringMat == null)
+            {
+                var sh = Shader.Find("Sprites/Default")
+                      ?? Shader.Find("Universal Render Pipeline/Unlit")
+                      ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
+                _ringMat = new Material(sh);
+            }
+            lr.sharedMaterial = _ringMat;
+
+            float dur = 0.30f;   // quicker shockwave (was 0.42)
+            float r0  = 0.15f * scale, r1 = 2.3f * scale;
+            float w0  = 0.20f * scale;
+            float t   = 0f;
+
+            while (t < dur)
+            {
+                float p = t / dur;
+                float r = Mathf.Lerp(r0, r1, Mathf.Sqrt(p));   // fast burst out, easing
+                float w = Mathf.Lerp(w0, 0f, p);
+                lr.startWidth = lr.endWidth = w;
+
+                Color c = Color.Lerp(Color.white, color, 0.5f);
+                c.a = 1f - p;
+                lr.startColor = lr.endColor = c;
+
+                for (int i = 0; i < seg; i++)
+                {
+                    float a = (i / (float)seg) * Mathf.PI * 2f;
+                    lr.SetPosition(i, center + new Vector3(Mathf.Cos(a) * r, 0f, Mathf.Sin(a) * r));
+                }
+
+                t += Time.deltaTime;
+                yield return null;
+            }
+
+            Destroy(go);   // _ringMat is shared — don't destroy it here
+        }
+
+        private IEnumerator HitStopRoutine(float seconds)
+        {
+            Time.timeScale = 0f;
+            yield return new WaitForSecondsRealtime(seconds);
+            Time.timeScale = _timeScaleBefore;
+            _hitStop = null;
         }
 
         private IEnumerator ShakeRoutine(float intensity, float duration)
@@ -334,19 +362,6 @@ namespace CatapultGames
             _shake = null;
         }
 
-        // ── Camera zoom punch ─────────────────────────────────────────────
-        // Brief dolly-in on the main (perspective) camera, then back to rest.
-        public void ZoomPunch(float degrees)
-        {
-            var cam = Camera.main;
-            if (cam == null || cam.orthographic) return;
-
-            if (_zoom == null) _camRestFov = cam.fieldOfView;
-            else               StopCoroutine(_zoom);
-
-            _zoom = StartCoroutine(ZoomRoutine(cam, degrees));
-        }
-
         private IEnumerator ZoomRoutine(Camera cam, float degrees)
         {
             const float dur = 0.24f;
@@ -361,13 +376,6 @@ namespace CatapultGames
             }
             cam.fieldOfView = _camRestFov;
             _zoom = null;
-        }
-
-        // ── Full-screen flash ─────────────────────────────────────────────
-        // Spawns a self-destructing overlay canvas that flashes then fades out.
-        public void Flash(Color color, float maxAlpha = 0.5f, float duration = 0.35f)
-        {
-            StartCoroutine(FlashRoutine(color, maxAlpha, duration));
         }
 
         private IEnumerator FlashRoutine(Color color, float maxAlpha, float duration)
@@ -397,7 +405,6 @@ namespace CatapultGames
             Destroy(go);
         }
 
-        // ── ParticleSystem builders ───────────────────────────────────────
         private ParticleSystem NewSystem(string name, Vector3 pos, float duration)
         {
             var go = new GameObject(name);
@@ -441,7 +448,8 @@ namespace CatapultGames
             sh.enabled   = true;
             sh.shapeType = type;
             sh.radius    = Mathf.Max(0.01f, radius);
-            if (scale != Vector3.zero) sh.scale = scale;
+            if (scale != Vector3.zero)
+                sh.scale = scale;
         }
 
         private static void FadeOut(ParticleSystem ps)
@@ -468,7 +476,6 @@ namespace CatapultGames
                 1f, new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 0.2f)));
         }
 
-        // ── Color helpers ─────────────────────────────────────────────────
         private static ParticleSystem.MinMaxGradient TintRange(Color c)
         {
             Color bright = Color.Lerp(c, Color.white, 0.35f);
@@ -494,7 +501,6 @@ namespace CatapultGames
             };
         }
 
-        // ── Material / texture ────────────────────────────────────────────
         private static Material BuildParticleMaterial(Texture2D tex)
         {
             // Sprites/Default is always present, alpha-blended, and respects the

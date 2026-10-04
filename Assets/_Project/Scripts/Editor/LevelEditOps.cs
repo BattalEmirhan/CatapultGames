@@ -18,10 +18,10 @@ namespace CatapultGames.Editor
     // (level1 ships 77 of 144 cells), so Normalize() runs on every load.
     public static class LevelEditOps
     {
-        // ── Normalisation ─────────────────────────────────────────────────
         public static void Normalize(LevelData level)
         {
-            if (level == null) return;
+            if (level == null)
+                return;
             level.grid   ??= new GridConfig();
             level.camera ??= new CameraConfig();
             level.metadata ??= new LevelMetadata();
@@ -36,8 +36,10 @@ namespace CatapultGames.Editor
             if (level.cells != null)
                 foreach (var c in level.cells)
                 {
-                    if (c == null) continue;
-                    if (c.gridX < 0 || c.gridX >= w || c.gridY < 0 || c.gridY >= h) continue;   // prune
+                    if (c == null)
+                        continue;
+                    if (c.gridX < 0 || c.gridX >= w || c.gridY < 0 || c.gridY >= h)
+                        continue;   // prune
                     arr[c.gridY * w + c.gridX] = c;
                 }
 
@@ -58,13 +60,13 @@ namespace CatapultGames.Editor
         // board — the one operation that changes the array's shape.
         public static void Resize(LevelData level, int w, int h)
         {
-            if (level == null) return;
+            if (level == null)
+                return;
             level.grid.width  = Mathf.Clamp(w, 1, 50);
             level.grid.height = Mathf.Clamp(h, 1, 50);
             Normalize(level);
         }
 
-        // ── Cell writes ───────────────────────────────────────────────────
         // A Stone carries no colour (it never paints, and a coloured one reads as
         // a target on the board), so painting Stone writes None regardless of the
         // swatch. A Joker with no colour is nothing — it has no colour to fill to
@@ -73,14 +75,16 @@ namespace CatapultGames.Editor
         {
             reason = null;
             var cell = Cell(level, x, y);
-            if (cell == null) return false;
+            if (cell == null)
+                return false;
 
             if (type == CellType.Joker && color == CellColor.None)
             {
                 reason = "A joker needs a colour to fill to — pick a colour first.";
                 return false;
             }
-            if (type == CellType.Stone) color = CellColor.None;
+            if (type == CellType.Stone)
+                color = CellColor.None;
 
             cell.outlineColor = color;
             cell.cellType     = type;
@@ -90,7 +94,8 @@ namespace CatapultGames.Editor
         public static void Erase(LevelData level, int x, int y)
         {
             var cell = Cell(level, x, y);
-            if (cell == null) return;
+            if (cell == null)
+                return;
             // Clears the type too — a bare cell with a leftover Stone flag would
             // still block stamps while looking like empty board.
             cell.outlineColor = CellColor.None;
@@ -103,8 +108,10 @@ namespace CatapultGames.Editor
             reason = null;
             int n = 0;
             foreach (var (x, y) in cells)
-                if (TryPaint(level, x, y, color, type, out reason)) n++;
-                else if (reason != null) return n;   // guard fired — stop, keep the reason
+                if (TryPaint(level, x, y, color, type, out reason))
+                    n++;
+                else if (reason != null)
+                    return n;   // guard fired — stop, keep the reason
             return n;
         }
 
@@ -121,7 +128,8 @@ namespace CatapultGames.Editor
             var list = new List<(int, int)>();
             for (int dy = -radius; dy <= radius; dy++)
             for (int dx = -radius; dx <= radius; dx++)
-                if (InBounds(level, cx + dx, cy + dy)) list.Add((cx + dx, cy + dy));
+                if (InBounds(level, cx + dx, cy + dy))
+                    list.Add((cx + dx, cy + dy));
             return PaintMany(level, list, color, type, out reason);
         }
 
@@ -132,8 +140,10 @@ namespace CatapultGames.Editor
         {
             reason = null;
             var start = Cell(level, sx, sy);
-            if (start == null) return 0;
-            if (start.outlineColor == color && start.cellType == type) return 0;
+            if (start == null)
+                return 0;
+            if (start.outlineColor == color && start.cellType == type)
+                return 0;
 
             // Guard once up front — a refused fill must not half-apply.
             if (type == CellType.Joker && color == CellColor.None)
@@ -159,9 +169,11 @@ namespace CatapultGames.Editor
                 for (int d = 0; d < 4; d++)
                 {
                     int nx = x + ddx[d], ny = y + ddy[d];
-                    if (visited.Contains((nx, ny))) continue;
+                    if (visited.Contains((nx, ny)))
+                        continue;
                     var nc = Cell(level, nx, ny);
-                    if (nc == null || nc.outlineColor != tc || nc.cellType != tt) continue;
+                    if (nc == null || nc.outlineColor != tc || nc.cellType != tt)
+                        continue;
                     visited.Add((nx, ny));
                     queue.Enqueue((nx, ny));
                 }
@@ -170,11 +182,11 @@ namespace CatapultGames.Editor
             return PaintMany(level, region, color, type, out reason);
         }
 
-        // ── Ball queue ────────────────────────────────────────────────────
         public static bool TryAddBalls(LevelData level, CellColor color, int power, BallShape shape, int count, out string reason)
         {
             reason = null;
-            if (level == null) return false;
+            if (level == null)
+                return false;
             if (color == CellColor.None)
             {
                 reason = "A ball needs a colour.";
@@ -189,7 +201,8 @@ namespace CatapultGames.Editor
 
         public static void RemoveBall(LevelData level, int index)
         {
-            if (level?.balls == null || index < 0 || index >= level.balls.Length) return;
+            if (level?.balls == null || index < 0 || index >= level.balls.Length)
+                return;
             var list = new List<BallData>(level.balls);
             list.RemoveAt(index);
             level.balls = list.ToArray();
@@ -198,16 +211,19 @@ namespace CatapultGames.Editor
         public static void MoveBall(LevelData level, int index, int delta)
         {
             var arr = level?.balls;
-            if (arr == null) return;
+            if (arr == null)
+                return;
             int j = index + delta;
-            if (index < 0 || index >= arr.Length || j < 0 || j >= arr.Length) return;
+            if (index < 0 || index >= arr.Length || j < 0 || j >= arr.Length)
+                return;
             (arr[index], arr[j]) = (arr[j], arr[index]);
         }
 
         public static void ShuffleBalls(LevelData level, System.Random rng)
         {
             var arr = level?.balls;
-            if (arr == null || arr.Length < 2) return;
+            if (arr == null || arr.Length < 2)
+                return;
             for (int i = arr.Length - 1; i > 0; i--)
             {
                 int j = rng.Next(i + 1);
@@ -217,10 +233,10 @@ namespace CatapultGames.Editor
 
         public static void ClearBalls(LevelData level)
         {
-            if (level != null) level.balls = new BallData[0];
+            if (level != null)
+                level.balls = new BallData[0];
         }
 
-        // ── Counts (for badges and the status line) ───────────────────────
         // Same rule the game counts progress by: Stone is scenery, bare board is
         // nothing. Keep in step with CellView.IsPaintTarget.
         public static bool IsPaintTarget(CellData c) =>
@@ -230,7 +246,9 @@ namespace CatapultGames.Editor
         {
             int n = 0;
             if (level?.cells != null)
-                foreach (var c in level.cells) if (IsPaintTarget(c)) n++;
+                foreach (var c in level.cells)
+                    if (IsPaintTarget(c))
+                        n++;
             return n;
         }
 
@@ -238,7 +256,9 @@ namespace CatapultGames.Editor
         {
             int n = 0;
             if (level?.cells != null)
-                foreach (var c in level.cells) if (c != null && c.cellType == type) n++;
+                foreach (var c in level.cells)
+                    if (c != null && c.cellType == type)
+                        n++;
             return n;
         }
 
@@ -246,7 +266,9 @@ namespace CatapultGames.Editor
         {
             var set = new HashSet<CellColor>();
             if (level?.cells != null)
-                foreach (var c in level.cells) if (IsPaintTarget(c)) set.Add(c.outlineColor);
+                foreach (var c in level.cells)
+                    if (IsPaintTarget(c))
+                        set.Add(c.outlineColor);
             return set.Count;
         }
     }

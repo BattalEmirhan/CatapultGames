@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,16 +6,14 @@ namespace CatapultGames
 {
     // Canvas-based level picker — works on mobile / Device Simulator via EventSystem.
     // Creates its own Screen Space Overlay canvas at Start() so it is self-contained.
-    // Wire _loader in Inspector (done by GameplaySceneBuilder).
-    public class LevelPickerHUD : MonoBehaviour
+    // Wire loader in Inspector (done by GameplaySceneBuilder).
+    public sealed class LevelPickerHUD : MonoBehaviour
     {
-        [SerializeField] private LevelLoader _loader;
+        [SerializeField] private LevelLoader loader;
 
-        // ── Runtime state ─────────────────────────────────────────────────
         private string[]    _names   = System.Array.Empty<string>();
         private string      _current = "";
 
-        // ── Built UI refs ─────────────────────────────────────────────────
         private GameObject        _listPanel;
         private Transform         _content;
         private TextMeshProUGUI   _toggleLabel;
@@ -25,7 +22,6 @@ namespace CatapultGames
         private const float RefW = 1080f;
         private const float RefH = 1920f;
 
-        // ── Lifecycle ─────────────────────────────────────────────────────
         private void Start()
         {
             EnsureEventSystem();
@@ -34,11 +30,19 @@ namespace CatapultGames
             UpdateToggleLabel();
         }
 
+        // Called by LevelLoader after each successful load
+        public void SetCurrent(string name)
+        {
+            _current = name;
+            UpdateToggleLabel();
+        }
+
         // Canvas buttons require an EventSystem. Create one if none exists so
         // the picker works even in scenes built before EventSystem was added.
         private static void EnsureEventSystem()
         {
-            if (FindObjectOfType<UnityEngine.EventSystems.EventSystem>() != null) return;
+            if (FindObjectOfType<UnityEngine.EventSystems.EventSystem>() != null)
+                return;
 
             var esGo = new GameObject("EventSystem");
             esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
@@ -52,17 +56,8 @@ namespace CatapultGames
             Debug.Log("[LevelPickerHUD] Created EventSystem automatically.");
         }
 
-        // Called by LevelLoader after each successful load
-        public void SetCurrent(string name)
-        {
-            _current = name;
-            UpdateToggleLabel();
-        }
-
-        // ── UI Construction ───────────────────────────────────────────────
         private void BuildUI()
         {
-            // ── Canvas ────────────────────────────────────────────────────
             var cgo     = new GameObject("LevelPickerCanvas");
             cgo.transform.SetParent(transform);
             var canvas  = cgo.AddComponent<Canvas>();
@@ -76,13 +71,11 @@ namespace CatapultGames
 
             cgo.AddComponent<GraphicRaycaster>();
 
-            // ── Safe area panel ───────────────────────────────────────────
             var safeGo  = new GameObject("SafeArea");
             safeGo.transform.SetParent(cgo.transform, false);
             safeGo.AddComponent<SafeAreaFitter>();
             // SafeAreaFitter will set correct anchors; keep offsets at zero
 
-            // ── Toggle button — top-right of safe area ────────────────────
             var btnGo    = new GameObject("LevelsToggle");
             btnGo.transform.SetParent(safeGo.transform, false);
 
@@ -117,7 +110,6 @@ namespace CatapultGames
             lblRT.offsetMin     = new Vector2(8f, 0f);
             lblRT.offsetMax     = new Vector2(-8f, 0f);
 
-            // ── List panel — below toggle button ──────────────────────────
             _listPanel = new GameObject("LevelList");
             _listPanel.transform.SetParent(safeGo.transform, false);
 
@@ -181,10 +173,10 @@ namespace CatapultGames
             PopulateList();
         }
 
-        // ── Populate list ─────────────────────────────────────────────────
         private void PopulateList()
         {
-            if (_content == null) return;
+            if (_content == null)
+                return;
 
             // Destroy existing rows
             foreach (Transform child in _content)
@@ -255,7 +247,6 @@ namespace CatapultGames
             }
         }
 
-        // ── Event handlers ────────────────────────────────────────────────
         private void TogglePanel()
         {
             bool open = !_listPanel.activeSelf;
@@ -270,22 +261,22 @@ namespace CatapultGames
 
         private void OnLevelSelected(string name)
         {
-            if (_loader == null)
+            if (loader == null)
             {
                 Debug.LogWarning("[LevelPickerHUD] _loader not assigned!");
                 return;
             }
-            _loader.LoadByName(name);
+            loader.LoadByName(name);
             _current = name;
             _listPanel.SetActive(false);
             UpdateToggleLabel();
             PopulateList();
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────
         private void UpdateToggleLabel()
         {
-            if (_toggleLabel == null) return;
+            if (_toggleLabel == null)
+                return;
             bool open  = _listPanel != null && _listPanel.activeSelf;
             string nm  = string.IsNullOrEmpty(_current) ? "Levels" : _current;
             _toggleLabel.text = open ? "[ Close ]" : $"v  {nm}";

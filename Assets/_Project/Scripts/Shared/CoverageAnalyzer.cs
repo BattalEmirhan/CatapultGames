@@ -38,102 +38,23 @@ namespace CatapultGames
         // player no room for a single misplaced stamp. Authoring-time warning.
         public const float TightHeadroom = 1.4f;
 
-        // ── Board snapshot ────────────────────────────────────────────────
-        // Everything paint has to know about a board, as flat arrays indexed
-        // y * width + x. Cells that need nothing (already filled, bare board,
-        // Stone) have hits == 0, which is the single test for "not a target".
-        public sealed class TargetBoard
-        {
-            public readonly int         width;
-            public readonly int         height;
-            public readonly CellColor[] colors;   // colour that fills this cell
-            public readonly byte[]      hits;     // hits still needed (Ice: 2)
-            public readonly bool[]      wild;     // Joker — any colour fills it
-            public readonly bool[]      stone;    // a hole — never painted
-
-            public TargetBoard(int w, int h)
-            {
-                width  = Mathf.Max(0, w);
-                height = Mathf.Max(0, h);
-                int n  = width * height;
-                colors = new CellColor[n];
-                hits   = new byte[n];
-                wild   = new bool[n];
-                stone  = new bool[n];
-            }
-
-            public int  Index(int x, int y)     => y * width + x;
-            public bool InBounds(int x, int y)  => x >= 0 && x < width && y >= 0 && y < height;
-
-            // Cells still waiting for paint — an Ice cell counts once here (it is
-            // one cell) but twice in TotalHits (it takes two balls' worth).
-            public int TargetCellCount()
-            {
-                int n = 0;
-                foreach (var h in hits) if (h > 0) n++;
-                return n;
-            }
-
-            public int TotalHits()
-            {
-                int n = 0;
-                foreach (var h in hits) n += h;
-                return n;
-            }
-
-            public void Set(int x, int y, CellColor color, CellType type)
-            {
-                if (!InBounds(x, y)) return;
-                int i = Index(x, y);
-
-                if (type == CellType.Stone)
-                {
-                    stone[i]  = true;
-                    colors[i] = CellColor.None;
-                    hits[i]   = 0;
-                    return;
-                }
-                if (color == CellColor.None) return;
-
-                colors[i] = color;
-                hits[i]   = (byte)GameConstants.GetRequiredHits(type);
-                wild[i]   = type == CellType.Joker;
-            }
-        }
-
-        public struct ColorCoverage
-        {
-            public CellColor color;
-            public bool      isWild;      // the Joker row — any colour pays for it
-            public int       required;    // paint hits still needed (Ice counts twice)
-            public int       ceiling;     // max hits this colour's balls could land
-            public int       ballCount;
-
-            // Proven unreachable: no placement of these balls covers those cells.
-            public bool Impossible => required > 0 && ceiling < required;
-
-            // Completable, but with no margin for a wasted stamp.
-            public bool Tight => required > 0 && !Impossible && ceiling < required * TightHeadroom;
-
-            // ceiling / required — 1.0 means "every stamp must be perfect".
-            public float Headroom => required > 0 ? (float)ceiling / required : float.PositiveInfinity;
-        }
-
-        // ── Board builders ────────────────────────────────────────────────
         public static TargetBoard BuildTargets(LevelData level)
         {
             int w = level?.grid?.width  ?? 0;
             int h = level?.grid?.height ?? 0;
-            var board = new TargetBoard(w, h);
+            TargetBoard board = new TargetBoard(w, h);
 
-            if (level?.cells == null) return board;
+            if (level?.cells == null)
+                return board;
 
             foreach (var c in level.cells)
             {
-                if (c == null) continue;
+                if (c == null)
+                    continue;
                 // An authored-filled cell is done. Stone is recorded either way so
                 // the board knows its holes (it is never a target).
-                if (c.isFilled && c.cellType != CellType.Stone) continue;
+                if (c.isFilled && c.cellType != CellType.Stone)
+                    continue;
                 board.Set(c.gridX, c.gridY, c.outlineColor, c.cellType);
             }
 
@@ -147,19 +68,21 @@ namespace CatapultGames
         {
             int w = grid != null ? grid.Width  : 0;
             int h = grid != null ? grid.Height : 0;
-            var board = new TargetBoard(w, h);
+            TargetBoard board = new TargetBoard(w, h);
 
             for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                if (!grid.TryGetCell(x, y, out var cell)) continue;
+                if (!grid.TryGetCell(x, y, out var cell))
+                    continue;
 
                 if (cell.Type == CellType.Stone)
                 {
                     board.stone[board.Index(x, y)] = true;
                     continue;
                 }
-                if (!cell.IsPaintTarget || cell.IsFilled) continue;
+                if (!cell.IsPaintTarget || cell.IsFilled)
+                    continue;
 
                 int i = board.Index(x, y);
                 board.colors[i] = cell.OutlineColor;
@@ -170,45 +93,6 @@ namespace CatapultGames
             return board;
         }
 
-        // ── Stamp walk ────────────────────────────────────────────────────
-        // One walk of one stamp at one placement: counts the cells that would take
-        // a hit, and optionally applies them. Measuring and applying share this
-        // walk, so a plan can never be measured by one rule and executed by another.
-        // Stone cells have hits == 0, so a stamp simply paints around them.
-        private static int Walk(TargetBoard b, BallData ball, int landX, int landY,
-                                bool wildOnly, bool apply,
-                                List<Vector2Int> hitInto, List<Vector2Int> filledInto)
-        {
-            if (b == null || ball == null || ball.color == CellColor.None) return 0;
-
-            bool rainbow = ball.color == CellColor.Any;   // booster ball: matches every colour
-            int count = 0;
-            foreach (var p in GameConstants.GetPaintedCells(landX, landY, ball, b.width, b.height))
-            {
-                if (!b.InBounds(p.x, p.y)) continue;
-
-                int i = b.Index(p.x, p.y);
-                if (b.hits[i] == 0) continue;                               // nothing to do here
-                if (wildOnly && !b.wild[i]) continue;
-                if (!b.wild[i] && !rainbow && b.colors[i] != ball.color) continue;
-
-                count++;
-                hitInto?.Add(p);
-                if (!apply) continue;
-
-                b.hits[i]--;
-                if (b.hits[i] == 0)
-                {
-                    b.colors[i] = CellColor.None;
-                    b.wild[i]   = false;
-                    filledInto?.Add(p);
-                }
-            }
-
-            return count;
-        }
-
-        // ── Per-ball best case ────────────────────────────────────────────
         // Most hits this ball could land, over every landing cell on the board,
         // and where that happens. Uses the same footprint, match and reach rules
         // the game paints with, so the two can never drift apart.
@@ -224,22 +108,6 @@ namespace CatapultGames
         public static int CountPlacement(TargetBoard board, BallData ball, int landX, int landY) =>
             Walk(board, ball, landX, landY, wildOnly: false, apply: false, null, null);
 
-        private static int Best(TargetBoard b, BallData ball, bool wildOnly, out int landX, out int landY)
-        {
-            landX = landY = -1;
-            if (b == null) return 0;
-
-            int best = 0;
-            for (int ly = 0; ly < b.height; ly++)
-            for (int lx = 0; lx < b.width;  lx++)
-            {
-                int count = Walk(b, ball, lx, ly, wildOnly, apply: false, null, null);
-                if (count > best) { best = count; landX = lx; landY = ly; }
-            }
-
-            return best;
-        }
-
         // Strike a placement off a scratch board, so a multi-ball plan can be
         // simulated one ball at a time instead of each ball being judged against
         // the same untouched board. Returns how many hits it landed; the optional
@@ -250,7 +118,6 @@ namespace CatapultGames
                                          List<Vector2Int> filledInto = null) =>
             Walk(board, ball, landX, landY, wildOnly: false, apply: true, hitInto, filledInto);
 
-        // ── Per-colour rollup ─────────────────────────────────────────────
         // Rows are returned in CellColor enum order so the report reads the same
         // way every time, with the Joker row (if any) last.
         public static List<ColorCoverage> Analyze(TargetBoard board, IReadOnlyList<BallData> balls)
@@ -265,15 +132,21 @@ namespace CatapultGames
                 for (int i = 0; i < board.hits.Length; i++)
                 {
                     int h = board.hits[i];
-                    if (h == 0) continue;
+                    if (h == 0)
+                        continue;
 
                     // Joker cells belong to no colour: charging them to their
                     // authored colour would invent an impossibility that a ball of
                     // any other colour could have solved.
-                    if (board.wild[i]) { wildRequired += h; continue; }
+                    if (board.wild[i])
+                    {
+                        wildRequired += h;
+                        continue;
+                    }
 
                     var c = board.colors[i];
-                    if (c == CellColor.None) continue;
+                    if (c == CellColor.None)
+                        continue;
                     required.TryGetValue(c, out int n);
                     required[c] = n + h;
                 }
@@ -289,7 +162,8 @@ namespace CatapultGames
             {
                 foreach (var ball in balls)
                 {
-                    if (ball == null || ball.color == CellColor.None) continue;
+                    if (ball == null || ball.color == CellColor.None)
+                        continue;
 
                     totalBalls++;
                     ballCount.TryGetValue(ball.color, out int bn);
@@ -323,8 +197,11 @@ namespace CatapultGames
             }
 
             var colors = new HashSet<CellColor>();
-            foreach (var k in required.Keys)  colors.Add(k);
-            foreach (var k in ballCount.Keys) if (k != CellColor.Any) colors.Add(k);   // rainbow balls belong to no row
+            foreach (var k in required.Keys)
+                colors.Add(k);
+            foreach (var k in ballCount.Keys)
+                if (k != CellColor.Any)
+                    colors.Add(k);   // rainbow balls belong to no row
 
             var rows = new List<ColorCoverage>(colors.Count + 1);
             foreach (var c in colors)
@@ -357,10 +234,77 @@ namespace CatapultGames
         // run, mid-game) cannot be completed no matter how well it is played.
         public static bool AnyImpossible(List<ColorCoverage> rows)
         {
-            if (rows == null) return false;
-            foreach (var r in rows)
-                if (r.Impossible) return true;
+            if (rows == null)
+                return false;
+            foreach (ColorCoverage r in rows)
+                if (r.Impossible)
+                    return true;
             return false;
+        }
+
+        // One walk of one stamp at one placement: counts the cells that would take
+        // a hit, and optionally applies them. Measuring and applying share this
+        // walk, so a plan can never be measured by one rule and executed by another.
+        // Stone cells have hits == 0, so a stamp simply paints around them.
+        private static int Walk(TargetBoard b, BallData ball, int landX, int landY,
+                                bool wildOnly, bool apply,
+                                List<Vector2Int> hitInto, List<Vector2Int> filledInto)
+        {
+            if (b == null || ball == null || ball.color == CellColor.None)
+                return 0;
+
+            bool rainbow = ball.color == CellColor.Any;   // booster ball: matches every colour
+            int count = 0;
+            foreach (var p in GameConstants.GetPaintedCells(landX, landY, ball, b.width, b.height))
+            {
+                if (!b.InBounds(p.x, p.y))
+                    continue;
+
+                int i = b.Index(p.x, p.y);
+                if (b.hits[i] == 0)
+                    continue;                               // nothing to do here
+                if (wildOnly && !b.wild[i])
+                    continue;
+                if (!b.wild[i] && !rainbow && b.colors[i] != ball.color)
+                    continue;
+
+                count++;
+                hitInto?.Add(p);
+                if (!apply)
+                    continue;
+
+                b.hits[i]--;
+                if (b.hits[i] == 0)
+                {
+                    b.colors[i] = CellColor.None;
+                    b.wild[i]   = false;
+                    filledInto?.Add(p);
+                }
+            }
+
+            return count;
+        }
+
+        private static int Best(TargetBoard b, BallData ball, bool wildOnly, out int landX, out int landY)
+        {
+            landX = landY = -1;
+            if (b == null)
+                return 0;
+
+            int best = 0;
+            for (int ly = 0; ly < b.height; ly++)
+            for (int lx = 0; lx < b.width;  lx++)
+            {
+                int count = Walk(b, ball, lx, ly, wildOnly, apply: false, null, null);
+                if (count > best)
+                {
+                    best = count;
+                    landX = lx;
+                    landY = ly;
+                }
+            }
+
+            return best;
         }
     }
 }

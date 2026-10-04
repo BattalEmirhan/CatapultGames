@@ -3,7 +3,7 @@ using System;
 namespace CatapultGames
 {
     [Serializable]
-    public class LevelMetadata
+    public sealed class LevelMetadata
     {
         public string levelName = "Untitled";
         public string author    = "";

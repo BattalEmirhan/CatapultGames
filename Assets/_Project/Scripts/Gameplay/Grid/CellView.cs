@@ -12,7 +12,7 @@ namespace CatapultGames
     // never fills, Joker reads as a pale wildcard. All of it resolves in Refresh(),
     // so the aim states keep working unchanged.
     [DisallowMultipleComponent]
-    public class CellView : MonoBehaviour
+    public sealed class CellView : MonoBehaviour
     {
         public int       GridX        { get; private set; }
         public int       GridY        { get; private set; }
@@ -33,7 +33,6 @@ namespace CatapultGames
         private MeshRenderer _mr;
         private Material     _mat;        // per-cell instance (animates its own colour)
         private float        _baseSide;   // resting XZ cube width (for squash & stretch)
-
         private const float ThinH     = 0.11f;  // height when unfilled
         private const float FullH     = 0.80f;  // height when filled
         private const float CubeGap   = 0.86f;  // fraction of cellSize (leaves gap between cubes)
@@ -50,7 +49,6 @@ namespace CatapultGames
         // (filled cubes: ΔE 52); push it higher and orange/yellow start to merge.
         private const float RestingMute  = 0.35f;
         private const float AwaitingMute = 0.12f;
-
         private static readonly Color DarkTint      = new Color(0.08f, 0.09f, 0.14f);   // the board's own tone
         private static readonly Color EmptyBase     = new Color(0.16f, 0.16f, 0.20f);   // bare socket
         private static readonly Color FootprintTint = new Color(0.55f, 0.78f, 1f);
@@ -70,7 +68,28 @@ namespace CatapultGames
         // would actually break SRP-batcher compatibility for these renderers).
         private static Material _sharedBase;
 
-        // ─── Factory ──────────────────────────────────────────────────────
+        // Set on the cells the stamp covers but does NOT paint. Together with the
+        // paint ghosts below, the player sees the whole stamp centred on the
+        // aimed cell — the shape of the throw, before the throw.
+        private bool _footprint;
+
+        private bool _awaiting;
+
+        // A "ghost" of the filled cube: the cell rises part-way in its real fill
+        // colour and gently breathes while the player aims, so the painted
+        // footprint — and therefore how many cells this shot would fill — is read
+        // at a glance, before firing. Toggled by AimPreview for every cell the
+        // current ball would paint.
+        private bool      _previewing;
+        private Coroutine _previewCo;
+        private const float PreviewH = FullH * 0.6f;   // ghost rises to 60% of a real fill
+
+        private void OnDestroy()
+        {
+            if (_mat)
+                Destroy(_mat);
+        }
+
         public static CellView Create(Transform parent, int gx, int gy, float cellSize,
                                       CellColor color, bool filled, CellType type = CellType.Normal)
         {
@@ -83,7 +102,101 @@ namespace CatapultGames
             return view;
         }
 
-        // ─── Init ─────────────────────────────────────────────────────────
+        // Jump straight to filled or empty — level load, and clearing a cell whole.
+        // Compares HIT COUNTS, not IsFilled: clearing a cracked Ice cell has to reset
+        // its hit, and by IsFilled alone that cell already looks "not filled".
+        public void SetFilled(bool filled)
+        {
+            if (Type == CellType.Stone)
+                return;          // stone is never a target
+
+            int target = filled ? HitsRequired : 0;
+            if (HitsTaken == target)
+                return;
+            SetHits(target, animate: filled);
+        }
+
+        // One stamp's worth of paint. Ice cracks on the first hit and fills on the
+        // second; every other type fills at once. Returns true when THIS hit
+        // completed the cell, which is what progress and win checks count.
+        public bool AddHit()
+        {
+            if (Type == CellType.Stone || IsFilled)
+                return false;
+            SetHits(HitsTaken + 1, animate: true);
+            return IsFilled;
+        }
+
+        // Exact inverse of AddHit, for undo: a filled cell drops back a hit, a
+        // cracked ice cell goes back to intact. Painting only ever adds hits, so
+        // removing the same ones puts the cell back where it was.
+        public void RemoveHit()
+        {
+            if (Type == CellType.Stone || HitsTaken <= 0)
+                return;
+            SetHits(HitsTaken - 1, animate: false);
+        }
+
+        public void SetOutlineColor(CellColor color)
+        {
+            OutlineColor = color;
+            Refresh();
+        }
+
+        public void SetHighlight(bool on)
+        {
+            if (_mr == null)
+                return;
+            if (on)
+            {
+                Color32 c32 = GameConstants.GetColor(OutlineColor);
+                Color   col = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
+                SetColor(Color.Lerp(col, Color.white, 0.55f));
+            }
+            else
+                Refresh();
+        }
+
+        public void SetFootprint(bool on)
+        {
+            if (_mr == null || _footprint == on)
+                return;
+            _footprint = on;
+            if (!_previewing)
+                Refresh();   // the ghost coroutine owns the look while it runs
+        }
+
+        public void SetAwaiting(bool on)
+        {
+            if (_mr == null || _awaiting == on)
+                return;
+            _awaiting = on;
+            if (!_previewing)
+                Refresh();
+        }
+
+        public void SetPreview(bool on)
+        {
+            if (_mr == null || _previewing == on)
+                return;
+            _previewing = on;
+
+            if (_previewCo != null)
+            {
+                StopCoroutine(_previewCo);
+                _previewCo = null;
+            }
+
+            if (on)
+                _previewCo = StartCoroutine(PreviewBreathe());
+            else
+                Refresh();
+        }
+
+        // A quick bounce + bright flash on an already-filled cell, to make the
+        // whole colour feel alive once it's complete. `delay` staggers a ripple.
+        public void Pulse(float delay = 0f) => StartCoroutine(PulseRoutine(delay));
+
         private void Init(int gx, int gy, float cellSize, CellColor color, bool filled, CellType type)
         {
             GridX        = gx;
@@ -93,13 +206,13 @@ namespace CatapultGames
             HitsTaken    = filled && type != CellType.Stone ? GameConstants.GetRequiredHits(type) : 0;
 
             int gridLayer = LayerMask.NameToLayer("CG_Grid");
-            if (gridLayer < 0) gridLayer = 0;
+            if (gridLayer < 0)
+                gridLayer = 0;
             gameObject.layer = gridLayer;
 
             EnsureBaseShader();
             _mat = new Material(_sharedBase);   // own instance; same shader → SRP-batched
 
-            // ── Cube ──────────────────────────────────────────────────────
             // A rounded block rather than a hard-edged primitive: the bevel is
             // what makes the board read as toy pieces instead of a spreadsheet.
             var cube = new GameObject("CellCube") { layer = gridLayer };
@@ -120,64 +233,38 @@ namespace CatapultGames
 
         private static void EnsureBaseShader()
         {
-            if (_sharedBase) return;
+            if (_sharedBase)
+                return;
             var shader = Shader.Find("Universal Render Pipeline/Lit")
                       ?? Shader.Find("Standard");
             _sharedBase = new Material(shader);
             // Low gloss: a strong specular highlight paints a white patch over the
             // colour, which is exactly what the player has to read.
-            if (_sharedBase.HasProperty("_Smoothness")) _sharedBase.SetFloat("_Smoothness", 0.22f);
-            if (_sharedBase.HasProperty("_Metallic"))   _sharedBase.SetFloat("_Metallic",   0f);
+            if (_sharedBase.HasProperty("_Smoothness"))
+                _sharedBase.SetFloat("_Smoothness", 0.22f);
+            if (_sharedBase.HasProperty("_Metallic"))
+                _sharedBase.SetFloat("_Metallic",   0f);
         }
 
         // Single funnel for every colour change (refresh / highlight / preview / anim),
         // so the colour writes live in one place.
         private void SetColor(Color c)
         {
-            if (_mat != null) _mat.color = c;
-        }
-
-        // ─── Public API ───────────────────────────────────────────────────
-        // Jump straight to filled or empty — level load, and clearing a cell whole.
-        // Compares HIT COUNTS, not IsFilled: clearing a cracked Ice cell has to reset
-        // its hit, and by IsFilled alone that cell already looks "not filled".
-        public void SetFilled(bool filled)
-        {
-            if (Type == CellType.Stone) return;          // stone is never a target
-
-            int target = filled ? HitsRequired : 0;
-            if (HitsTaken == target) return;
-            SetHits(target, animate: filled);
-        }
-
-        // One stamp's worth of paint. Ice cracks on the first hit and fills on the
-        // second; every other type fills at once. Returns true when THIS hit
-        // completed the cell, which is what progress and win checks count.
-        public bool AddHit()
-        {
-            if (Type == CellType.Stone || IsFilled) return false;
-            SetHits(HitsTaken + 1, animate: true);
-            return IsFilled;
-        }
-
-        // Exact inverse of AddHit, for undo: a filled cell drops back a hit, a
-        // cracked ice cell goes back to intact. Painting only ever adds hits, so
-        // removing the same ones puts the cell back where it was.
-        public void RemoveHit()
-        {
-            if (Type == CellType.Stone || HitsTaken <= 0) return;
-            SetHits(HitsTaken - 1, animate: false);
+            if (_mat != null)
+                _mat.color = c;
         }
 
         private void SetHits(int hits, bool animate)
         {
             bool wasFilled = IsFilled;
-            if (_previewing) SetPreview(false);   // drop the aim ghost before a real change
+            if (_previewing)
+                SetPreview(false);   // drop the aim ghost before a real change
 
             HitsTaken = Mathf.Clamp(hits, 0, HitsRequired);
             Refresh();
 
-            if (!animate) return;
+            if (!animate)
+                return;
 
             if (IsFilled && !wasFilled)
             {
@@ -191,18 +278,12 @@ namespace CatapultGames
             }
         }
 
-        public void SetOutlineColor(CellColor color)
-        {
-            OutlineColor = color;
-            Refresh();
-        }
-
-        // ─── Visual ───────────────────────────────────────────────────────
         // Every non-animated look resolves here, so the transient aim states can
         // all return by simply calling Refresh() again.
         private void Refresh()
         {
-            if (_mr == null) return;
+            if (_mr == null)
+                return;
 
             Color32 c32    = GameConstants.GetColor(OutlineColor);
             Color   col    = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
@@ -257,7 +338,8 @@ namespace CatapultGames
             if (_footprint)
             {
                 colour = Color.Lerp(colour, FootprintTint, IsFilled ? 0.26f : 0.50f);
-                if (!IsFilled) height = Mathf.Max(height, ThinH * 2.1f);
+                if (!IsFilled)
+                    height = Mathf.Max(height, ThinH * 2.1f);
             }
 
             SetColor(colour);
@@ -270,70 +352,11 @@ namespace CatapultGames
         // Sets cube XZ width + height and keeps the bottom on Y = 0 (squash/stretch).
         private void ApplyScale(float xz, float h)
         {
-            if (_mr == null) return;
+            if (_mr == null)
+                return;
             var t = _mr.transform;
             t.localScale    = new Vector3(xz, h, xz);
             t.localPosition = new Vector3(0f, h * 0.5f, 0f);
-        }
-
-        // ─── Highlight (aim preview) ──────────────────────────────────────
-        public void SetHighlight(bool on)
-        {
-            if (_mr == null) return;
-            if (on)
-            {
-                Color32 c32 = GameConstants.GetColor(OutlineColor);
-                Color   col = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
-                SetColor(Color.Lerp(col, Color.white, 0.55f));
-            }
-            else
-            {
-                Refresh();
-            }
-        }
-
-        // ─── Stamp footprint (aim) ────────────────────────────────────────
-        // Set on the cells the stamp covers but does NOT paint. Together with the
-        // paint ghosts below, the player sees the whole stamp centred on the
-        // aimed cell — the shape of the throw, before the throw.
-        private bool _footprint;
-
-        public void SetFootprint(bool on)
-        {
-            if (_mr == null || _footprint == on) return;
-            _footprint = on;
-            if (!_previewing) Refresh();   // the ghost coroutine owns the look while it runs
-        }
-
-        // ─── Awaiting (this cell's colour is loaded right now) ────────────
-        private bool _awaiting;
-
-        public void SetAwaiting(bool on)
-        {
-            if (_mr == null || _awaiting == on) return;
-            _awaiting = on;
-            if (!_previewing) Refresh();
-        }
-
-        // ─── Paint preview (aim) ──────────────────────────────────────────
-        // A "ghost" of the filled cube: the cell rises part-way in its real fill
-        // colour and gently breathes while the player aims, so the painted
-        // footprint — and therefore how many cells this shot would fill — is read
-        // at a glance, before firing. Toggled by AimPreview for every cell the
-        // current ball would paint.
-        private bool      _previewing;
-        private Coroutine _previewCo;
-        private const float PreviewH = FullH * 0.6f;   // ghost rises to 60% of a real fill
-
-        public void SetPreview(bool on)
-        {
-            if (_mr == null || _previewing == on) return;
-            _previewing = on;
-
-            if (_previewCo != null) { StopCoroutine(_previewCo); _previewCo = null; }
-
-            if (on) _previewCo = StartCoroutine(PreviewBreathe());
-            else    Refresh();
         }
 
         private IEnumerator PreviewBreathe()
@@ -347,7 +370,8 @@ namespace CatapultGames
             // the whole reason the aim ghost is trusted.
             bool  fillsIt = HitsTaken + 1 >= HitsRequired;
             float top     = fillsIt ? PreviewH : CrackedH;
-            if (!fillsIt) col = Color.Lerp(col, IceTint, 0.55f);
+            if (!fillsIt)
+                col = Color.Lerp(col, IceTint, 0.55f);
 
             while (true)
             {
@@ -358,7 +382,6 @@ namespace CatapultGames
             }
         }
 
-        // ─── Fill animation ───────────────────────────────────────────────
         private IEnumerator RisePunch()
         {
             const float dur = 0.15f;   // snappier cube rise (was 0.22)
@@ -392,7 +415,6 @@ namespace CatapultGames
             SetColor(baseCol);
         }
 
-        // ─── Ice crack (a hit that did not fill) ──────────────────────────
         // A hard squash that springs back, with a white flash — the ball clearly
         // did something, it just wasn't enough. Deliberately unlike RisePunch, so
         // "cracked" is never mistaken for "filled" out of the corner of the eye.
@@ -421,15 +443,12 @@ namespace CatapultGames
             Refresh();   // back to whatever the cell's state says it looks like
         }
 
-        // ─── Celebration pulse (its colour was fully cleared) ─────────────
-        // A quick bounce + bright flash on an already-filled cell, to make the
-        // whole colour feel alive once it's complete. `delay` staggers a ripple.
-        public void Pulse(float delay = 0f) => StartCoroutine(PulseRoutine(delay));
-
         private IEnumerator PulseRoutine(float delay)
         {
-            if (delay > 0f) yield return new WaitForSeconds(delay);
-            if (_mr == null) yield break;
+            if (delay > 0f)
+                yield return new WaitForSeconds(delay);
+            if (_mr == null)
+                yield break;
 
             Color32 c32      = GameConstants.GetColor(OutlineColor);
             Color   baseCol  = new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f);
@@ -450,11 +469,6 @@ namespace CatapultGames
 
             ApplyScale(_baseSide, FullH);
             SetColor(baseCol);
-        }
-
-        private void OnDestroy()
-        {
-            if (_mat) Destroy(_mat);
         }
     }
 }

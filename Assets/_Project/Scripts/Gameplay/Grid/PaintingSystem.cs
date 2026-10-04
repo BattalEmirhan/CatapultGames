@@ -34,10 +34,14 @@ namespace CatapultGames
 
             foreach (var c in GameConstants.GetPaintedCells(landX, landY, ball, grid.Width, grid.Height))
             {
-                if (OutOfBounds(grid, c)) continue;
-                if (!grid.TryGetCell(c.x, c.y, out var cell)) continue;
-                if (cell.IsFilled) continue;
-                if (!GameConstants.ColorMatches(cell.OutlineColor, cell.Type, ball.color)) continue;
+                if (OutOfBounds(grid, c))
+                    continue;
+                if (!grid.TryGetCell(c.x, c.y, out var cell))
+                    continue;
+                if (cell.IsFilled)
+                    continue;
+                if (!GameConstants.ColorMatches(cell.OutlineColor, cell.Type, ball.color))
+                    continue;
                 result.Add(c);
             }
 
