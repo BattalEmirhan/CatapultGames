@@ -27,7 +27,7 @@ namespace CatapultGames
     {
         public static bool IsDone => SaveStore.Current.GetInt(DoneKey, 0) == 1;
 
-        [SerializeField] private Camera        camera;
+        [SerializeField] private Camera        gameCamera;
         [SerializeField] private GridRenderer  grid;
         [SerializeField] private BallQueue     queue;
         [SerializeField] private BallQueueView queueView;
@@ -254,12 +254,12 @@ namespace CatapultGames
         // One "tap" per period: glide in from below-right, press, ring pulse, fade.
         private void AnimatePointer(Vector3 world)
         {
-            if (pointer == null || camera == null)
+            if (pointer == null || gameCamera == null)
                 return;
-            Vector3 sp = camera.WorldToScreenPoint(world);
+            Vector3 sp = gameCamera.WorldToScreenPoint(world);
             var parent = pointer.parent as RectTransform;
             if (sp.z <= 0f || parent == null ||
-                !RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, sp, camera, out var target))
+                !RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, sp, gameCamera, out var target))
             {
                 HidePointer();
                 return;

@@ -17,7 +17,7 @@ namespace CatapultGames
     // stamp, so what the finger covers is never the only thing on screen.
     //
     // Wire up in Inspector:
-    //   camera, grid, launcher, aimPreview (optional), gameManager (optional),
+    //   gameCamera, grid, launcher, aimPreview (optional), gameManager (optional),
     //   queue + queueView (tray picking + launch origin), launchOrigin (fallback)
     public sealed class TapLaunchController : MonoBehaviour
     {
@@ -25,7 +25,7 @@ namespace CatapultGames
             queueView != null ? queueView.CurrentLaunchOrigin
                                : (launchOrigin ? launchOrigin.position : transform.position);
 
-        [SerializeField] private Camera        camera;
+        [SerializeField] private Camera        gameCamera;
         [SerializeField] private GridRenderer  grid;
         [SerializeField] private BallLauncher  launcher;
         [SerializeField] private AimPreview    aimPreview;   // optional
@@ -87,7 +87,7 @@ namespace CatapultGames
                 _pressed = false;
                 if (!_startedOverUI && !_startedOnTray && _hasTarget)
                 {
-                    var cam = camera != null ? camera : Camera.main;
+                    var cam = gameCamera != null ? gameCamera : Camera.main;
                     bool cancelled = queueView != null && queueView.IsOverTray(_lastPos, cam);
                     if (!cancelled)
                         LaunchAt(_tx, _ty);
@@ -100,7 +100,7 @@ namespace CatapultGames
         {
             if (queueView == null || queue == null)
                 return false;
-            var cam = camera != null ? camera : Camera.main;
+            var cam = gameCamera != null ? gameCamera : Camera.main;
             if (!queueView.TryPickSlot(screenPos, cam, out int slot))
                 return false;
             if (!queueView.Select(slot))
@@ -113,7 +113,7 @@ namespace CatapultGames
         private bool TryGetCell(Vector2 screenPos, out int gx, out int gy)
         {
             gx = gy = -1;
-            var cam = camera != null ? camera : Camera.main;
+            var cam = gameCamera != null ? gameCamera : Camera.main;
             if (cam == null || grid == null)
                 return false;
             // Clamped: aiming past an edge snaps to the nearest cell, so a shot

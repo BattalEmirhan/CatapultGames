@@ -15,7 +15,7 @@ namespace CatapultGames
     // this root preserves the internal layout (catapult centred, queue spread left).
     public sealed class LaunchAreaAnchor : MonoBehaviour
     {
-        [SerializeField] private Camera camera;
+        [SerializeField] private Camera gameCamera;
 
         [Tooltip("Vertical screen fraction the launch area's ground point is pinned to. " +
                  "0 = very bottom, 0.2 = top of the bottom fifth.")]
@@ -42,13 +42,13 @@ namespace CatapultGames
         // right after the camera is fitted (LevelLoader does, before loading balls).
         public void Reanchor()
         {
-            if (camera == null)
-                camera = Camera.main;
-            if (camera == null || Screen.height <= 0)
+            if (gameCamera == null)
+                gameCamera = Camera.main;
+            if (gameCamera == null || Screen.height <= 0)
                 return;
 
             Vector3 sp  = new Vector3(Screen.width * screenX, Screen.height * screenY, 0f);
-            Ray     ray = camera.ScreenPointToRay(sp);
+            Ray     ray = gameCamera.ScreenPointToRay(sp);
             var     ground = new Plane(Vector3.up, new Vector3(0f, groundY, 0f));
             if (ground.Raycast(ray, out float dist))
                 transform.position = ray.GetPoint(dist);

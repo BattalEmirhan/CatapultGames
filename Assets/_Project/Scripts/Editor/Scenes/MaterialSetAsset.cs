@@ -1,4 +1,3 @@
-using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -14,7 +13,7 @@ namespace CatapultGames.Editor
 
         internal static MaterialSet Ensure()
         {
-            Directory.CreateDirectory(Folder);
+            EnsureFolder();
             var set = AssetDatabase.LoadAssetAtPath<MaterialSet>(SetPath);
             if (set == null)
             {
@@ -29,13 +28,22 @@ namespace CatapultGames.Editor
             return set;
         }
 
+        // Through AssetDatabase, not System.IO: CreateAsset refuses a folder the
+        // asset database has not imported yet.
+        private static void EnsureFolder()
+        {
+            if (!AssetDatabase.IsValidFolder(Folder))
+                AssetDatabase.CreateFolder("Assets/Settings", "Materials");
+        }
+
         private static Material EnsureMaterial(string name, string shaderName)
         {
             string path = $"{Folder}/{name}.mat";
             var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (mat != null)
                 return mat;
-            mat = new Material(Shader.Find(shaderName)) { name = name };
+            var shader = Shader.Find(shaderName) ?? Shader.Find("Standard");
+            mat = new Material(shader) { name = name };
             AssetDatabase.CreateAsset(mat, path);
             return mat;
         }

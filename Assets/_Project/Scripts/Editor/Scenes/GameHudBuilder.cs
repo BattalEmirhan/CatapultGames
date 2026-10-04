@@ -83,7 +83,7 @@ namespace CatapultGames.Editor
         {
             p.Tutorial = new GameObject("TutorialHint").AddComponent<TutorialHint>();
             var t = p.Tutorial;
-            SceneKit.SetRef(t, "camera",      p.Camera);
+            SceneKit.SetRef(t, "gameCamera",  p.Camera);
             SceneKit.SetRef(t, "grid",        p.Grid);
             SceneKit.SetRef(t, "queue",       p.Queue);
             SceneKit.SetRef(t, "queueView",   p.QueueView);

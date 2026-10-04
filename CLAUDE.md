@@ -92,6 +92,8 @@ yoksa Unity dosyayı TextAsset olarak import etmez ve `Resources.Load` göremez.
   assembly'sini göremez; ortak mantık `Scripts/Shared/`'a gider.
 - `[SerializeField] private camelCase` (alt çizgi **yok**); serileşmeyen private alanlar
   `_camelCase`; sabitler `PascalCase`. Public alan açma — dışarıya property ile ver.
+  Alan adı `Component` üyesiyle çakışmasın (`camera`, `light`, `renderer`, `name` → `gameCamera` gibi),
+  yoksa Unity CS0108 "hides inherited member" uyarısı verir.
 - Sınıflar varsayılan `sealed`. Dosya başına tek tip (iç içe tip yok; enum/struct kendi dosyasına).
 
 **Üye sırası:** event'ler → property'ler → serialized alanlar → private/const/static alanlar →

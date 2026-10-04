@@ -510,7 +510,7 @@ Canvas_Game           (Screen Space - Camera → GridCamera, layer 0; ResultScre
 ├─ LevelHint → Text                              ipucu bandı (y 0.63–0.69, koyu yarı saydam, CanvasGroup alfa 0)
 ├─ TutorialCaption → Text                        öğretici yazısı (tepsi üstü, y 0.19–0.245)
 └─ TutorialPointer → Ring                        parmak ucu (en üstte çizilir; sprite runtime'da)
-TutorialHint          (camera, grid, queue, queueView, launcher, gameManager + yukarıdaki UI)
+TutorialHint          (gameCamera, grid, queue, queueView, launcher, gameManager + yukarıdaki UI)
 LevelLoader
 TapLaunchController
 ```
@@ -628,6 +628,9 @@ Mevcut level'ler: `level1` … `level5` (level1: 12×12). Dosya adı `level{n}` 
     kamera yalnız onu çizer. GameScene'deki bir nesne UI layer'ına konursa görünmez;
     UIScene'deki bir nesne başka layer'da kalırsa iki kez ya da hiç çizilmez. Runtime'da
     UI üreten kod parent'ının layer'ını kopyalar (`LevelSelectUI`, `LevelPickerHUD`).
+    Kamera alanları `gameCamera` adını taşır: `camera` adı `Component.camera`'yı gizler
+    (CS0108 uyarısı) — serialized alanlara Component üye adları (`camera`, `light`,
+    `renderer`, `name`…) verilmez.
 21. **Runtime'da `Shader.Find` yok.** Build'e yalnız bir asset'in referans verdiği shader'lar
     girer; `Shader.Find` player'da null döner. Malzeme gereken bileşen `MaterialSet`
     alır (`materials` alanı, üreteç bağlar).
@@ -645,6 +648,7 @@ Tam liste ve bilinçli sapmalar: **CLAUDE.md KURAL 5**. Özet:
   **`public` alan kullanma** (istisna: `GridCameraController`'ın slider'ları).
 - Sınıflar `sealed`, dosya başına tek tip; üye sırası event → property → serialized →
   private alan → Unity mesajları → public → private metot.
+- Serialized alan adı `Component` üyesiyle çakışmaz (`camera` değil `gameCamera`).
 - Kontrol akışı gövdesi alt satırda; süslü parantez yalnız çok satırlı gövdede; yeni ve
   dokunulan metotlar ≤ 20 satır.
 - Referanslar sahne üreteçlerinden bağlanır; `GetComponent`/`Find` runtime aramaları kaçınılır.

@@ -208,7 +208,7 @@ namespace CatapultGames.Editor
         private static void AddLoader(GameSceneParts p)
         {
             var anchor = p.LaunchArea.gameObject.AddComponent<LaunchAreaAnchor>();
-            SceneKit.SetRef(anchor, "camera", p.Camera);
+            SceneKit.SetRef(anchor, "gameCamera", p.Camera);
             SceneKit.SetFloat(anchor, "screenY", 0.10f);
             var loader = new GameObject("LevelLoader").AddComponent<LevelLoader>();
             SceneKit.SetRef(loader, "grid",         p.Grid);
@@ -226,7 +226,7 @@ namespace CatapultGames.Editor
         private static void AddInput(GameSceneParts p)
         {
             var tap = new GameObject("TapLaunchController").AddComponent<TapLaunchController>();
-            SceneKit.SetRef(tap, "camera",       p.Camera);
+            SceneKit.SetRef(tap, "gameCamera",   p.Camera);
             SceneKit.SetRef(tap, "grid",         p.Grid);
             SceneKit.SetRef(tap, "launcher",     p.Launcher);
             SceneKit.SetRef(tap, "aimPreview",   p.Aim);
